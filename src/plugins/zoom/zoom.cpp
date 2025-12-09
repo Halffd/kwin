@@ -279,14 +279,7 @@ void ZoomEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseco
         }
     }
 
-    // Only mark the current screen as transformed if it needs zoom, not all screens
-    if (data.screen) {
-        ZoomScreenState *s = stateForScreen(data.screen);
-        if (s->zoom != 1.0 || s->targetZoom != 1.0) {
-            data.mask |= PAINT_SCREEN_TRANSFORMED;
-        }
-    } else if (anyZoom) {
-        // Fallback for cases where data.screen is not available
+    if (anyZoom) {
         data.mask |= PAINT_SCREEN_TRANSFORMED;
     }
 
@@ -342,174 +335,176 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
              << "viewport.scale():" << viewport.scale()
              << "region:" << region;
 
-    ZoomScreenState *s = stateForScreen(screen);
-
     // Paint the normal desktop content first (ensures all outputs have content)
     effects->paintScreen(renderTarget, viewport, mask, region, screen);
 
-    // If THIS screen isn't zoomed and isn't animating, we're done
-    if (s->zoom == 1.0 && s->targetZoom == 1.0) {
-        return;
-    }
-
-    // Render the scene in an offscreen texture for zooming
-    OffscreenData *offscreenData = ensureOffscreenData(renderTarget, viewport, screen);
-    if (!offscreenData) {
-        return;
-    }
-
-    // Render the scene to offscreen buffer for this specific screen
-    RenderTarget offscreenRenderTarget(offscreenData->framebuffer.get(), renderTarget.colorDescription());
-    RenderViewport offscreenViewport(viewport.renderRect(), viewport.scale(), offscreenRenderTarget);
-    GLFramebuffer::pushFramebuffer(offscreenData->framebuffer.get());
-    effects->paintScreen(offscreenRenderTarget, offscreenViewport, mask, region, screen);
-    GLFramebuffer::popFramebuffer();
-
-    const auto scale = viewport.scale();
-    const QRect geo = screen->geometry();
-
-    // Calculate zoom transformations for this screen
-    qreal xTranslation = 0;
-    qreal yTranslation = 0;
-
-    switch (m_mouseTracking) {
-    case MouseTrackingProportional:
-        xTranslation = -int(s->focusPoint.x() * (s->zoom - 1.0));
-        yTranslation = -int(s->focusPoint.y() * (s->zoom - 1.0));
-        s->prevPoint = s->focusPoint;
-        break;
-    case MouseTrackingCentered:
-        s->prevPoint = s->focusPoint;
-        // fall through
-    case MouseTrackingDisabled:
-        // Center the view on s->prevPoint
-        // T = Center - prevPoint * z
-        // But we want to clamp so we don't look outside the screen.
-        // Valid range for T is [geo.right() * (1 - z), geo.x() * (1 - z)]
-        {
-            int tX = int(geo.center().x() - s->prevPoint.x() * s->zoom);
-            int tY = int(geo.center().y() - s->prevPoint.y() * s->zoom);
-
-            int minX = int((geo.x() + geo.width()) * (1.0 - s->zoom));
-            int maxX = int(geo.x() * (1.0 - s->zoom));
-
-            int minY = int((geo.y() + geo.height()) * (1.0 - s->zoom));
-            int maxY = int(geo.y() * (1.0 - s->zoom));
-
-            xTranslation = std::clamp(tX, minX, maxX);
-            yTranslation = std::clamp(tY, minY, maxY);
+    // Composite per-output zoom textures for all outputs
+    const auto outputs = effects->screens(); // or effects->outputs() depending on API
+    for (Output *out : outputs) {
+        ZoomScreenState *state = stateForScreen(out);
+        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+            continue; // nothing to do for this output
         }
-        break;
-    case MouseTrackingPush: {
-        // touching an edge of the screen moves the zoom-area in that direction.
-        const int x = s->focusPoint.x() * s->zoom - s->prevPoint.x() * (s->zoom - 1.0);
-        const int y = s->focusPoint.y() * s->zoom - s->prevPoint.y() * (s->zoom - 1.0);
-        const int threshold = 4;
 
-        // Bounds of the current screen
-        const int screenTop = geo.top();
-        const int screenLeft = geo.left();
-        const int screenRight = geo.left() + geo.width();
-        const int screenBottom = geo.top() + geo.height();
-
-        s->xMove = s->yMove = 0;
-        if (x < screenLeft + threshold) {
-            s->xMove = (x - threshold - screenLeft) / s->zoom;
-        } else if (x > screenRight - threshold) {
-            s->xMove = (x + threshold - screenRight) / s->zoom;
+        // Ensure offscreen for this output (sized and rendered already via ensureOffscreenData)
+        OffscreenData *od = ensureOffscreenData(renderTarget, viewport, out);
+        if (!od) {
+            continue;
         }
-        if (y < screenTop + threshold) {
-            s->xMove = (y - threshold - screenTop) / s->zoom;
-        } else if (y > screenBottom - threshold) {
-            s->xMove = (y + threshold - screenBottom) / s->zoom;
-        }
-        if (s->xMove) {
-            s->prevPoint.setX(s->prevPoint.x() + s->xMove);
-        }
-        if (s->yMove) {
-            s->prevPoint.setY(s->prevPoint.y() + s->yMove);
-        }
-        xTranslation = -int(s->prevPoint.x() * (s->zoom - 1.0));
-        yTranslation = -int(s->prevPoint.y() * (s->zoom - 1.0));
-        break;
-    }
-    }
 
-    // use the focusPoint if focus tracking is enabled
-    if (isFocusTrackingEnabled() || isTextCaretTrackingEnabled()) {
-        bool acceptFocus = true;
-        if (m_mouseTracking != MouseTrackingDisabled && m_focusDelay > 0) {
-            // Wait some time for the mouse before doing the switch. This serves as threshold
-            // to prevent the focus from jumping around to much while working with the mouse.
-            const int msecs = m_lastMouseEvent.msecsTo(m_lastFocusEvent);
-            acceptFocus = msecs > m_focusDelay;
-        }
-        if (acceptFocus) {
-            xTranslation = -int(s->focusPoint.x() * (s->zoom - 1.0));
-            yTranslation = -int(s->focusPoint.y() * (s->zoom - 1.0));
-            s->prevPoint = s->focusPoint;
-        }
-    }
+        // Render the scene to offscreen buffer for this specific output
+        RenderTarget offscreenRenderTarget(od->framebuffer.get(), renderTarget.colorDescription());
+        RenderViewport offscreenViewport(viewport.renderRect(), viewport.scale(), offscreenRenderTarget);
+        GLFramebuffer::pushFramebuffer(od->framebuffer.get());
+        effects->paintScreen(offscreenRenderTarget, offscreenViewport, mask, region, out);
+        GLFramebuffer::popFramebuffer();
 
-    // Ensure that for proportional mode and others we strictly clamp to avoid black borders
-    if (m_mouseTracking != MouseTrackingDisabled && m_mouseTracking != MouseTrackingCentered) {
-        int minX = int((geo.x() + geo.width()) * (1.0 - s->zoom));
-        int maxX = int(geo.x() * (1.0 - s->zoom));
-        int minY = int((geo.y() + geo.height()) * (1.0 - s->zoom));
-        int maxY = int(geo.y() * (1.0 - s->zoom));
+        const auto scale = viewport.scale();
+        const QRect geo = out->geometry();
 
-        xTranslation = std::clamp(int(xTranslation), minX, maxX);
-        yTranslation = std::clamp(int(yTranslation), minY, maxY);
-    }
+        // Calculate zoom transformations for this output
+        qreal xTranslation = 0;
+        qreal yTranslation = 0;
 
-    // Apply scissor to restrict rendering to this output's rectangle only
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(geo.x() * scale, geo.y() * scale, geo.width() * scale, geo.height() * scale);
+        switch (m_mouseTracking) {
+        case MouseTrackingProportional:
+            xTranslation = -int(state->focusPoint.x() * (state->zoom - 1.0));
+            yTranslation = -int(state->focusPoint.y() * (state->zoom - 1.0));
+            state->prevPoint = state->focusPoint;
+            break;
+        case MouseTrackingCentered:
+            state->prevPoint = state->focusPoint;
+            // fall through
+        case MouseTrackingDisabled:
+            // Center the view on state->prevPoint
+            // T = Center - prevPoint * z
+            // But we want to clamp so we don't look outside the screen.
+            // Valid range for T is [geo.right() * (1 - z), geo.x() * (1 - z)]
+            {
+                int tX = int(geo.center().x() - state->prevPoint.x() * state->zoom);
+                int tY = int(geo.center().y() - state->prevPoint.y() * state->zoom);
 
-    GLShader *shader = shaderForZoom(s->zoom);
-    ShaderManager::instance()->pushShader(shader);
+                int minX = int((geo.x() + geo.width()) * (1.0 - state->zoom));
+                int maxX = int(geo.x() * (1.0 - state->zoom));
 
-    QMatrix4x4 matrix;
-    matrix.translate(xTranslation * scale, yTranslation * scale);
-    matrix.scale(s->zoom, s->zoom);
-    matrix.translate(offscreenData->viewport.x() * scale, offscreenData->viewport.y() * scale);
+                int minY = int((geo.y() + geo.height()) * (1.0 - state->zoom));
+                int maxY = int(geo.y() * (1.0 - state->zoom));
 
-    shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, viewport.projectionMatrix() * matrix);
-    shader->setUniform(GLShader::IntUniform::TextureWidth, offscreenData->texture->width());
-    shader->setUniform(GLShader::IntUniform::TextureHeight, offscreenData->texture->height());
-    shader->setColorspaceUniforms(offscreenData->color, renderTarget.colorDescription(), RenderingIntent::Perceptual);
-
-    offscreenData->texture->render(offscreenData->viewport.size() * scale);
-
-    ShaderManager::instance()->popShader();
-
-    glDisable(GL_SCISSOR_TEST);
-
-    if (m_mousePointer != MousePointerHide && s->zoom != 1.0) {
-        // Draw the mouse-texture at the position matching to zoomed-in image of the desktop. Hiding the
-        // previous mouse-cursor and drawing our own fake mouse-cursor is needed to be able to scale the
-        // mouse-cursor up and to re-position those mouse-cursor to match to the chosen zoom-level.
-
-        GLTexture *cursorTexture = ensureCursorTexture();
-        if (cursorTexture) {
-            const auto cursor = effects->cursorImage();
-            QSizeF cursorSize = QSizeF(cursor.image().size()) / cursor.image().devicePixelRatio();
-            if (m_mousePointer == MousePointerScale) {
-                cursorSize *= s->zoom;
+                xTranslation = std::clamp(tX, minX, maxX);
+                yTranslation = std::clamp(tY, minY, maxY);
             }
+            break;
+        case MouseTrackingPush: {
+            // touching an edge of the screen moves the zoom-area in that direction.
+            const int x = state->focusPoint.x() * state->zoom - state->prevPoint.x() * (state->zoom - 1.0);
+            const int y = state->focusPoint.y() * state->zoom - state->prevPoint.y() * (state->zoom - 1.0);
+            const int threshold = 4;
 
-            const QPointF p = (effects->cursorPos() - cursor.hotSpot()) * s->zoom + QPoint(xTranslation, yTranslation);
+            // Bounds of the current screen
+            const int screenTop = geo.top();
+            const int screenLeft = geo.left();
+            const int screenRight = geo.left() + geo.width();
+            const int screenBottom = geo.top() + geo.height();
 
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            auto shader = ShaderManager::instance()->pushShader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
-            shader->setColorspaceUniforms(ColorDescription::sRGB, renderTarget.colorDescription(), RenderingIntent::Perceptual);
-            QMatrix4x4 mvp = viewport.projectionMatrix();
-            mvp.translate(p.x() * scale, p.y() * scale);
-            shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, mvp);
-            cursorTexture->render(cursorSize * scale);
-            ShaderManager::instance()->popShader();
-            glDisable(GL_BLEND);
+            state->xMove = state->yMove = 0;
+            if (x < screenLeft + threshold) {
+                state->xMove = (x - threshold - screenLeft) / state->zoom;
+            } else if (x > screenRight - threshold) {
+                state->xMove = (x + threshold - screenRight) / state->zoom;
+            }
+            if (y < screenTop + threshold) {
+                state->xMove = (y - threshold - screenTop) / state->zoom;
+            } else if (y > screenBottom - threshold) {
+                state->xMove = (y + threshold - screenBottom) / state->zoom;
+            }
+            if (state->xMove) {
+                state->prevPoint.setX(state->prevPoint.x() + state->xMove);
+            }
+            if (state->yMove) {
+                state->prevPoint.setY(state->prevPoint.y() + state->yMove);
+            }
+            xTranslation = -int(state->prevPoint.x() * (state->zoom - 1.0));
+            yTranslation = -int(state->prevPoint.y() * (state->zoom - 1.0));
+            break;
+        }
+        }
+
+        // use the focusPoint if focus tracking is enabled
+        if (isFocusTrackingEnabled() || isTextCaretTrackingEnabled()) {
+            bool acceptFocus = true;
+            if (m_mouseTracking != MouseTrackingDisabled && m_focusDelay > 0) {
+                // Wait some time for the mouse before doing the switch. This serves as threshold
+                // to prevent the focus from jumping around to much while working with the mouse.
+                const int msecs = m_lastMouseEvent.msecsTo(m_lastFocusEvent);
+                acceptFocus = msecs > m_focusDelay;
+            }
+            if (acceptFocus) {
+                xTranslation = -int(state->focusPoint.x() * (state->zoom - 1.0));
+                yTranslation = -int(state->focusPoint.y() * (state->zoom - 1.0));
+                state->prevPoint = state->focusPoint;
+            }
+        }
+
+        // Ensure that for proportional mode and others we strictly clamp to avoid black borders
+        if (m_mouseTracking != MouseTrackingDisabled && m_mouseTracking != MouseTrackingCentered) {
+            int minX = int((geo.x() + geo.width()) * (1.0 - state->zoom));
+            int maxX = int(geo.x() * (1.0 - state->zoom));
+            int minY = int((geo.y() + geo.height()) * (1.0 - state->zoom));
+            int maxY = int(geo.y() * (1.0 - state->zoom));
+
+            xTranslation = std::clamp(int(xTranslation), minX, maxX);
+            yTranslation = std::clamp(int(yTranslation), minY, maxY);
+        }
+
+        // Composite it back limited to this output's rect
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(geo.x() * scale, geo.y() * scale, geo.width() * scale, geo.height() * scale);
+
+        GLShader *shader = shaderForZoom(state->zoom);
+        ShaderManager::instance()->pushShader(shader);
+
+        QMatrix4x4 matrix;
+        matrix.translate(xTranslation * scale, yTranslation * scale);
+        matrix.scale(state->zoom, state->zoom);
+        matrix.translate(od->viewport.x() * scale, od->viewport.y() * scale);
+
+        shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, viewport.projectionMatrix() * matrix);
+        shader->setUniform(GLShader::IntUniform::TextureWidth, od->texture->width());
+        shader->setUniform(GLShader::IntUniform::TextureHeight, od->texture->height());
+        shader->setColorspaceUniforms(od->color, renderTarget.colorDescription(), RenderingIntent::Perceptual);
+
+        od->texture->render(od->viewport.size() * scale);
+
+        ShaderManager::instance()->popShader();
+
+        glDisable(GL_SCISSOR_TEST);
+
+        // Draw cursor if needed for the output where cursor is located
+        if (m_mousePointer != MousePointerHide && state->zoom != 1.0) {
+            // Check if this is the output where the cursor is located
+            if (effects->screenAt(effects->cursorPos().toPoint()) == out) {
+                GLTexture *cursorTexture = ensureCursorTexture();
+                if (cursorTexture) {
+                    const auto cursor = effects->cursorImage();
+                    QSizeF cursorSize = QSizeF(cursor.image().size()) / cursor.image().devicePixelRatio();
+                    if (m_mousePointer == MousePointerScale) {
+                        cursorSize *= state->zoom;
+                    }
+
+                    const QPointF p = (effects->cursorPos() - cursor.hotSpot()) * state->zoom + QPoint(xTranslation, yTranslation);
+
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    auto shader = ShaderManager::instance()->pushShader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
+                    shader->setColorspaceUniforms(ColorDescription::sRGB, renderTarget.colorDescription(), RenderingIntent::Perceptual);
+                    QMatrix4x4 mvp = viewport.projectionMatrix();
+                    mvp.translate(p.x() * scale, p.y() * scale);
+                    shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, mvp);
+                    cursorTexture->render(cursorSize * scale);
+                    ShaderManager::instance()->popShader();
+                    glDisable(GL_BLEND);
+                }
+            }
         }
     }
 }
