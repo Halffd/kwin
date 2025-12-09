@@ -40,7 +40,7 @@ KWin.TabBoxSwitcher {
 
                 property int gridColumns: {         // Simple greedy algorithm
                     // respect screenGeometry
-                    const c = Math.min(thumbnailGridView.count, maxGri      maxGridColumnsByWidth);
+                    const c = Math.min(thumbnailGridView.count, maxGridColumnsByWidth);
                     const residue = thumbnailGridView.count % c;
                     if (residue == 0) {
                         return c;
@@ -101,7 +101,6 @@ KWin.TabBoxSwitcher {
                     model: tabBox.model
                     currentIndex: tabBox.currentIndex
                     smooth: false  // Disable interpolation
-                    asynchronous: true  // Async rendering
                     readonly property int iconSize: Kirigami.Units.iconSizes.huge
                     readonly property int captionRowHeight: Kirigami.Units.gridUnit * 2
                     readonly property int columnSpacing: Kirigami.Units.gridUnit
