@@ -265,12 +265,17 @@ void ZoomEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseco
     for (auto &[screen, state] : m_states) {
         if (state.zoom != state.targetZoom) {
             const float zoomDist = std::abs(state.targetZoom - state.sourceZoom);
+
+            // Use proportional speed for larger changes
+            const float animSpeed = (zoomDist * time) / animationTime(std::chrono::milliseconds(100));
+
             if (state.targetZoom > state.zoom) {
-                state.zoom = std::min(state.zoom + ((zoomDist * time) / animationTime(std::chrono::milliseconds(int(150 * m_zoomFactor)))), state.targetZoom);
+                state.zoom = std::min(state.zoom + animSpeed, state.targetZoom);
             } else {
-                state.zoom = std::max(state.zoom - ((zoomDist * time) / animationTime(std::chrono::milliseconds(int(150 * m_zoomFactor)))), state.targetZoom);
+                state.zoom = std::max(state.zoom - animSpeed, state.targetZoom);
             }
         }
+
         if (state.zoom != 1.0) {
             anyZoom = true;
             if (screen == cursorScreen) {
@@ -428,6 +433,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             break;
         }
         }
+        qDebug() << "PrevPoint: " << state->prevPoint << " xTranslation: " << xTranslation << "yTranslation: " << yTranslation;
 
         // use the focusPoint if focus tracking is enabled
         if (isFocusTrackingEnabled() || isTextCaretTrackingEnabled()) {
@@ -534,6 +540,13 @@ void ZoomEffect::zoomIn()
 {
     Output *screen = effects->screenAt(effects->cursorPos().toPoint());
     qDebug() << "ZoomIn on screen:" << screen << "current zoom:" << (screen ? stateForScreen(screen)->zoom : 0);
+    ZoomScreenState *s = stateForScreen(screen);
+
+    s->focusPoint = effects->cursorPos().toPoint();
+    if (m_mouseTracking == MouseTrackingDisabled) {
+        s->prevPoint = s->focusPoint; // Also update prevPoint
+    }
+
     setTargetZoom(screen, stateForScreen(screen)->targetZoom * m_zoomFactor);
 }
 
@@ -546,12 +559,13 @@ void ZoomEffect::zoomTo(double to)
     ZoomScreenState *s = stateForScreen(screen);
 
     s->sourceZoom = s->zoom;
+
+    s->focusPoint = effects->cursorPos().toPoint();
     if (to < 0.0) {
         setTargetZoom(screen, s->targetZoom * m_zoomFactor);
     } else {
         setTargetZoom(screen, to);
     }
-    s->focusPoint = effects->cursorPos().toPoint();
     if (m_mouseTracking == MouseTrackingDisabled) {
         s->prevPoint = s->focusPoint;
     }
@@ -689,8 +703,11 @@ void ZoomEffect::slotMouseChanged(const QPointF &pos, const QPointF &old)
     Output *screen = effects->screenAt(pos.toPoint());
     if (screen) {
         ZoomScreenState *s = stateForScreen(screen);
-        if (s->zoom != 1.0) {
-            s->focusPoint = pos.toPoint();
+        // Always update focus point when mouse moves
+        s->focusPoint = pos.toPoint();
+
+        // Only trigger repaint if zoom is active
+        if (s->zoom != 1.0 || s->targetZoom != 1.0) {
             if (pos != old) {
                 m_lastMouseEvent = QTime::currentTime();
                 effects->addRepaintFull();
@@ -698,7 +715,6 @@ void ZoomEffect::slotMouseChanged(const QPointF &pos, const QPointF &old)
         }
     }
 }
-
 void ZoomEffect::slotWindowAdded(EffectWindow *w)
 {
     connect(w, &EffectWindow::windowDamaged, this, &ZoomEffect::slotWindowDamaged);

@@ -5,10 +5,10 @@ set -e  # Exit on error
 
 # Configuration
 SRC_DIR="$HOME/repos/kwin"
-BUILD_DIR="$HOME/kde/build/kwin"
+BUILD_DIR="$HOME/kde/build/kwin-x11"
 INSTALL_PREFIX="$HOME/kde/usr"
 CMAKE_PREFIX_PATH="$HOME/kde/usr;/usr"
-
+mkdir -p "$BUILD_DIR"
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
