@@ -40,7 +40,7 @@ KWin.TabBoxSwitcher {
 
                 property int gridColumns: {         // Simple greedy algorithm
                     // respect screenGeometry
-                    const c = Math.min(thumbnailGridView.count, maxGri      dColumnsByWidth);
+                    const c = Math.min(thumbnailGridView.count, maxGri      maxGridColumnsByWidth);
                     const residue = thumbnailGridView.count % c;
                     if (residue == 0) {
                         return c;

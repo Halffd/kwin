@@ -332,13 +332,14 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     effects->paintScreen(offscreenRenderTarget, offscreenViewport, mask, region, screen);
     GLFramebuffer::popFramebuffer();
 
-    const QSize screenSize = effects->virtualScreenSize();
     const auto scale = viewport.scale();
     ZoomScreenState *s = stateForScreen(screen);
+    const QRect geo = screen->geometry();
 
     // mouse-tracking allows navigation of the zoom-area using the mouse.
     qreal xTranslation = 0;
     qreal yTranslation = 0;
+
     switch (m_mouseTracking) {
     case MouseTrackingProportional:
         xTranslation = -int(s->focusPoint.x() * (s->zoom - 1.0));
@@ -349,40 +350,45 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         s->prevPoint = s->focusPoint;
         // fall through
     case MouseTrackingDisabled:
-        xTranslation = std::min(0, std::max(int(screenSize.width() - screenSize.width() * s->zoom), int(screenSize.width() / 2 - s->prevPoint.x() * s->zoom)));
-        yTranslation = std::min(0, std::max(int(screenSize.height() - screenSize.height() * s->zoom), int(screenSize.height() / 2 - s->prevPoint.y() * s->zoom)));
+        // Center the view on s->prevPoint
+        // T = Center - prevPoint * z
+        // But we want to clamp so we don't look outside the screen.
+        // Valid range for T is [geo.right() * (1 - z), geo.x() * (1 - z)]
+        {
+            int tX = int(geo.center().x() - s->prevPoint.x() * s->zoom);
+            int tY = int(geo.center().y() - s->prevPoint.y() * s->zoom);
+
+            int minX = int((geo.x() + geo.width()) * (1.0 - s->zoom));
+            int maxX = int(geo.x() * (1.0 - s->zoom));
+
+            int minY = int((geo.y() + geo.height()) * (1.0 - s->zoom));
+            int maxY = int(geo.y() * (1.0 - s->zoom));
+
+            xTranslation = std::clamp(tX, minX, maxX);
+            yTranslation = std::clamp(tY, minY, maxY);
+        }
         break;
     case MouseTrackingPush: {
         // touching an edge of the screen moves the zoom-area in that direction.
         const int x = s->focusPoint.x() * s->zoom - s->prevPoint.x() * (s->zoom - 1.0);
         const int y = s->focusPoint.y() * s->zoom - s->prevPoint.y() * (s->zoom - 1.0);
         const int threshold = 4;
-        const QRectF currScreen = effects->screenAt(QPoint(x, y))->geometry();
 
-        // bounds of the screen the cursor's on
-        const int screenTop = currScreen.top();
-        const int screenLeft = currScreen.left();
-        const int screenRight = currScreen.right();
-        const int screenBottom = currScreen.bottom();
-        const int screenCenterX = currScreen.center().x();
-        const int screenCenterY = currScreen.center().y();
-
-        // figure out whether we have adjacent displays in all 4 directions
-        // We pan within the screen in directions where there are no adjacent screens.
-        const bool adjacentLeft = screenExistsAt(QPoint(screenLeft - 1, screenCenterY));
-        const bool adjacentRight = screenExistsAt(QPoint(screenRight + 1, screenCenterY));
-        const bool adjacentTop = screenExistsAt(QPoint(screenCenterX, screenTop - 1));
-        const bool adjacentBottom = screenExistsAt(QPoint(screenCenterX, screenBottom + 1));
+        // Bounds of the current screen
+        const int screenTop = geo.top();
+        const int screenLeft = geo.left();
+        const int screenRight = geo.left() + geo.width();
+        const int screenBottom = geo.top() + geo.height();
 
         s->xMove = s->yMove = 0;
-        if (x < screenLeft + threshold && !adjacentLeft) {
+        if (x < screenLeft + threshold) {
             s->xMove = (x - threshold - screenLeft) / s->zoom;
-        } else if (x > screenRight - threshold && !adjacentRight) {
+        } else if (x > screenRight - threshold) {
             s->xMove = (x + threshold - screenRight) / s->zoom;
         }
-        if (y < screenTop + threshold && !adjacentTop) {
+        if (y < screenTop + threshold) {
             s->yMove = (y - threshold - screenTop) / s->zoom;
-        } else if (y > screenBottom - threshold && !adjacentBottom) {
+        } else if (y > screenBottom - threshold) {
             s->yMove = (y + threshold - screenBottom) / s->zoom;
         }
         if (s->xMove) {
@@ -411,6 +417,17 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             yTranslation = -int(s->focusPoint.y() * (s->zoom - 1.0));
             s->prevPoint = s->focusPoint;
         }
+    }
+
+    // Ensure that for proportional mode and others we strictly clamp to avoid black borders
+    if (m_mouseTracking != MouseTrackingDisabled && m_mouseTracking != MouseTrackingCentered) {
+        int minX = int((geo.x() + geo.width()) * (1.0 - s->zoom));
+        int maxX = int(geo.x() * (1.0 - s->zoom));
+        int minY = int((geo.y() + geo.height()) * (1.0 - s->zoom));
+        int maxY = int(geo.y() * (1.0 - s->zoom));
+
+        xTranslation = std::clamp(int(xTranslation), minX, maxX);
+        yTranslation = std::clamp(int(yTranslation), minY, maxY);
     }
 
     // Render transformed offscreen texture.
@@ -549,10 +566,10 @@ void ZoomEffect::actualSize()
 
 void ZoomEffect::timelineFrameChanged(int /* frame */)
 {
-    const QSize screenSize = effects->virtualScreenSize();
     for (auto &[screen, state] : m_states) {
-        state.prevPoint.setX(std::max(0, std::min(screenSize.width(), state.prevPoint.x() + state.xMove)));
-        state.prevPoint.setY(std::max(0, std::min(screenSize.height(), state.prevPoint.y() + state.yMove)));
+        QRect geo = screen->geometry();
+        state.prevPoint.setX(std::max(geo.x(), std::min(geo.x() + geo.width(), state.prevPoint.x() + state.xMove)));
+        state.prevPoint.setY(std::max(geo.y(), std::min(geo.y() + geo.height(), state.prevPoint.y() + state.yMove)));
         state.focusPoint = state.prevPoint;
     }
     effects->addRepaintFull();
@@ -569,20 +586,20 @@ void ZoomEffect::moveZoom(int x, int y)
         return;
     }
     ZoomScreenState *s = stateForScreen(screen);
+    QRect geo = screen->geometry();
 
-    const QSize screenSize = effects->virtualScreenSize();
     if (x < 0) {
-        s->xMove = -std::max(1.0, screenSize.width() / s->zoom / m_moveFactor);
+        s->xMove = -std::max(1.0, geo.width() / s->zoom / m_moveFactor);
     } else if (x > 0) {
-        s->xMove = std::max(1.0, screenSize.width() / s->zoom / m_moveFactor);
+        s->xMove = std::max(1.0, geo.width() / s->zoom / m_moveFactor);
     } else {
         s->xMove = 0;
     }
 
     if (y < 0) {
-        s->yMove = -std::max(1.0, screenSize.height() / s->zoom / m_moveFactor);
+        s->yMove = -std::max(1.0, geo.height() / s->zoom / m_moveFactor);
     } else if (y > 0) {
-        s->yMove = std::max(1.0, screenSize.height() / s->zoom / m_moveFactor);
+        s->yMove = std::max(1.0, geo.height() / s->zoom / m_moveFactor);
     } else {
         s->yMove = 0;
     }
