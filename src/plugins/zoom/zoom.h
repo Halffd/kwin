@@ -67,6 +67,7 @@ private Q_SLOTS:
     void zoomTo(double to);
     void zoomOut();
     void actualSize();
+    void zoomTo14();
     void moveZoomLeft();
     void moveZoomRight();
     void moveZoomUp();
@@ -79,7 +80,6 @@ private Q_SLOTS:
     void slotWindowAdded(EffectWindow *w);
     void slotWindowDamaged();
     void slotScreenRemoved(Output *screen);
-    void setTargetZoom(double value);
 
 private:
     enum MouseTrackingType {
@@ -103,6 +103,17 @@ private:
         ColorDescription color = ColorDescription::sRGB;
     };
 
+    struct ZoomScreenState
+    {
+        double zoom = 1.0;
+        double targetZoom = 1.0;
+        double sourceZoom = 1.0;
+        QPoint focusPoint;
+        QPoint prevPoint;
+        int xMove = 0;
+        int yMove = 0;
+    };
+
     void moveZoom(int x, int y);
     bool screenExistsAt(const QPoint &point) const;
 
@@ -113,28 +124,25 @@ private:
     void markCursorTextureDirty();
 
     GLShader *shaderForZoom(double zoom);
+    ZoomScreenState *stateForScreen(Output *output);
+    const ZoomScreenState *stateForScreen(Output *output) const;
+    void setTargetZoom(Output *output, double value);
 
 #if HAVE_ACCESSIBILITY
     ZoomAccessibilityIntegration *m_accessibilityIntegration = nullptr;
 #endif
-    double m_zoom = 1.0;
-    double m_targetZoom = 1.0;
-    double m_sourceZoom = 1.0;
+    std::map<Output *, ZoomScreenState> m_states;
+
     double m_zoomFactor = 1.25;
     MouseTrackingType m_mouseTracking = MouseTrackingProportional;
     MousePointerType m_mousePointer = MousePointerScale;
     int m_focusDelay = 350; // in milliseconds
-    QPoint m_cursorPoint;
-    QPoint m_focusPoint;
-    QPoint m_prevPoint;
     QTime m_lastMouseEvent;
     QTime m_lastFocusEvent;
     std::unique_ptr<GLTexture> m_cursorTexture;
     bool m_cursorTextureDirty = false;
     bool m_isMouseHidden = false;
     QTimeLine m_timeline;
-    int m_xMove = 0;
-    int m_yMove = 0;
     double m_moveFactor = 20.0;
     std::chrono::milliseconds m_lastPresentTime = std::chrono::milliseconds::zero();
     std::map<Output *, OffscreenData> m_offscreenData;
