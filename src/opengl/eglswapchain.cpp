@@ -71,10 +71,6 @@ std::shared_ptr<EglSwapchainSlot> EglSwapchainSlot::create(EglContext *context, 
         buffer->drop();
         return nullptr;
     }
-
-    texture->setFilter(GL_LINEAR);
-    texture->setWrapMode(GL_CLAMP_TO_EDGE);
-
     return std::make_shared<EglSwapchainSlot>(buffer, std::move(framebuffer), texture);
 }
 
@@ -143,13 +139,6 @@ void EglSwapchain::release(std::shared_ptr<EglSwapchainSlot> slot, FileDescripto
         } else if (m_slots[i]->m_age > 0) {
             m_slots[i]->m_age++;
         }
-    }
-}
-
-void EglSwapchain::resetBufferAge()
-{
-    for (const auto &slot : std::as_const(m_slots)) {
-        slot->m_age = 0;
     }
 }
 

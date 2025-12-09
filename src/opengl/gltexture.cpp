@@ -110,6 +110,7 @@ GLTexturePrivate::GLTexturePrivate()
     , m_filter(GL_NEAREST)
     , m_wrapMode(GL_REPEAT)
     , m_canUseMipmaps(false)
+    , m_markedDirty(false)
     , m_filterChanged(true)
     , m_wrapModeChanged(false)
     , m_owning(true)
@@ -121,7 +122,7 @@ GLTexturePrivate::GLTexturePrivate()
 
 GLTexturePrivate::~GLTexturePrivate()
 {
-    if (!EglContext::currentContext()) {
+    if (!OpenGlContext::currentContext()) {
         qCWarning(KWIN_OPENGL, "Could not delete texture because no context is current");
         return;
     }
@@ -157,7 +158,7 @@ void GLTexture::update(const QImage &image, const QRegion &region, const QPoint 
 
     Q_ASSERT(d->m_owning);
 
-    const auto context = EglContext::currentContext();
+    const auto context = OpenGlContext::currentContext();
     GLenum glFormat;
     GLenum type;
     QImage::Format uploadFormat;
@@ -214,6 +215,9 @@ void GLTexture::bind()
 
     glBindTexture(d->m_target, d->m_texture);
 
+    if (d->m_markedDirty) {
+        onDamage();
+    }
     if (d->m_filterChanged) {
         GLenum minFilter = GL_NEAREST;
         GLenum magFilter = GL_NEAREST;
@@ -353,6 +357,11 @@ GLenum GLTexture::internalFormat() const
     return d->m_internalFormat;
 }
 
+bool GLTexture::isDirty() const
+{
+    return d->m_markedDirty;
+}
+
 void GLTexture::setFilter(GLenum filter)
 {
     if (filter != d->m_filter) {
@@ -367,6 +376,15 @@ void GLTexture::setWrapMode(GLenum mode)
         d->m_wrapMode = mode;
         d->m_wrapModeChanged = true;
     }
+}
+
+void GLTexture::setDirty()
+{
+    d->m_markedDirty = true;
+}
+
+void GLTexture::onDamage()
+{
 }
 
 void GLTexturePrivate::updateMatrix()
@@ -409,7 +427,7 @@ OutputTransform GLTexture::contentTransform() const
 
 void GLTexture::setSwizzle(GLenum red, GLenum green, GLenum blue, GLenum alpha)
 {
-    if (!EglContext::currentContext()->isOpenGLES()) {
+    if (!OpenGlContext::currentContext()->isOpenGLES()) {
         const GLuint swizzle[] = {red, green, blue, alpha};
         glTexParameteriv(d->m_target, GL_TEXTURE_SWIZZLE_RGBA, (const GLint *)swizzle);
     } else {
@@ -437,12 +455,12 @@ QMatrix4x4 GLTexture::matrix(TextureCoordinateType type) const
 
 bool GLTexture::supportsSwizzle()
 {
-    return EglContext::currentContext()->supportsTextureSwizzle();
+    return OpenGlContext::currentContext()->supportsTextureSwizzle();
 }
 
 bool GLTexture::supportsFormatRG()
 {
-    return EglContext::currentContext()->supportsRGTextures();
+    return OpenGlContext::currentContext()->supportsRGTextures();
 }
 
 QImage GLTexture::toImage()
@@ -452,7 +470,7 @@ QImage GLTexture::toImage()
     }
     QImage ret(size(), QImage::Format_RGBA8888_Premultiplied);
 
-    if (EglContext::currentContext()->isOpenGLES()) {
+    if (OpenGlContext::currentContext()->isOpenGLES()) {
         GLFramebuffer fbo(this);
         GLFramebuffer::pushFramebuffer(&fbo);
         glReadPixels(0, 0, width(), height(), GL_RGBA, GL_UNSIGNED_INT_8_8_8_8_REV, ret.bits());
@@ -486,7 +504,7 @@ std::unique_ptr<GLTexture> GLTexture::allocate(GLenum internalFormat, const QSiz
     }
     glBindTexture(GL_TEXTURE_2D, texture);
 
-    const auto context = EglContext::currentContext();
+    const auto context = OpenGlContext::currentContext();
     if (!context->isOpenGLES()) {
         if (context->supportsTextureStorage()) {
             glTexStorage2D(GL_TEXTURE_2D, levels, internalFormat, size.width(), size.height());
@@ -522,7 +540,7 @@ std::unique_ptr<GLTexture> GLTexture::upload(const QImage &image)
         return nullptr;
     }
 
-    const auto context = EglContext::currentContext();
+    const auto context = OpenGlContext::currentContext();
     GLenum internalFormat;
     GLenum format;
     GLenum type;

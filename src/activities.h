@@ -31,7 +31,7 @@ class KWIN_EXPORT Activities : public QObject
     Q_OBJECT
 
 public:
-    explicit Activities();
+    explicit Activities(const KSharedConfig::Ptr &config);
 
     /**
      * Sets the current activity to @param activity, and if desktop isn't nullptr,

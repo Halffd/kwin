@@ -9,21 +9,18 @@
 
 #include "kwin_wayland_test.h"
 
+#include "atoms.h"
 #include "main.h"
 #include "wayland_server.h"
 #include "window.h"
 #include "workspace.h"
+#include "x11window.h"
 
 #include <KWayland/Client/compositor.h>
 #include <KWayland/Client/surface.h>
 
-#if KWIN_BUILD_X11
-#include "atoms.h"
-#include "x11window.h"
-
 #include <xcb/xcb.h>
 #include <xcb/xcb_icccm.h>
-#endif
 
 using namespace KWin;
 
@@ -40,7 +37,6 @@ private Q_SLOTS:
 
     void testTransientIsAboveParent();
     void testRaiseTransient();
-    void testLowerTransient();
     void testDeletedTransient();
 
     void testGroupTransientIsAboveWindowGroup();
@@ -62,14 +58,14 @@ void StackingOrderTest::initTestCase()
     qRegisterMetaType<KWin::Window *>();
 
     QVERIFY(waylandServer()->init(s_socketName));
-
-    kwinApp()->setConfig(KSharedConfig::openConfig(QString(), KConfig::SimpleConfig));
-
-    kwinApp()->start();
     Test::setOutputConfig({
         QRect(0, 0, 1280, 1024),
         QRect(1280, 0, 1280, 1024),
     });
+
+    kwinApp()->setConfig(KSharedConfig::openConfig(QString(), KConfig::SimpleConfig));
+
+    kwinApp()->start();
 }
 
 void StackingOrderTest::init()
@@ -187,94 +183,6 @@ void StackingOrderTest::testRaiseTransient()
     QCOMPARE(workspace()->stackingOrder(), (QList<Window *>{anotherWindow, parent, transient}));
 }
 
-void StackingOrderTest::testLowerTransient()
-{
-    // This test verifies that when a window that has transients or is a transient itself is lowered,
-    // then the whole window hierarchy that this window is a part of is lowered too,
-    // as well as that a relative stacking of windows within this hierarchy is left intact.
-
-    const int windowsQuantity = 5;
-
-    std::unique_ptr<KWayland::Client::Surface> surfaces[windowsQuantity];
-    std::unique_ptr<Test::XdgToplevel> shellSurfaces[windowsQuantity];
-    Window *windows[windowsQuantity];
-
-    for (int i = 0; i < windowsQuantity; i++) {
-        surfaces[i] = Test::createSurface();
-        QVERIFY(surfaces[i]);
-        shellSurfaces[i] = std::unique_ptr<Test::XdgToplevel>(Test::createXdgToplevelSurface(surfaces[i].get()));
-        QVERIFY(shellSurfaces[i]);
-    }
-
-    // link 5 windows into the following hierarchy:
-    //      * 0 - unrelated to 1..4
-    //      * 1 - parent of 2, 3
-    //      * 3 - parent of 4
-    //
-    //                   +---+
-    //                   | 4 |
-    //                   +-+-+
-    //                     |
-    //       +-+-+       +---+       +---+
-    //       | 2 |       | 3 |       | 0 |
-    //       +---+       +---+       +---+
-    //            \     /
-    //             +---+
-    //             | 1 |
-    //             +---+
-
-    shellSurfaces[2]->set_parent(shellSurfaces[1]->object());
-    shellSurfaces[3]->set_parent(shellSurfaces[1]->object());
-    shellSurfaces[4]->set_parent(shellSurfaces[3]->object());
-
-    for (int i = 0; i < windowsQuantity; i++) {
-        windows[i] = Test::renderAndWaitForShown(surfaces[i].get(), QSize(128, 128), Qt::green);
-        QVERIFY(windows[i]);
-    }
-
-    // base windows order for following tests
-    QList<Window *> baseWindowsOrder{windows[0], windows[1], windows[2], windows[3], windows[4]};
-    // expected result for the following tests - window hierarchy 1..4 went below window 0,
-    // relative order within hierarchy is preserved
-    QList<Window *> expectedWindowsOrder{windows[1], windows[2], windows[3], windows[4], windows[0]};
-
-    // verify initial windows order
-    QCOMPARE(workspace()->stackingOrder(), baseWindowsOrder);
-
-    // for every window from 1..4 hierarchy
-    for (int i = 1; i < 5; i++) {
-        // lower that window
-        workspace()->lowerWindow(windows[i]);
-        // verify result
-        QCOMPARE(workspace()->stackingOrder(), expectedWindowsOrder);
-        // lower unrelated window 0 and verify that we restored base windows order
-        workspace()->lowerWindow(windows[0]);
-        QCOMPARE(workspace()->stackingOrder(), baseWindowsOrder);
-    }
-
-    // restack transients so that 2 goes on top
-    workspace()->raiseWindow(windows[2]);
-    // update base order of windows for the rest of tests
-    baseWindowsOrder = QList<Window *>{windows[0], windows[1], windows[3], windows[4], windows[2]};
-    // update expected order of windows for the rest of tests - window hierarchy 1..4 goes below window 0,
-    // relative order within hierarchy is preserved
-    expectedWindowsOrder = QList<Window *>{windows[1], windows[3], windows[4], windows[2], windows[0]};
-
-    // verify initial windows order
-    QCOMPARE(workspace()->stackingOrder(), baseWindowsOrder);
-
-    // for every window from 1..4 hierarchy
-    for (int i = 1; i <= 4; i++) {
-        // lower that window
-        workspace()->lowerWindow(windows[i]);
-        // verify result
-        QCOMPARE(workspace()->stackingOrder(), expectedWindowsOrder);
-        // lower unrelated window 0 and verify that we restored base windows order
-        workspace()->lowerWindow(windows[0]);
-        QCOMPARE(workspace()->stackingOrder(), baseWindowsOrder);
-    }
-}
-
 struct WindowUnrefDeleter
 {
     void operator()(Window *d)
@@ -353,7 +261,6 @@ void StackingOrderTest::testDeletedTransient()
     QCOMPARE(workspace()->stackingOrder(), (QList<Window *>{parent, transient1, transient2}));
 }
 
-#if KWIN_BUILD_X11
 static xcb_window_t createGroupWindow(xcb_connection_t *conn,
                                       const QRect &geometry,
                                       xcb_window_t leaderWid = XCB_WINDOW_NONE)
@@ -397,11 +304,9 @@ static xcb_window_t createGroupWindow(xcb_connection_t *conn,
 
     return wid;
 }
-#endif
 
 void StackingOrderTest::testGroupTransientIsAboveWindowGroup()
 {
-#if KWIN_BUILD_X11
     // This test verifies that group transients are always above other
     // window group members.
 
@@ -513,12 +418,10 @@ void StackingOrderTest::testGroupTransientIsAboveWindowGroup()
     workspace()->activateWindow(transient);
     QTRY_VERIFY(transient->isActive());
     QCOMPARE(workspace()->stackingOrder(), (QList<Window *>{leader, member1, member2, transient}));
-#endif
 }
 
 void StackingOrderTest::testRaiseGroupTransient()
 {
-#if KWIN_BUILD_X11
     const QRect geometry = QRect(0, 0, 128, 128);
 
     Test::XcbConnectionPtr conn = Test::createX11Connection();
@@ -642,12 +545,10 @@ void StackingOrderTest::testRaiseGroupTransient()
     workspace()->activateWindow(transient);
     QTRY_VERIFY(transient->isActive());
     QCOMPARE(workspace()->stackingOrder(), (QList<Window *>{member1, leader, member2, anotherWindow, transient}));
-#endif
 }
 
 void StackingOrderTest::testDeletedGroupTransient()
 {
-#if KWIN_BUILD_X11
     // This test verifies that deleted group transients are kept above their
     // old window groups.
 
@@ -756,12 +657,10 @@ void StackingOrderTest::testDeletedGroupTransient()
 
     // The transient has to be above each member of the window group.
     QCOMPARE(workspace()->stackingOrder(), (QList<Window *>{leader, member1, member2, transient}));
-#endif
 }
 
 void StackingOrderTest::testDontKeepAboveNonModalDialogGroupTransients()
 {
-#if KWIN_BUILD_X11
     // Bug 76026
 
     const QRect geometry = QRect(0, 0, 128, 128);
@@ -851,7 +750,6 @@ void StackingOrderTest::testDontKeepAboveNonModalDialogGroupTransients()
     workspace()->activateWindow(transient);
     QTRY_VERIFY(transient->isActive());
     QCOMPARE(workspace()->stackingOrder(), (QList<Window *>{leader, member1, member2, transient}));
-#endif
 }
 
 void StackingOrderTest::testKeepAbove()

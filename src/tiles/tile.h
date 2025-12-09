@@ -10,8 +10,8 @@
 #pragma once
 
 #include "effect/globals.h"
-#include "virtualdesktops.h"
 #include <kwin_export.h>
+#include <utils/common.h>
 
 #include <QObject>
 #include <QRectF>
@@ -19,9 +19,7 @@
 namespace KWin
 {
 
-class Gravity;
 class TileManager;
-class VirtualDesktop;
 class Window;
 
 class KWIN_EXPORT Tile : public QObject
@@ -31,7 +29,6 @@ class KWIN_EXPORT Tile : public QObject
     Q_PROPERTY(QRectF absoluteGeometry READ absoluteGeometry NOTIFY absoluteGeometryChanged)
     Q_PROPERTY(QRectF absoluteGeometryInScreen READ absoluteGeometryInScreen NOTIFY absoluteGeometryChanged)
     Q_PROPERTY(qreal padding READ padding WRITE setPadding NOTIFY paddingChanged)
-    Q_PROPERTY(QSizeF minimumSize READ minimumSize WRITE setMinimumSize NOTIFY minimumSizeChanged)
     Q_PROPERTY(int positionInLayout READ row NOTIFY rowChanged)
     Q_PROPERTY(Tile *parent READ parentTile CONSTANT)
     Q_PROPERTY(QList<KWin::Tile *> tiles READ childTiles NOTIFY childTilesChanged)
@@ -49,9 +46,6 @@ public:
 
     explicit Tile(TileManager *tiling, Tile *parentItem = nullptr);
     ~Tile();
-
-    VirtualDesktop *desktop() const;
-    bool isActive() const;
 
     void setGeometryFromWindow(const QRectF &geom);
     void setGeometryFromAbsolute(const QRectF &geom);
@@ -90,20 +84,14 @@ public:
      */
     Qt::Edges anchors() const;
 
-    bool isRoot() const;
     bool isLayout() const;
     bool canBeRemoved() const;
 
     qreal padding() const;
     void setPadding(qreal padding);
 
-    QSizeF minimumSize() const;
-    void setMinimumSize(const QSizeF &size);
-
     QuickTileMode quickTileMode() const;
     void setQuickTileMode(QuickTileMode mode);
-
-    Tile *rootTile() const;
 
     /**
      * All tiles directly children of this tile
@@ -118,15 +106,14 @@ public:
     /**
      * Visit all tiles descendant of this tile, recursive
      */
-    void visitDescendants(std::function<void(Tile *child)> callback);
+    void visitDescendants(std::function<void(const Tile *child)> callback) const;
 
     void resizeFromGravity(Gravity gravity, int x_root, int y_root);
 
     Q_INVOKABLE void resizeByPixels(qreal delta, Qt::Edge edge);
 
-    Q_INVOKABLE bool manage(Window *window);
-    Q_INVOKABLE bool unmanage(Window *window);
-    void forget(Window *window);
+    void addWindow(Window *window);
+    void removeWindow(Window *window);
     QList<KWin::Window *> windows() const;
 
     int row() const;
@@ -136,6 +123,11 @@ public:
     Tile *previousSibling() const;
     Tile *parentTile() const;
     TileManager *manager() const;
+
+    static inline QSizeF minimumSize()
+    {
+        return s_minimumSize;
+    }
 
     void destroyChild(Tile *tile);
 
@@ -149,12 +141,10 @@ public:
     }
 
 Q_SIGNALS:
-    void activeChanged(bool active);
     void relativeGeometryChanged();
     void absoluteGeometryChanged();
     void windowGeometryChanged();
     void paddingChanged(qreal padding);
-    void minimumSizeChanged(const QSizeF &size);
     void rowChanged(int row);
     void isLayoutChanged(bool isLayout);
     void childTilesChanged();
@@ -166,17 +156,13 @@ protected:
     void insertChild(int position, Tile *item);
     void removeChild(Tile *child);
 
-    void add(Window *window);
-    bool remove(Window *window);
-
     QList<Tile *> m_children;
     QList<Window *> m_windows;
     Tile *m_parentTile;
 
-    VirtualDesktop *m_desktop = nullptr;
     TileManager *m_tiling;
     QRectF m_relativeGeometry;
-    QSizeF m_minimumSize = QSizeF(0.15, 0.15);
+    static QSizeF s_minimumSize;
     QuickTileMode m_quickTileMode = QuickTileFlag::None;
     qreal m_padding = 4.0;
 };

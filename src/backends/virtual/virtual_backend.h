@@ -31,10 +31,7 @@ public:
     bool initialize() override;
 
     std::unique_ptr<QPainterBackend> createQPainterBackend() override;
-    std::unique_ptr<EglBackend> createOpenGLBackend() override;
-
-    BackendOutput *createVirtualOutput(const QString &name, const QString &description, const QSize &size, qreal scale) override;
-    void removeVirtualOutput(BackendOutput *output) override;
+    std::unique_ptr<OpenGLBackend> createOpenGLBackend() override;
 
     struct OutputInfo
     {
@@ -49,10 +46,10 @@ public:
         std::optional<QString> connectorName;
         std::optional<QByteArray> mstPath;
     };
-    BackendOutput *addOutput(const OutputInfo &info);
+    Output *addOutput(const OutputInfo &info);
     void setVirtualOutputs(const QList<OutputInfo> &infos);
 
-    QList<BackendOutput *> outputs() const override;
+    Outputs outputs() const override;
 
     QList<CompositingType> supportedCompositors() const override;
 
@@ -66,7 +63,6 @@ Q_SIGNALS:
 
 private:
     VirtualOutput *createOutput(const OutputInfo &info);
-    void removeOutput(VirtualOutput *output);
 
     QList<VirtualOutput *> m_outputs;
     std::unique_ptr<DrmDevice> m_drmDevice;

@@ -223,7 +223,7 @@ public:
      * Shows a configuration dialog for a given effect.
      *
      * @param index An effect represented by the given index.
-     * @param context The context in which to open configuration dialog.
+     * @param context The context in which to open
      */
     void requestConfigure(const QModelIndex &index, QQuickItem *context);
 

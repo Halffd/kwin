@@ -15,7 +15,6 @@
 #include "offscreensurface.h"
 #include "opengl/eglcontext.h"
 #include "opengl/egldisplay.h"
-#include "opengl/eglutils_p.h"
 #include "opengl/glutils.h"
 #include "swapchain.h"
 #include "window.h"
@@ -65,7 +64,7 @@ bool EGLPlatformContext::makeCurrent(QPlatformSurface *surface)
     }
     const bool ok = m_eglContext->makeCurrent();
     if (!ok) {
-        qCWarning(KWIN_QPA) << "eglMakeCurrent failed:" << getEglErrorString();
+        qCWarning(KWIN_QPA, "eglMakeCurrent failed: %x", eglGetError());
         return false;
     }
     if (m_eglContext->checkGraphicsResetStatus() != GL_NO_ERROR) {
@@ -130,7 +129,7 @@ void EGLPlatformContext::doneCurrent()
 
 bool EGLPlatformContext::isValid() const
 {
-    return m_eglContext != nullptr && !m_markedInvalid;
+    return m_eglContext != nullptr;
 }
 
 bool EGLPlatformContext::isSharing() const
@@ -184,7 +183,7 @@ GLuint EGLPlatformContext::defaultFramebufferObject(QPlatformSurface *surface) c
 void EGLPlatformContext::create(const QSurfaceFormat &format, ::EGLContext shareContext)
 {
     if (!eglBindAPI(isOpenGLES() ? EGL_OPENGL_ES_API : EGL_OPENGL_API)) {
-        qCWarning(KWIN_QPA) << "eglBindAPI failed:" << getEglErrorString();
+        qCWarning(KWIN_QPA, "eglBindAPI failed: 0x%x", eglGetError());
         return;
     }
 
@@ -248,26 +247,6 @@ void EGLPlatformContext::updateFormatFromContext()
     }
 
     eglMakeCurrent(m_eglDisplay->handle(), oldDrawSurface, oldReadSurface, oldContext);
-}
-
-EGLContext EGLPlatformContext::nativeContext() const
-{
-    return m_eglContext->handle();
-};
-
-EGLConfig EGLPlatformContext::config() const
-{
-    return m_eglContext->config();
-}
-
-EGLDisplay EGLPlatformContext::display() const
-{
-    return m_eglContext->displayObject()->handle();
-}
-
-void EGLPlatformContext::invalidateContext()
-{
-    m_markedInvalid = true;
 }
 
 } // namespace QPA

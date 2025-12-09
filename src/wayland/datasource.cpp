@@ -13,6 +13,8 @@
 #include <QStringList>
 // Wayland
 #include <qwayland-server-wayland.h>
+// system
+#include <unistd.h>
 
 namespace KWin
 {
@@ -54,15 +56,15 @@ void DataSourceInterfacePrivate::data_source_set_actions(Resource *resource, uin
         wl_resource_post_error(resource->handle, error_invalid_action_mask, "Invalid action mask");
         return;
     }
-    DnDActions supportedActions;
+    DataDeviceManagerInterface::DnDActions supportedActions;
     if (dnd_actions & QtWaylandServer::wl_data_device_manager::dnd_action_copy) {
-        supportedActions |= DnDAction::Copy;
+        supportedActions |= DataDeviceManagerInterface::DnDAction::Copy;
     }
     if (dnd_actions & QtWaylandServer::wl_data_device_manager::dnd_action_move) {
-        supportedActions |= DnDAction::Move;
+        supportedActions |= DataDeviceManagerInterface::DnDAction::Move;
     }
     if (dnd_actions & QtWaylandServer::wl_data_device_manager::dnd_action_ask) {
-        supportedActions |= DnDAction::Ask;
+        supportedActions |= DataDeviceManagerInterface::DnDAction::Ask;
     }
     if (supportedDnDActions != supportedActions) {
         supportedDnDActions = supportedActions;
@@ -79,7 +81,7 @@ DataSourceInterface::DataSourceInterface(wl_resource *resource)
     : d(new DataSourceInterfacePrivate(this, resource))
 {
     if (d->resource()->version() < WL_DATA_SOURCE_ACTION_SINCE_VERSION) {
-        d->supportedDnDActions = DnDAction::Copy;
+        d->supportedDnDActions = DataDeviceManagerInterface::DnDAction::Copy;
     }
 }
 
@@ -92,9 +94,10 @@ void DataSourceInterface::accept(const QString &mimeType)
     Q_EMIT acceptedChanged();
 }
 
-void DataSourceInterface::requestData(const QString &mimeType, FileDescriptor fd)
+void DataSourceInterface::requestData(const QString &mimeType, qint32 fd)
 {
-    d->send_send(mimeType, fd.get());
+    d->send_send(mimeType, int32_t(fd));
+    close(fd);
 }
 
 void DataSourceInterface::cancel()
@@ -115,12 +118,12 @@ DataSourceInterface *DataSourceInterface::get(wl_resource *native)
     return nullptr;
 }
 
-DnDActions DataSourceInterface::supportedDragAndDropActions() const
+DataDeviceManagerInterface::DnDActions DataSourceInterface::supportedDragAndDropActions() const
 {
     return d->supportedDnDActions;
 }
 
-DnDAction DataSourceInterface::selectedDndAction() const
+DataDeviceManagerInterface::DnDAction DataSourceInterface::selectedDndAction() const
 {
     return d->selectedDndAction;
 }
@@ -143,7 +146,7 @@ void DataSourceInterface::dndFinished()
     d->send_dnd_finished();
 }
 
-void DataSourceInterface::dndAction(DnDAction action)
+void DataSourceInterface::dndAction(DataDeviceManagerInterface::DnDAction action)
 {
     d->selectedDndAction = action;
     Q_EMIT dndActionChanged();
@@ -152,11 +155,11 @@ void DataSourceInterface::dndAction(DnDAction action)
         return;
     }
     uint32_t wlAction = QtWaylandServer::wl_data_device_manager::dnd_action_none;
-    if (action == DnDAction::Copy) {
+    if (action == DataDeviceManagerInterface::DnDAction::Copy) {
         wlAction = QtWaylandServer::wl_data_device_manager::dnd_action_copy;
-    } else if (action == DnDAction::Move) {
+    } else if (action == DataDeviceManagerInterface::DnDAction::Move) {
         wlAction = QtWaylandServer::wl_data_device_manager::dnd_action_move;
-    } else if (action == DnDAction::Ask) {
+    } else if (action == DataDeviceManagerInterface::DnDAction::Ask) {
         wlAction = QtWaylandServer::wl_data_device_manager::dnd_action_ask;
     }
     d->send_action(wlAction);

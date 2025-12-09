@@ -27,10 +27,6 @@ Window {
 
     visible: outline.active
 
-    onSceneGraphError: (error, message) => {
-        console.warn("outline: scene graph error:", message);
-    }
-
     onVisibleChanged: {
         if (visible) {
             if (outline.visualParentGeometry.width > 0 && outline.visualParentGeometry.height > 0) {

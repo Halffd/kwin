@@ -16,10 +16,19 @@
 #include "xwldrophandler.h"
 
 #include "atoms.h"
+#include "wayland/datadevice.h"
+#include "wayland/datasource.h"
 #include "wayland/seat.h"
+#include "wayland/surface.h"
 #include "wayland_server.h"
 #include "workspace.h"
 #include "x11window.h"
+
+#include <QMouseEvent>
+#include <QTimer>
+
+using DnDAction = KWin::DataDeviceManagerInterface::DnDAction;
+using DnDActions = KWin::DataDeviceManagerInterface::DnDActions;
 
 namespace KWin
 {
@@ -31,9 +40,9 @@ WlToXDrag::WlToXDrag(Dnd *dnd)
 {
 }
 
-bool WlToXDrag::moveFilter(Window *target, const QPointF &position)
+DragEventReply WlToXDrag::moveFilter(Window *target)
 {
-    return false;
+    return DragEventReply::Wayland;
 }
 
 bool WlToXDrag::handleClientMessage(xcb_client_message_event_t *event)
@@ -47,6 +56,7 @@ Xvisit::Xvisit(X11Window *target, AbstractDataSource *dataSource, Dnd *dnd, QObj
     , m_target(target)
     , m_dataSource(dataSource)
 {
+    // first check supported DND version
     xcb_connection_t *xcbConn = kwinApp()->x11Connection();
     xcb_get_property_cookie_t cookie = xcb_get_property(xcbConn,
                                                         0,
@@ -91,6 +101,7 @@ bool Xvisit::handleStatus(xcb_client_message_event_t *event)
 {
     xcb_client_message_data_t *data = &event->data;
     if (data->data32[0] != m_target->window()) {
+        // wrong target window
         return false;
     }
 
@@ -106,15 +117,18 @@ bool Xvisit::handleStatus(xcb_client_message_event_t *event)
     m_pos.pending = false;
 
     if (!m_state.dropRequested) {
+        // as long as the drop is not yet done determine requested action
         m_preferredAction = Dnd::atomToClientAction(actionAtom);
         determineProposedAction();
         requestDragAndDropAction();
     }
 
     if (m_pos.cached) {
+        // send cached position
         m_pos.cached = false;
         sendPosition(m_pos.cache);
     } else if (m_state.dropRequested) {
+        // drop was done in between, now close it out
         drop();
     }
     return true;
@@ -125,10 +139,12 @@ bool Xvisit::handleFinished(xcb_client_message_event_t *event)
     xcb_client_message_data_t *data = &event->data;
 
     if (data->data32[0] != m_target->window()) {
+        // different target window
         return false;
     }
 
     if (!m_state.dropRequested) {
+        // drop was never done
         doFinish();
         return true;
     }
@@ -168,6 +184,7 @@ void Xvisit::leave()
         return;
     }
     if (m_state.finished) {
+        // was already finished
         return;
     }
     // we only need to leave, when we entered before
@@ -182,14 +199,20 @@ void Xvisit::receiveOffer()
     retrieveSupportedActions();
     connect(m_dataSource, &AbstractDataSource::supportedDragAndDropActionsChanged,
             this, &Xvisit::retrieveSupportedActions);
+    enter();
 }
 
-void Xvisit::enter(const QPointF &globalPos)
+void Xvisit::enter()
 {
     m_state.entered = true;
-
+    // send enter event and current position to X client
     sendEnter();
-    sendPosition(globalPos);
+    sendPosition(waylandServer()->seat()->pointerPos());
+
+    // proxy future pointer position changes
+    m_motionConnection = connect(waylandServer()->seat(),
+                                 &SeatInterface::pointerPosChanged,
+                                 this, &Xvisit::sendPosition);
 }
 
 void Xvisit::sendEnter()
@@ -213,7 +236,7 @@ void Xvisit::sendEnter()
         if (totalCnt == 3) {
             break;
         }
-        const auto atom = Xcb::mimeTypeToAtom(mimeName);
+        const auto atom = Selection::mimeTypeToAtom(mimeName);
 
         if (atom != XCB_ATOM_NONE) {
             data.data32[cnt] = atom;
@@ -234,7 +257,7 @@ void Xvisit::sendEnter()
 
         size_t cnt = 0;
         for (const auto &mimeName : mimeTypesNames) {
-            const auto atom = Xcb::mimeTypeToAtom(mimeName);
+            const auto atom = Selection::mimeTypeToAtom(mimeName);
             if (atom != XCB_ATOM_NONE) {
                 targets[cnt] = atom;
                 cnt++;
@@ -317,8 +340,9 @@ void Xvisit::drop()
 {
     Q_ASSERT(!m_state.finished);
     m_state.dropRequested = true;
-
+    // stop further updates
     // TODO: revisit when we allow ask action
+    stopConnections();
     if (!m_state.entered) {
         // wait for enter (init + offers)
         return;
@@ -346,7 +370,16 @@ void Xvisit::doFinish()
 {
     m_state.finished = true;
     m_pos.cached = false;
+    stopConnections();
     Q_EMIT finished();
+}
+
+void Xvisit::stopConnections()
+{
+    // final outcome has been determined from Wayland side
+    // no more updates needed
+    disconnect(m_motionConnection);
+    m_motionConnection = QMetaObject::Connection();
 }
 
 } // namespace Xwl

@@ -12,9 +12,7 @@
 #include "netinfo.h"
 // kwin
 #include "rootinfo_filter.h"
-#include "utils/envvar.h"
 #include "virtualdesktops.h"
-#include "waylandwindow.h"
 #include "workspace.h"
 #include "x11window.h"
 // Qt
@@ -57,6 +55,8 @@ RootInfo *RootInfo::create()
         | NET::WMDesktop
         | NET::WMWindowType
         | NET::WMState
+        | NET::WMStrut
+        | NET::WMIconGeometry
         | NET::WMIcon
         | NET::WMPid
         | NET::WMMoveResize
@@ -91,6 +91,7 @@ RootInfo *RootInfo::create()
         | NET::WM2AllowedActions
         | NET::WM2RestackWindow
         | NET::WM2MoveResizeWindow
+        | NET::WM2ExtendedStrut
         | NET::WM2ShowingDesktop
         | NET::WM2DesktopLayout
         | NET::WM2FullPlacement
@@ -128,12 +129,6 @@ void RootInfo::destroy()
     xcb_destroy_window(kwinApp()->x11Connection(), supportWindow);
 }
 
-bool RootInfo::desktopEnabled()
-{
-    static const bool enabled = environmentVariableIntValue("KWIN_XWAYLAND_ENABLE_NETWM_DESKTOP").value_or(0);
-    return enabled;
-}
-
 RootInfo::RootInfo(xcb_window_t w, const char *name, NET::Properties properties, NET::WindowTypes types,
                    NET::States states, NET::Properties2 properties2, NET::Actions actions, int scr)
     : NETRootInfo(kwinApp()->x11Connection(), w, name, properties, types, states, properties2, actions, scr)
@@ -155,7 +150,7 @@ void RootInfo::changeCurrentDesktop(int d)
 void RootInfo::changeActiveWindow(xcb_window_t w, NET::RequestSource src, xcb_timestamp_t timestamp, xcb_window_t active_window)
 {
     Workspace *workspace = Workspace::self();
-    if (X11Window *c = workspace->findClient(w)) {
+    if (X11Window *c = workspace->findClient(Predicate::WindowMatch, w)) {
         if (timestamp == XCB_CURRENT_TIME) {
             timestamp = c->userTime();
         }
@@ -164,7 +159,7 @@ void RootInfo::changeActiveWindow(xcb_window_t w, NET::RequestSource src, xcb_ti
         }
         if (src == NET::FromTool) {
             workspace->activateWindow(c, true); // force
-        } else if (c == workspace->activeWindow()) {
+        } else if (c == workspace->mostRecentlyActivatedWindow()) {
             return; // WORKAROUND? With > 1 plasma activities, we cause this ourselves. bug #240673
         } else { // NET::FromApplication
             X11Window *c2;
@@ -172,7 +167,7 @@ void RootInfo::changeActiveWindow(xcb_window_t w, NET::RequestSource src, xcb_ti
                 workspace->activateWindow(c);
                 // if activation of the requestor's window would be allowed, allow activation too
             } else if (active_window != XCB_WINDOW_NONE
-                       && (c2 = workspace->findClient(active_window)) != nullptr
+                       && (c2 = workspace->findClient(Predicate::WindowMatch, active_window)) != nullptr
                        && c2->allowWindowActivation(timestampCompare(timestamp, c2->userTime() > 0 ? timestamp : c2->userTime()), false)) {
                 workspace->activateWindow(c);
             } else {
@@ -184,7 +179,7 @@ void RootInfo::changeActiveWindow(xcb_window_t w, NET::RequestSource src, xcb_ti
 
 void RootInfo::restackWindow(xcb_window_t w, RequestSource src, xcb_window_t above, int detail, xcb_timestamp_t timestamp)
 {
-    if (X11Window *c = Workspace::self()->findClient(w)) {
+    if (X11Window *c = Workspace::self()->findClient(Predicate::WindowMatch, w)) {
         if (timestamp == XCB_CURRENT_TIME) {
             timestamp = c->userTime();
         }
@@ -197,7 +192,7 @@ void RootInfo::restackWindow(xcb_window_t w, RequestSource src, xcb_window_t abo
 
 void RootInfo::closeWindow(xcb_window_t w)
 {
-    X11Window *c = Workspace::self()->findClient(w);
+    X11Window *c = Workspace::self()->findClient(Predicate::WindowMatch, w);
     if (c) {
         c->closeWindow();
     }
@@ -205,15 +200,16 @@ void RootInfo::closeWindow(xcb_window_t w)
 
 void RootInfo::moveResize(xcb_window_t w, int x_root, int y_root, unsigned long direction, xcb_button_t button, RequestSource source)
 {
-    X11Window *c = Workspace::self()->findClient(w);
+    X11Window *c = Workspace::self()->findClient(Predicate::WindowMatch, w);
     if (c) {
+        kwinApp()->updateXTime(); // otherwise grabbing may have old timestamp - this message should include timestamp
         c->NETMoveResize(Xcb::fromXNative(x_root), Xcb::fromXNative(y_root), (Direction)direction, button);
     }
 }
 
 void RootInfo::moveResizeWindow(xcb_window_t w, int flags, int x, int y, int width, int height)
 {
-    X11Window *c = Workspace::self()->findClient(w);
+    X11Window *c = Workspace::self()->findClient(Predicate::WindowMatch, w);
     if (c) {
         c->NETMoveResizeWindow(flags, Xcb::fromXNative(x), Xcb::fromXNative(y), Xcb::fromXNative(width), Xcb::fromXNative(height));
     }
@@ -221,14 +217,14 @@ void RootInfo::moveResizeWindow(xcb_window_t w, int flags, int x, int y, int wid
 
 void RootInfo::showWindowMenu(xcb_window_t w, int device_id, int x_root, int y_root)
 {
-    if (X11Window *c = Workspace::self()->findClient(w)) {
+    if (X11Window *c = Workspace::self()->findClient(Predicate::WindowMatch, w)) {
         c->GTKShowWindowMenu(Xcb::fromXNative(x_root), Xcb::fromXNative(y_root));
     }
 }
 
 void RootInfo::gotPing(xcb_window_t w, xcb_timestamp_t timestamp)
 {
-    if (X11Window *c = Workspace::self()->findClient(w)) {
+    if (X11Window *c = Workspace::self()->findClient(Predicate::WindowMatch, w)) {
         c->gotPing(timestamp);
     }
 }
@@ -243,8 +239,6 @@ void RootInfo::setActiveClient(Window *client)
     xcb_window_t windowId = XCB_WINDOW_NONE;
     if (auto x11Window = qobject_cast<X11Window *>(client)) {
         windowId = x11Window->window();
-    } else if (qobject_cast<WaylandWindow *>(client)) {
-        windowId = Workspace::self()->nullFocusWindow();
     }
     if (m_activeWindow == windowId) {
         return;
@@ -266,12 +260,10 @@ WinInfo::WinInfo(X11Window *c, xcb_window_t window,
 
 void WinInfo::changeDesktop(int desktopId)
 {
-    if (RootInfo::desktopEnabled()) {
-        if (desktopId == NET::OnAllDesktops) {
-            Workspace::self()->sendWindowToDesktops(m_client, {}, true);
-        } else if (VirtualDesktop *desktop = VirtualDesktopManager::self()->desktopForX11Id(desktopId)) {
-            Workspace::self()->sendWindowToDesktops(m_client, {desktop}, true);
-        }
+    if (desktopId == NET::OnAllDesktops) {
+        Workspace::self()->sendWindowToDesktops(m_client, {}, true);
+    } else if (VirtualDesktop *desktop = VirtualDesktopManager::self()->desktopForX11Id(desktopId)) {
+        Workspace::self()->sendWindowToDesktops(m_client, {desktop}, true);
     }
 }
 
@@ -297,6 +289,9 @@ void WinInfo::changeState(NET::States state, NET::States mask)
         m_client->setMaximize(m_client->requestedMaximizeMode() & MaximizeVertical, state & NET::MaxHoriz);
     }
 
+    if (mask & NET::Shaded) {
+        m_client->setShade(state & NET::Shaded ? ShadeNormal : ShadeNone);
+    }
     if (mask & NET::KeepAbove) {
         m_client->setKeepAbove((state & NET::KeepAbove) != 0);
     }

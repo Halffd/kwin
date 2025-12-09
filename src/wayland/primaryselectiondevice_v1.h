@@ -38,7 +38,9 @@ public:
 
     SeatInterface *seat() const;
 
-    PrimarySelectionOfferV1Interface *sendSelection(AbstractDataSource *other);
+    PrimarySelectionSourceV1Interface *selection() const;
+
+    void sendSelection(AbstractDataSource *other);
 
     wl_client *client() const;
 

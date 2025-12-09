@@ -181,7 +181,7 @@ QMatrix4x4 Colorimetry::chromaticAdaptationMatrix(XYZ sourceWhitepoint, XYZ dest
     if (sourceWhitepoint == destinationWhitepoint) {
         return QMatrix4x4{};
     }
-    const QVector3D factors = (bradford.map(destinationWhitepoint.asVector())) / (bradford.map(sourceWhitepoint.asVector()));
+    const QVector3D factors = (bradford * destinationWhitepoint.asVector()) / (bradford * sourceWhitepoint.asVector());
     QMatrix4x4 adaptation{};
     adaptation(0, 0) = factors.x();
     adaptation(1, 1) = factors.y();
@@ -194,7 +194,7 @@ QMatrix4x4 Colorimetry::calculateToXYZMatrix(XYZ red, XYZ green, XYZ blue, XYZ w
     const QVector3D r = red.asVector();
     const QVector3D g = green.asVector();
     const QVector3D b = blue.asVector();
-    const auto component_scale = (matrixFromColumns(r, g, b)).inverted().map(white.asVector());
+    const auto component_scale = (matrixFromColumns(r, g, b)).inverted() * white.asVector();
     return matrixFromColumns(r * component_scale.x(), g * component_scale.y(), b * component_scale.z());
 }
 
@@ -277,8 +277,7 @@ Colorimetry::Colorimetry(xy red, xy green, xy blue, xy white)
                                  xyY(green.x, green.y, 1.0).toXYZ().asVector(),
                                  xyY(blue.x, blue.y, 1.0).toXYZ().asVector()))
                                 .inverted()
-                                .map(
-        xyY(white.x, white.y, 1.0).toXYZ().asVector());
+        * xyY(white.x, white.y, 1.0).toXYZ().asVector();
     m_red = xyY(red.x, red.y, brightness.x()).toXYZ();
     m_green = xyY(green.x, green.y, brightness.y()).toXYZ();
     m_blue = xyY(blue.x, blue.y, brightness.z()).toXYZ();
@@ -326,9 +325,9 @@ Colorimetry Colorimetry::adaptedTo(xyY newWhitepoint) const
 {
     const auto mat = chromaticAdaptationMatrix(this->white(), newWhitepoint.toXYZ());
     return Colorimetry{
-        XYZ::fromVector(mat.map(red().asVector())),
-        XYZ::fromVector(mat.map(green().asVector())),
-        XYZ::fromVector(mat.map(blue().asVector())),
+        XYZ::fromVector(mat * red().asVector()),
+        XYZ::fromVector(mat * green().asVector()),
+        XYZ::fromVector(mat * blue().asVector()),
         newWhitepoint.toXYZ(),
     };
 }
@@ -349,14 +348,14 @@ QMatrix4x4 Colorimetry::relativeColorimetricTo(const Colorimetry &other) const
     return other.fromXYZ() * chromaticAdaptationMatrix(white(), other.white()) * toXYZ();
 }
 
-QMatrix4x4 Colorimetry::absoluteColorimetricTo(const Colorimetry &other) const
-{
-    return other.fromXYZ() * toXYZ();
-}
-
 bool Colorimetry::operator==(const Colorimetry &other) const
 {
     return red() == other.red() && green() == other.green() && blue() == other.blue() && white() == other.white();
+}
+
+bool Colorimetry::operator==(NamedColorimetry name) const
+{
+    return *this == fromName(name);
 }
 
 const XYZ &Colorimetry::red() const
@@ -379,81 +378,127 @@ const XYZ &Colorimetry::white() const
     return m_white;
 }
 
-const Colorimetry Colorimetry::BT709 = Colorimetry{
+static const Colorimetry BT709 = Colorimetry{
     xy{0.64, 0.33},
     xy{0.30, 0.60},
     xy{0.15, 0.06},
     xy{0.3127, 0.3290},
 };
-const Colorimetry Colorimetry::PAL_M = Colorimetry{
+static const Colorimetry PAL_M = Colorimetry{
     xy{0.67, 0.33},
     xy{0.21, 0.71},
     xy{0.14, 0.08},
     xy{0.310, 0.316},
 };
-const Colorimetry Colorimetry::PAL = Colorimetry{
+static const Colorimetry PAL = Colorimetry{
     xy{0.640, 0.330},
     xy{0.290, 0.600},
     xy{0.150, 0.060},
     xy{0.3127, 0.3290},
 };
-const Colorimetry Colorimetry::NTSC = Colorimetry{
+static const Colorimetry NTSC = Colorimetry{
     xy{0.630, 0.340},
     xy{0.310, 0.595},
     xy{0.155, 0.070},
     xy{0.3127, 0.3290},
 };
-const Colorimetry Colorimetry::GenericFilm = Colorimetry{
-    xy{0.681, 0.319},
+static const Colorimetry GenericFilm = Colorimetry{
     xy{0.243, 0.692},
     xy{0.145, 0.049},
+    xy{0.681, 0.319},
     xy{0.310, 0.316},
 };
-const Colorimetry Colorimetry::BT2020 = Colorimetry{
+static const Colorimetry BT2020 = Colorimetry{
     xy{0.708, 0.292},
     xy{0.170, 0.797},
     xy{0.131, 0.046},
     xy{0.3127, 0.3290},
 };
-const Colorimetry Colorimetry::CIEXYZ = Colorimetry{
+static const Colorimetry CIEXYZ = Colorimetry{
     XYZ{1.0, 0.0, 0.0},
     XYZ{0.0, 1.0, 0.0},
     XYZ{0.0, 0.0, 1.0},
     xy{1.0 / 3.0, 1.0 / 3.0}.toXYZ(),
 };
-const Colorimetry Colorimetry::DCIP3 = Colorimetry{
+static const Colorimetry DCIP3 = Colorimetry{
     xy{0.680, 0.320},
     xy{0.265, 0.690},
     xy{0.150, 0.060},
     xy{0.314, 0.351},
 };
-const Colorimetry Colorimetry::DisplayP3 = Colorimetry{
+static const Colorimetry DisplayP3 = Colorimetry{
     xy{0.680, 0.320},
     xy{0.265, 0.690},
     xy{0.150, 0.060},
     xy{0.3127, 0.3290},
 };
-const Colorimetry Colorimetry::AdobeRGB = Colorimetry{
+static const Colorimetry AdobeRGB = Colorimetry{
     xy{0.6400, 0.3300},
     xy{0.2100, 0.7100},
     xy{0.1500, 0.0600},
     xy{0.3127, 0.3290},
 };
 
-const std::shared_ptr<ColorDescription> ColorDescription::sRGB = std::make_shared<ColorDescription>(Colorimetry::BT709, TransferFunction(TransferFunction::gamma22));
-const std::shared_ptr<ColorDescription> ColorDescription::BT2020PQ = std::make_shared<ColorDescription>(Colorimetry::BT2020, TransferFunction(TransferFunction::PerceptualQuantizer));
+const Colorimetry &Colorimetry::fromName(NamedColorimetry name)
+{
+    switch (name) {
+    case NamedColorimetry::BT709:
+        return BT709;
+    case NamedColorimetry::PAL_M:
+        return PAL_M;
+    case NamedColorimetry::PAL:
+        return PAL;
+    case NamedColorimetry::NTSC:
+        return NTSC;
+    case NamedColorimetry::GenericFilm:
+        return GenericFilm;
+    case NamedColorimetry::BT2020:
+        return BT2020;
+    case NamedColorimetry::CIEXYZ:
+        return CIEXYZ;
+    case NamedColorimetry::DCIP3:
+        return DCIP3;
+    case NamedColorimetry::DisplayP3:
+        return DisplayP3;
+    case NamedColorimetry::AdobeRGB:
+        return AdobeRGB;
+    }
+    Q_UNREACHABLE();
+}
 
-ColorDescription::ColorDescription(const Colorimetry &containerColorimetry, TransferFunction tf,
-                                   double referenceLuminance, double minLuminance, std::optional<double> maxAverageLuminance, std::optional<double> maxHdrLuminance,
-                                   YUVMatrixCoefficients yuvCoefficients, EncodingRange range)
-    : ColorDescription(containerColorimetry, tf, referenceLuminance, minLuminance, maxAverageLuminance, maxHdrLuminance, containerColorimetry, Colorimetry::BT709, yuvCoefficients, range)
+std::optional<NamedColorimetry> Colorimetry::name() const
+{
+    constexpr std::array names = {
+        NamedColorimetry::BT709,
+        NamedColorimetry::PAL_M,
+        NamedColorimetry::PAL,
+        NamedColorimetry::NTSC,
+        NamedColorimetry::GenericFilm,
+        NamedColorimetry::BT2020,
+        NamedColorimetry::CIEXYZ,
+        NamedColorimetry::DCIP3,
+        NamedColorimetry::DisplayP3,
+        NamedColorimetry::AdobeRGB,
+    };
+    const auto it = std::ranges::find_if(names, [this](NamedColorimetry name) {
+        return *this == name;
+    });
+    return it != names.end() ? std::optional(*it) : std::nullopt;
+}
+
+const ColorDescription ColorDescription::sRGB = ColorDescription(NamedColorimetry::BT709, TransferFunction(TransferFunction::gamma22), TransferFunction::defaultReferenceLuminanceFor(TransferFunction::gamma22), TransferFunction::defaultMinLuminanceFor(TransferFunction::gamma22), TransferFunction::defaultMaxLuminanceFor(TransferFunction::gamma22), TransferFunction::defaultMaxLuminanceFor(TransferFunction::gamma22));
+
+ColorDescription::ColorDescription(const Colorimetry &containerColorimetry, TransferFunction tf, double referenceLuminance, double minLuminance, std::optional<double> maxAverageLuminance, std::optional<double> maxHdrLuminance)
+    : ColorDescription(containerColorimetry, tf, referenceLuminance, minLuminance, maxAverageLuminance, maxHdrLuminance, std::nullopt, Colorimetry::fromName(NamedColorimetry::BT709))
 {
 }
 
-ColorDescription::ColorDescription(const Colorimetry &containerColorimetry, TransferFunction tf,
-                                   double referenceLuminance, double minLuminance, std::optional<double> maxAverageLuminance, std::optional<double> maxHdrLuminance,
-                                   const Colorimetry &masteringColorimetry, const Colorimetry &sdrColorimetry,
-                                   YUVMatrixCoefficients yuvCoefficients, EncodingRange range)
+ColorDescription::ColorDescription(NamedColorimetry containerColorimetry, TransferFunction tf, double referenceLuminance, double minLuminance, std::optional<double> maxAverageLuminance, std::optional<double> maxHdrLuminance)
+    : ColorDescription(Colorimetry::fromName(containerColorimetry), tf, referenceLuminance, minLuminance, maxAverageLuminance, maxHdrLuminance, std::nullopt, Colorimetry::fromName(NamedColorimetry::BT709))
+{
+}
+
+ColorDescription::ColorDescription(const Colorimetry &containerColorimetry, TransferFunction tf, double referenceLuminance, double minLuminance, std::optional<double> maxAverageLuminance, std::optional<double> maxHdrLuminance, std::optional<Colorimetry> masteringColorimetry, const Colorimetry &sdrColorimetry)
     : m_containerColorimetry(containerColorimetry)
     , m_masteringColorimetry(masteringColorimetry)
     , m_transferFunction(tf)
@@ -462,13 +507,11 @@ ColorDescription::ColorDescription(const Colorimetry &containerColorimetry, Tran
     , m_minLuminance(minLuminance)
     , m_maxAverageLuminance(maxAverageLuminance)
     , m_maxHdrLuminance(maxHdrLuminance)
-    , m_yuvCoefficients(yuvCoefficients)
-    , m_range(range)
 {
 }
 
-ColorDescription::ColorDescription(const Colorimetry &containerColorimetry, TransferFunction tf, YUVMatrixCoefficients yuvCoefficients, EncodingRange range)
-    : ColorDescription(containerColorimetry, tf, TransferFunction::defaultReferenceLuminanceFor(tf.type), tf.minLuminance, tf.maxLuminance, tf.maxLuminance, yuvCoefficients, range)
+ColorDescription::ColorDescription(NamedColorimetry containerColorimetry, TransferFunction tf, double referenceLuminance, double minLuminance, std::optional<double> maxAverageLuminance, std::optional<double> maxHdrLuminance, std::optional<Colorimetry> masteringColorimetry, const Colorimetry &sdrColorimetry)
+    : ColorDescription(Colorimetry::fromName(containerColorimetry), tf, referenceLuminance, minLuminance, maxAverageLuminance, maxHdrLuminance, masteringColorimetry, sdrColorimetry)
 {
 }
 
@@ -477,7 +520,7 @@ const Colorimetry &ColorDescription::containerColorimetry() const
     return m_containerColorimetry;
 }
 
-const Colorimetry &ColorDescription::masteringColorimetry() const
+const std::optional<Colorimetry> &ColorDescription::masteringColorimetry() const
 {
     return m_masteringColorimetry;
 }
@@ -512,73 +555,6 @@ std::optional<double> ColorDescription::maxHdrLuminance() const
     return m_maxHdrLuminance;
 }
 
-YUVMatrixCoefficients ColorDescription::yuvCoefficients() const
-{
-    return m_yuvCoefficients;
-}
-
-EncodingRange ColorDescription::range() const
-{
-    return m_range;
-}
-
-/**
- * @returns a matrix that converts colors in the specified YCbCr (full range: Y[0; 1] and CbCr[-0.5; 0.5]) to RGB ([0; 1])
- */
-static QMatrix4x4 calculateYuvToRgbMatrix(double kr, double kg, double kb, EncodingRange range)
-{
-    const QMatrix4x4 conversion(
-        1, 0, 2 - 2 * kr, 0.0,
-        1, -kb / kg * (2 - 2 * kb), -kr / kg * (2 - 2 * kr), 0.0,
-        1, 2 - 2 * kb, 0, 0.0,
-        0.0, 0.0, 0.0, 1.0);
-    if (range == EncodingRange::Limited) {
-        QMatrix4x4 limitedToFullRangeYCbCr;
-        limitedToFullRangeYCbCr.scale(255.0 / 219.0, 255.0 / 224.0, 255.0 / 224.0);
-        limitedToFullRangeYCbCr.translate(-16.0 / 255.0, -0.5, -0.5);
-        return conversion * limitedToFullRangeYCbCr;
-    } else {
-        QMatrix4x4 chromaConversion;
-        chromaConversion.translate(0, -0.5, -0.5);
-        return conversion * chromaConversion;
-    }
-}
-
-static const QMatrix4x4 s_limitedRangeBT601 = calculateYuvToRgbMatrix(0.299, 0.587, 0.114, EncodingRange::Limited);
-static const QMatrix4x4 s_fullRangeBT601 = calculateYuvToRgbMatrix(0.299, 0.587, 0.114, EncodingRange::Full);
-static const QMatrix4x4 s_limitedRangeBT709 = calculateYuvToRgbMatrix(0.2126, 0.7152, 0.0722, EncodingRange::Limited);
-static const QMatrix4x4 s_fullRangeBT709 = calculateYuvToRgbMatrix(0.2126, 0.7152, 0.0722, EncodingRange::Full);
-static const QMatrix4x4 s_limitedRangeBT2020 = calculateYuvToRgbMatrix(0.2627, 0.6780, 0.0593, EncodingRange::Limited);
-static const QMatrix4x4 s_fullRangeBT2020 = calculateYuvToRgbMatrix(0.2627, 0.6780, 0.0593, EncodingRange::Full);
-
-QMatrix4x4 ColorDescription::yuvMatrix() const
-{
-    switch (m_yuvCoefficients) {
-    case YUVMatrixCoefficients::Identity:
-        Q_ASSERT(m_range == EncodingRange::Full);
-        return QMatrix4x4();
-    case YUVMatrixCoefficients::BT601:
-        if (m_range == EncodingRange::Limited) {
-            return s_limitedRangeBT601;
-        } else {
-            return s_fullRangeBT601;
-        }
-    case YUVMatrixCoefficients::BT709:
-        if (m_range == EncodingRange::Limited) {
-            return s_limitedRangeBT709;
-        } else {
-            return s_fullRangeBT709;
-        }
-    case YUVMatrixCoefficients::BT2020:
-        if (m_range == EncodingRange::Limited) {
-            return s_limitedRangeBT2020;
-        } else {
-            return s_fullRangeBT2020;
-        }
-    }
-    Q_UNREACHABLE();
-}
-
 QMatrix4x4 ColorDescription::toOther(const ColorDescription &other, RenderingIntent intent) const
 {
     QMatrix4x4 luminanceBefore;
@@ -602,7 +578,7 @@ QMatrix4x4 ColorDescription::toOther(const ColorDescription &other, RenderingInt
     }
     switch (intent) {
     case RenderingIntent::Perceptual: {
-        const Colorimetry &srcContainer = containerColorimetry() == Colorimetry::BT709 ? other.sdrColorimetry() : containerColorimetry();
+        const Colorimetry &srcContainer = containerColorimetry() == NamedColorimetry::BT709 ? other.sdrColorimetry() : containerColorimetry();
         return luminanceAfter * other.containerColorimetry().fromXYZ() * Colorimetry::chromaticAdaptationMatrix(srcContainer.white(), other.containerColorimetry().white()) * srcContainer.toXYZ() * luminanceBefore;
     }
     case RenderingIntent::RelativeColorimetric: {
@@ -611,7 +587,7 @@ QMatrix4x4 ColorDescription::toOther(const ColorDescription &other, RenderingInt
     case RenderingIntent::RelativeColorimetricWithBPC: {
         return luminanceAfter * other.containerColorimetry().fromXYZ() * Colorimetry::chromaticAdaptationMatrix(containerColorimetry().white(), other.containerColorimetry().white()) * containerColorimetry().toXYZ() * luminanceBefore;
     }
-    case RenderingIntent::AbsoluteColorimetricNoAdaptation: {
+    case RenderingIntent::AbsoluteColorimetric: {
         return luminanceAfter * other.containerColorimetry().fromXYZ() * containerColorimetry().toXYZ() * luminanceBefore;
     }
     }
@@ -625,28 +601,28 @@ QVector3D ColorDescription::mapTo(QVector3D rgb, const ColorDescription &dst, Re
     return dst.transferFunction().nitsToEncoded(rgb);
 }
 
-std::shared_ptr<ColorDescription> ColorDescription::withTransferFunction(const TransferFunction &func) const
+ColorDescription ColorDescription::withTransferFunction(const TransferFunction &func) const
 {
-    return std::make_shared<ColorDescription>(m_containerColorimetry, func, m_referenceLuminance, m_minLuminance, m_maxAverageLuminance, m_maxHdrLuminance, m_masteringColorimetry, m_sdrColorimetry);
+    return ColorDescription(m_containerColorimetry, func, m_referenceLuminance, m_minLuminance, m_maxAverageLuminance, m_maxHdrLuminance, m_masteringColorimetry, m_sdrColorimetry);
 }
 
-std::shared_ptr<ColorDescription> ColorDescription::withWhitepoint(xyY newWhitePoint) const
+ColorDescription ColorDescription::withWhitepoint(xyY newWhitePoint) const
 {
-    return std::make_shared<ColorDescription>(ColorDescription{
+    return ColorDescription{
         m_containerColorimetry.withWhitepoint(newWhitePoint),
         m_transferFunction,
         m_referenceLuminance,
         m_minLuminance,
         m_maxAverageLuminance,
         m_maxHdrLuminance,
-        m_masteringColorimetry.withWhitepoint(newWhitePoint),
+        m_masteringColorimetry ? std::optional(m_masteringColorimetry->withWhitepoint(newWhitePoint)) : std::nullopt,
         m_sdrColorimetry,
-    });
+    };
 }
 
-std::shared_ptr<ColorDescription> ColorDescription::dimmed(double brightnessFactor) const
+ColorDescription ColorDescription::dimmed(double brightnessFactor) const
 {
-    return std::make_shared<ColorDescription>(ColorDescription{
+    return ColorDescription{
         m_containerColorimetry,
         m_transferFunction,
         m_referenceLuminance * brightnessFactor,
@@ -659,51 +635,7 @@ std::shared_ptr<ColorDescription> ColorDescription::dimmed(double brightnessFact
     }),
         m_masteringColorimetry,
         m_sdrColorimetry,
-    });
-}
-
-std::shared_ptr<ColorDescription> ColorDescription::withReference(double referenceLuminance) const
-{
-    return std::make_shared<ColorDescription>(ColorDescription{
-        m_containerColorimetry,
-        m_transferFunction,
-        referenceLuminance,
-        m_minLuminance,
-        m_maxAverageLuminance,
-        m_maxHdrLuminance,
-        m_masteringColorimetry,
-        m_sdrColorimetry,
-    });
-}
-
-std::shared_ptr<ColorDescription> ColorDescription::withHdrMetadata(double maxAverageLuminance, double maxLuminance) const
-{
-    return std::make_shared<ColorDescription>(ColorDescription{
-        m_containerColorimetry,
-        m_transferFunction,
-        m_referenceLuminance,
-        m_minLuminance,
-        maxAverageLuminance,
-        maxLuminance,
-        m_masteringColorimetry,
-        m_sdrColorimetry,
-    });
-}
-
-std::shared_ptr<ColorDescription> ColorDescription::withYuvCoefficients(YUVMatrixCoefficients coefficient, EncodingRange range) const
-{
-    return std::make_shared<ColorDescription>(ColorDescription{
-        m_containerColorimetry,
-        m_transferFunction,
-        m_referenceLuminance,
-        m_minLuminance,
-        m_maxAverageLuminance,
-        m_maxHdrLuminance,
-        m_masteringColorimetry,
-        m_sdrColorimetry,
-        coefficient,
-        range,
-    });
+    };
 }
 
 double TransferFunction::defaultMinLuminanceFor(Type type)
@@ -713,8 +645,6 @@ double TransferFunction::defaultMinLuminanceFor(Type type)
     case Type::gamma22:
     case Type::linear:
         return 0.2;
-    case Type::BT1886:
-        return 0.01;
     case Type::PerceptualQuantizer:
         return 0.005;
     }
@@ -728,8 +658,6 @@ double TransferFunction::defaultMaxLuminanceFor(Type type)
     case Type::gamma22:
     case Type::linear:
         return 80;
-    case Type::BT1886:
-        return 100;
     case Type::PerceptualQuantizer:
         return 10'000;
     }
@@ -745,8 +673,6 @@ double TransferFunction::defaultReferenceLuminanceFor(Type type)
     case Type::sRGB:
     case Type::gamma22:
         return 80;
-    case Type::BT1886:
-        return 100;
     }
     Q_UNREACHABLE();
 }
@@ -797,14 +723,6 @@ double TransferFunction::encodedToNits(double encoded) const
         const double den = c2 - c3 * powed;
         return std::pow(num / den, m1_inv) * (maxLuminance - minLuminance) + minLuminance;
     }
-    case TransferFunction::BT1886: {
-        constexpr double gamma = 2.4;
-        const double minLumPow = std::pow(minLuminance, 1.0 / gamma);
-        const double tmp = std::pow(maxLuminance, 1.0 / gamma) - minLumPow;
-        const double alpha = std::pow(tmp, gamma);
-        const double beta = minLumPow / tmp;
-        return alpha * std::pow(std::max(encoded + beta, 0.0), gamma);
-    }
     }
     Q_UNREACHABLE();
 }
@@ -845,14 +763,6 @@ double TransferFunction::nitsToEncoded(double nits) const
         const double denum = 1 + c3 * powed;
         return std::pow(num / denum, m2);
     }
-    case TransferFunction::BT1886: {
-        constexpr double gamma = 2.4;
-        const double minLumPow = std::pow(minLuminance, 1.0 / gamma);
-        const double tmp = std::pow(maxLuminance, 1.0 / gamma) - minLumPow;
-        const double alpha = std::pow(tmp, gamma);
-        const double beta = minLumPow / tmp;
-        return std::pow(nits / alpha, 1.0 / gamma) - beta;
-    }
     }
     Q_UNREACHABLE();
 }
@@ -872,20 +782,12 @@ bool TransferFunction::isRelative() const
     switch (type) {
     case TransferFunction::gamma22:
     case TransferFunction::sRGB:
-    case TransferFunction::BT1886:
         return true;
     case TransferFunction::linear:
     case TransferFunction::PerceptualQuantizer:
         return false;
     }
     Q_UNREACHABLE();
-}
-
-bool TransferFunction::hasLinearMinLuminance() const
-{
-    // With BT1886, min luminance is part of an electrical offset
-    // and causes non-linear changes to the curve
-    return type != TransferFunction::BT1886;
 }
 
 TransferFunction TransferFunction::relativeScaledTo(double referenceLuminance) const
@@ -895,18 +797,6 @@ TransferFunction TransferFunction::relativeScaledTo(double referenceLuminance) c
     } else {
         return *this;
     }
-}
-
-double TransferFunction::bt1886A() const
-{
-    return std::pow(std::pow(maxLuminance, 1.0 / 2.4) - std::pow(minLuminance, 1.0 / 2.4), 2.4);
-}
-
-double TransferFunction::bt1886B() const
-{
-    const double powBlack = std::pow(minLuminance, 1.0 / 2.4);
-    const double powWhite = std::pow(maxLuminance, 1.0 / 2.4);
-    return powBlack / (powWhite - powBlack);
 }
 }
 

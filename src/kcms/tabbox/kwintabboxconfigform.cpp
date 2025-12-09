@@ -34,7 +34,9 @@ KWinTabBoxConfigForm::KWinTabBoxConfigForm(TabboxType type, TabBoxSettings *conf
 
     connect(this, &KWinTabBoxConfigForm::configChanged, this, &KWinTabBoxConfigForm::updateDefaultIndicators);
 
-    connect(ui->effectPreviewButton, &QPushButton::clicked, this, &KWinTabBoxConfigForm::effectPreviewClicked);
+    connect(ui->effectConfigButton, &QPushButton::clicked, this, &KWinTabBoxConfigForm::effectConfigButtonClicked);
+
+    connect(ui->kcfg_ShowTabBox, &QAbstractButton::clicked, this, &KWinTabBoxConfigForm::tabBoxToggled);
 
     connect(ui->filterScreens, &QAbstractButton::clicked, this, &KWinTabBoxConfigForm::onFilterScreen);
     connect(ui->currentScreen, &QAbstractButton::clicked, this, &KWinTabBoxConfigForm::onFilterScreen);
@@ -244,6 +246,14 @@ QVariant KWinTabBoxConfigForm::effectComboCurrentData(int role) const
     return ui->effectCombo->currentData(role);
 }
 
+void KWinTabBoxConfigForm::tabBoxToggled(bool on)
+{
+    // Highlight Windows options is availabled if no TabBox effect is selected
+    // or if Tabbox is not builtin effet.
+    on = !on || ui->effectCombo->currentData(AddonEffect).toBool();
+    ui->kcfg_HighlightWindows->setEnabled(on && m_isHighlightWindowsEnabled);
+}
+
 void KWinTabBoxConfigForm::onFilterScreen()
 {
     m_config->setMultiScreenMode(filterScreen());
@@ -294,9 +304,12 @@ void KWinTabBoxConfigForm::onSwitchingMode()
 
 void KWinTabBoxConfigForm::onEffectCombo()
 {
+    const bool isAddonEffect = ui->effectCombo->currentData(AddonEffect).toBool();
+    ui->effectConfigButton->setIcon(QIcon::fromTheme(isAddonEffect ? "view-preview" : "configure"));
     if (!ui->kcfg_ShowTabBox->isChecked()) {
         return;
     }
+    ui->kcfg_HighlightWindows->setEnabled(isAddonEffect && m_isHighlightWindowsEnabled);
 
     m_config->setLayoutName(layoutName());
     Q_EMIT configChanged();
@@ -328,6 +341,7 @@ void KWinTabBoxConfigForm::updateUiFromConfig()
 
 void KWinTabBoxConfigForm::setEnabledUi()
 {
+    m_isHighlightWindowsEnabled = !m_config->isHighlightWindowsImmutable();
     ui->kcfg_HighlightWindows->setEnabled(!m_config->isHighlightWindowsImmutable());
 
     ui->filterScreens->setEnabled(!m_config->isMultiScreenModeImmutable());

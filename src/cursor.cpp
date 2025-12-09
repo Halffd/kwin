@@ -9,15 +9,28 @@
 
 #include "cursor.h"
 // kwin
+#include "compositor.h"
 #include "core/output.h"
 #include "cursorsource.h"
+#include "input.h"
+#include "keyboard_input.h"
 #include "main.h"
+#include "scene/workspacescene.h"
+#include "utils/common.h"
 
+#if KWIN_BUILD_X11
+#include "utils/xcbutils.h"
+#endif
 // KDE
 #include <KConfig>
 #include <KConfigGroup>
 // Qt
+#include <QAbstractEventDispatcher>
 #include <QDBusConnection>
+#include <QScreen>
+#include <QTimer>
+
+#include <xcb/xcb_cursor.h>
 
 namespace KWin
 {
@@ -30,33 +43,30 @@ Cursors *Cursors::self()
     return s_self;
 }
 
-Cursors::Cursors()
-    : m_mouse(std::make_unique<Cursor>())
-{
-    addCursor(m_mouse.get());
-    setCurrentCursor(m_mouse.get());
-}
-
 void Cursors::addCursor(Cursor *cursor)
 {
     Q_ASSERT(!m_cursors.contains(cursor));
     m_cursors += cursor;
 
-    connect(cursor, &Cursor::destroyed, this, [this, cursor]() {
-        m_cursors.removeOne(cursor);
-        if (m_currentCursor == cursor) {
-            if (m_cursors.isEmpty()) {
-                m_currentCursor = nullptr;
-            } else {
-                setCurrentCursor(m_cursors.constFirst());
-            }
-        }
-    });
-
     connect(cursor, &Cursor::posChanged, this, [this, cursor](const QPointF &pos) {
         setCurrentCursor(cursor);
         Q_EMIT positionChanged(cursor, pos);
     });
+}
+
+void Cursors::removeCursor(Cursor *cursor)
+{
+    m_cursors.removeOne(cursor);
+    if (m_currentCursor == cursor) {
+        if (m_cursors.isEmpty()) {
+            m_currentCursor = nullptr;
+        } else {
+            setCurrentCursor(m_cursors.constFirst());
+        }
+    }
+    if (m_mouse == cursor) {
+        m_mouse = nullptr;
+    }
 }
 
 void Cursors::hideCursor()
@@ -109,6 +119,15 @@ Cursor::Cursor()
     loadThemeSettings();
     QDBusConnection::sessionBus().connect(QString(), QStringLiteral("/KGlobalSettings"), QStringLiteral("org.kde.KGlobalSettings"),
                                           QStringLiteral("notifyChange"), this, SLOT(slotKGlobalSettingsNotifyChange(int, int)));
+
+    connect(kwinApp(), &Application::x11ConnectionChanged, this, [this]() {
+        m_cursors.clear();
+    });
+}
+
+Cursor::~Cursor()
+{
+    Cursors::self()->removeCursor(this);
 }
 
 void Cursor::loadThemeSettings()
@@ -138,6 +157,7 @@ void Cursor::updateTheme(const QString &name, int size)
     if (m_themeName != name || m_themeSize != size) {
         m_themeName = name;
         m_themeSize = size;
+        m_cursors.clear();
         Q_EMIT themeChanged();
     }
 }
@@ -150,7 +170,7 @@ void Cursor::slotKGlobalSettingsNotifyChange(int type, int arg)
     }
 }
 
-bool Cursor::isOnOutput(LogicalOutput *output) const
+bool Cursor::isOnOutput(Output *output) const
 {
     if (Cursors::self()->isCursorHidden()) {
         return false;
@@ -182,10 +202,72 @@ QRectF Cursor::rect() const
 
 QPointF Cursor::pos()
 {
+    doGetPos();
     return m_pos;
 }
 
 void Cursor::setPos(const QPointF &pos)
+{
+    // first query the current pos to not warp to the already existing pos
+    if (pos == m_pos) {
+        return;
+    }
+    m_pos = pos;
+    doSetPos();
+}
+
+#if KWIN_BUILD_X11
+xcb_cursor_t Cursor::x11Cursor(CursorShape shape)
+{
+    return x11Cursor(shape.name());
+}
+
+xcb_cursor_t Cursor::x11Cursor(const QByteArray &name)
+{
+    Q_ASSERT(kwinApp()->x11Connection());
+    auto it = m_cursors.constFind(name);
+    if (it != m_cursors.constEnd()) {
+        return it.value();
+    }
+
+    if (name.isEmpty()) {
+        return XCB_CURSOR_NONE;
+    }
+
+    xcb_cursor_context_t *ctx;
+    if (xcb_cursor_context_new(kwinApp()->x11Connection(), Xcb::defaultScreen(), &ctx) < 0) {
+        return XCB_CURSOR_NONE;
+    }
+
+    xcb_cursor_t cursor = xcb_cursor_load_cursor(ctx, name.constData());
+    if (cursor == XCB_CURSOR_NONE) {
+        const auto &names = CursorShape::alternatives(name);
+        for (const QByteArray &cursorName : names) {
+            cursor = xcb_cursor_load_cursor(ctx, cursorName.constData());
+            if (cursor != XCB_CURSOR_NONE) {
+                break;
+            }
+        }
+    }
+    if (cursor != XCB_CURSOR_NONE) {
+        m_cursors.insert(name, cursor);
+    }
+
+    xcb_cursor_context_free(ctx);
+    return cursor;
+}
+#endif
+
+void Cursor::doSetPos()
+{
+    Q_EMIT posChanged(m_pos);
+}
+
+void Cursor::doGetPos()
+{
+}
+
+void Cursor::updatePos(const QPointF &pos)
 {
     if (m_pos == pos) {
         return;
@@ -490,37 +572,12 @@ QList<QByteArray> CursorShape::alternatives(const QByteArray &name)
                 QByteArrayLiteral("right_side"),
             },
         },
-        {
-            QByteArrayLiteral("dnd-ask"),
-            {
-                QByteArrayLiteral("copy"),
-            },
-        },
-        {
-            QByteArrayLiteral("all-resize"),
-            {
-                QByteArrayLiteral("move"),
-            },
-        },
     };
-
     auto it = alternatives.find(name);
-    if (it == alternatives.end()) {
-        return QList<QByteArray>();
+    if (it != alternatives.end()) {
+        return it.value();
     }
-
-    QList<QByteArray> result = it.value();
-    for (int i = 0; i < result.size(); ++i) {
-        if (auto it = alternatives.find(result[i]); it != alternatives.end()) {
-            for (const QByteArray &alternative : *it) {
-                if (!result.contains(alternative)) {
-                    result.append(alternative);
-                }
-            }
-        }
-    }
-
-    return result;
+    return QList<QByteArray>();
 }
 
 QByteArray CursorShape::name() const

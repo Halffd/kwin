@@ -9,7 +9,6 @@
 #include "core/graphicsbuffer.h"
 
 #include <QPointer>
-#include <QSocketNotifier>
 
 #include <functional>
 #include <memory>
@@ -23,38 +22,10 @@ struct SurfaceState;
 class Transaction;
 
 /**
- * \internal
- *
- * The TransactionFence prevents the corresponding transaction from getting applied until the
- * specified file descriptor becomes readable.
- */
-class TransactionFence
-{
-public:
-    TransactionFence(Transaction *transaction, FileDescriptor &&fileDescriptor);
-
-    bool isWaiting() const;
-
-private:
-    Transaction *m_transaction;
-    std::unique_ptr<QSocketNotifier> m_notifier;
-    FileDescriptor m_fileDescriptor;
-};
-
-/**
  * The TransactionEntry type represents a log entry in a Transaction.
  */
 struct TransactionEntry
 {
-    /**
-     * Returns \c true if the transaction entry is discarded; otherwise returns \c false.
-     *
-     * A discarded transaction entry is an entry whose state cannot be applied anymore. For exaomple,
-     * because the surface has been destroyed or it is being destroyed or if the client connection
-     * is being terminated.
-     */
-    bool isDiscarded() const;
-
     /**
      * The surface that is going to be affected by the transaction. Might be
      * \c null if the surface has been destroyed while the transaction is still
@@ -81,11 +52,6 @@ struct TransactionEntry
      * The surface state that is going to be applied.
      */
     std::unique_ptr<SurfaceState> state;
-
-    /**
-     * A list of fences that must be signaled before the transaction can be applied.
-     */
-    std::vector<std::unique_ptr<TransactionFence>> fences;
 };
 
 /**
@@ -95,6 +61,16 @@ class KWIN_EXPORT Transaction
 {
 public:
     Transaction();
+
+    /**
+     * Locks the transaction. While the transaction is locked, it cannot be applied.
+     */
+    void lock();
+
+    /**
+     * Unlocks the transaction.
+     */
+    void unlock();
 
     /**
      * Returns \c true if this transaction can be applied, i.e. all its dependencies are resolved;
@@ -134,20 +110,12 @@ public:
      */
     void commit();
 
-    /**
-     * Attempts to apply the transaction. The transaction won't be applied if it has unresolved
-     * dependencies, for example previous transactions have not been applied yet, or one of the
-     * graphics buffers in the transaction is not ready to be used yet.
-     */
-    void tryApply();
-
 private:
     void apply();
-
-    void watchSyncObj(TransactionEntry *entry);
-    void watchDmaBuf(TransactionEntry *entry);
+    bool tryApply();
 
     std::vector<TransactionEntry> m_entries;
+    int m_locks = 0;
 };
 
 } // namespace KWin

@@ -23,11 +23,12 @@ class MouseMarkEffect
     Q_PROPERTY(int width READ configuredWidth)
     Q_PROPERTY(QColor color READ configuredColor)
     Q_PROPERTY(Qt::KeyboardModifiers modifiers READ freedraw_modifiers)
+    Q_PROPERTY(Qt::KeyboardModifiers modifiers READ arrowdraw_modifiers)
 public:
     MouseMarkEffect();
     ~MouseMarkEffect() override;
     void reconfigure(ReconfigureFlags) override;
-    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen) override;
+    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen) override;
     bool isActive() const override;
     int requestedEffectChainPosition() const override;
 
@@ -43,6 +44,10 @@ public:
     Qt::KeyboardModifiers freedraw_modifiers() const
     {
         return m_freedraw_modifiers;
+    }
+    Qt::KeyboardModifiers arrowdraw_modifiers() const
+    {
+        return m_arrowdraw_modifiers;
     }
 private Q_SLOTS:
     void clear();

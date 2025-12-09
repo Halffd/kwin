@@ -10,7 +10,7 @@
 
 #include "selection.h"
 
-#include "wayland/abstract_data_source.h"
+#include "wayland/datadevicemanager.h"
 
 #include <QPoint>
 
@@ -22,6 +22,8 @@ class Window;
 namespace Xwl
 {
 class Drag;
+enum class DragEventReply;
+
 class XwlDropHandler;
 
 /**
@@ -38,12 +40,15 @@ public:
     static uint32_t version();
     XwlDropHandler *dropHandler() const;
 
-    void selectionDisowned() override;
-    void selectionClaimed(xcb_xfixes_selection_notify_event_t *event) override;
+    void doHandleXfixesNotify(xcb_xfixes_selection_notify_event_t *event) override;
+    void x11OfferLost() override;
+    void x11OffersChanged(const QStringList &added, const QStringList &removed) override;
     bool handleClientMessage(xcb_client_message_event_t *event) override;
 
-    bool dragMoveFilter(Window *target, const QPointF &position);
+    DragEventReply dragMoveFilter(Window *target);
 
+    using DnDAction = DataDeviceManagerInterface::DnDAction;
+    using DnDActions = DataDeviceManagerInterface::DnDActions;
     static DnDAction atomToClientAction(xcb_atom_t atom);
     static xcb_atom_t clientActionToAtom(DnDAction action);
 

@@ -4,12 +4,13 @@
     SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
  */
 #include "externalbrightness_v1.h"
+#include "core/output.h"
 #include "display.h"
 
 namespace KWin
 {
 
-static constexpr uint32_t s_version = 3;
+static constexpr uint32_t s_version = 2;
 
 ExternalBrightnessV1::ExternalBrightnessV1(Display *display, QObject *parent)
     : QObject(parent)
@@ -86,11 +87,6 @@ QByteArray ExternalBrightnessDeviceV1::edidBeginning() const
     return m_edidBeginning;
 }
 
-bool ExternalBrightnessDeviceV1::usesDdcCi() const
-{
-    return m_usesDdcCi;
-}
-
 int ExternalBrightnessDeviceV1::brightnessSteps() const
 {
     return m_maxBrightness - (m_internal ? 1 : 0);
@@ -114,11 +110,6 @@ void ExternalBrightnessDeviceV1::kde_external_brightness_device_v1_set_internal(
 void ExternalBrightnessDeviceV1::kde_external_brightness_device_v1_set_edid(Resource *resource, const QString &edid)
 {
     m_edidBeginning = QByteArray::fromBase64(edid.toUtf8());
-}
-
-void ExternalBrightnessDeviceV1::kde_external_brightness_device_v1_set_uses_ddc_ci(Resource *resource, uint32_t uses)
-{
-    m_usesDdcCi = uses == 1;
 }
 
 void ExternalBrightnessDeviceV1::kde_external_brightness_device_v1_set_max_brightness(Resource *resource, uint32_t value)

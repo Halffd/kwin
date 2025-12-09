@@ -55,27 +55,26 @@ void ThumbnailAsideEffect::reconfigure(ReconfigureFlags)
     arrange();
 }
 
-void ThumbnailAsideEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen)
+void ThumbnailAsideEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
 {
     painted = QRegion();
-    effects->paintScreen(renderTarget, viewport, mask, deviceRegion, screen);
+    effects->paintScreen(renderTarget, viewport, mask, region, screen);
 
     for (const Data &d : std::as_const(windows)) {
-        if (painted.intersects(viewport.mapToDeviceCoordinatesAligned(d.rect))) {
+        if (painted.intersects(d.rect)) {
             WindowPaintData data;
             data.multiplyOpacity(opacity);
             QRect region;
             setPositionTransformations(data, region, d.window, d.rect, Qt::KeepAspectRatio);
-            effects->drawWindow(renderTarget, viewport, d.window, PAINT_WINDOW_OPAQUE | PAINT_WINDOW_TRANSLUCENT | PAINT_WINDOW_TRANSFORMED,
-                                viewport.mapToDeviceCoordinatesAligned(region), data);
+            effects->drawWindow(renderTarget, viewport, d.window, PAINT_WINDOW_OPAQUE | PAINT_WINDOW_TRANSLUCENT | PAINT_WINDOW_TRANSFORMED, region, data);
         }
     }
 }
 
-void ThumbnailAsideEffect::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceGeometry, WindowPaintData &data)
+void ThumbnailAsideEffect::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, QRegion region, WindowPaintData &data)
 {
-    effects->paintWindow(renderTarget, viewport, w, mask, deviceGeometry, data);
-    painted += deviceGeometry;
+    effects->paintWindow(renderTarget, viewport, w, mask, region, data);
+    painted += region;
 }
 
 void ThumbnailAsideEffect::slotWindowDamaged(EffectWindow *w)
@@ -167,7 +166,7 @@ void ThumbnailAsideEffect::arrange()
         mwidth = std::max(mwidth, d.window->width());
         pos[d.index] = d.window->height();
     }
-    LogicalOutput *effectiveScreen = effects->findScreen(screen);
+    Output *effectiveScreen = effects->findScreen(screen);
     if (!effectiveScreen) {
         effectiveScreen = effects->activeScreen();
     }

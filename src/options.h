@@ -21,6 +21,18 @@ namespace KWin
 
 // Whether to keep all windows mapped when compositing (i.e. whether to have
 // actively updated window pixmaps).
+enum HiddenPreviews {
+    // The normal mode with regard to mapped windows. Hidden (minimized, etc.)
+    // and windows on inactive virtual desktops are not mapped, their pixmaps
+    // are only their icons.
+    HiddenPreviewsNever,
+    // Like normal mode, but shown windows (i.e. on inactive virtual desktops)
+    // are kept mapped, only hidden windows are unmapped.
+    HiddenPreviewsShown,
+    // All windows are kept mapped regardless of their state.
+    HiddenPreviewsAlways
+};
+
 enum XwaylandEavesdropsMode {
     None,
     NonCharacterKeys,
@@ -55,14 +67,6 @@ enum PlacementPolicy {
     PlacementMaximizing,
 };
 
-enum class FocusStealingPreventionLevel {
-    None = 0,
-    Low = 1,
-    Medium = 2,
-    High = 3,
-    Extreme = 4,
-};
-
 class Settings;
 
 class KWIN_EXPORT Options : public QObject
@@ -91,6 +95,14 @@ class KWIN_EXPORT Options : public QObject
      * Delayed focus interval.
      */
     Q_PROPERTY(int delayFocusInterval READ delayFocusInterval WRITE setDelayFocusInterval NOTIFY delayFocusIntervalChanged)
+    /**
+     * Whether shade hover is enabled or not.
+     */
+    Q_PROPERTY(bool shadeHover READ isShadeHover WRITE setShadeHover NOTIFY shadeHoverChanged)
+    /**
+     * Shade hover interval.
+     */
+    Q_PROPERTY(int shadeHoverInterval READ shadeHoverInterval WRITE setShadeHoverInterval NOTIFY shadeHoverIntervalChanged)
     /**
      * Whether to see Xinerama screens separately for focus (in Alt+Tab, when activating next client)
      */
@@ -129,7 +141,7 @@ class KWIN_EXPORT Options : public QObject
     /**
      * 0 - 4 , see Workspace::allowWindowActivation()
      */
-    Q_PROPERTY(KWin::FocusStealingPreventionLevel focusStealingPreventionLevel READ focusStealingPreventionLevel WRITE setFocusStealingPreventionLevel NOTIFY focusStealingPreventionLevelChanged)
+    Q_PROPERTY(int focusStealingPreventionLevel READ focusStealingPreventionLevel WRITE setFocusStealingPreventionLevel NOTIFY focusStealingPreventionLevelChanged)
     Q_PROPERTY(KWin::Options::WindowOperation operationTitlebarDblClick READ operationTitlebarDblClick WRITE setOperationTitlebarDblClick NOTIFY operationTitlebarDblClickChanged)
     Q_PROPERTY(KWin::Options::WindowOperation operationMaxButtonLeftClick READ operationMaxButtonLeftClick WRITE setOperationMaxButtonLeftClick NOTIFY operationMaxButtonLeftClickChanged)
     Q_PROPERTY(KWin::Options::WindowOperation operationMaxButtonMiddleClick READ operationMaxButtonMiddleClick WRITE setOperationMaxButtonMiddleClick NOTIFY operationMaxButtonMiddleClickChanged)
@@ -162,10 +174,6 @@ class KWIN_EXPORT Options : public QObject
      */
     Q_PROPERTY(bool electricBorderTiling READ electricBorderTiling WRITE setElectricBorderTiling NOTIFY electricBorderTilingChanged)
     /**
-     * Whether each screen has its own active corners instead of limiting to only four corners across all screens.
-     */
-    Q_PROPERTY(bool electricBorderAllScreenCorner READ electricBorderAllScreenCorner WRITE setElectricBorderAllScreenCorner NOTIFY electricBorderAllScreenCornerChanged)
-    /**
      * Whether a window is tiled to half screen when reaching left or right screen edge while been moved.
      */
     Q_PROPERTY(float electricBorderCornerRatio READ electricBorderCornerRatio WRITE setElectricBorderCornerRatio NOTIFY electricBorderCornerRatioChanged)
@@ -175,16 +183,26 @@ class KWIN_EXPORT Options : public QObject
      */
     Q_PROPERTY(int killPingTimeout READ killPingTimeout WRITE setKillPingTimeout NOTIFY killPingTimeoutChanged)
     Q_PROPERTY(int compositingMode READ compositingMode WRITE setCompositingMode NOTIFY compositingModeChanged)
+    Q_PROPERTY(bool useCompositing READ isUseCompositing WRITE setUseCompositing NOTIFY useCompositingChanged)
+    Q_PROPERTY(int hiddenPreviews READ hiddenPreviews WRITE setHiddenPreviews NOTIFY hiddenPreviewsChanged)
     /**
      * 0 = no, 1 = yes when transformed,
      * 2 = try trilinear when transformed; else 1,
      * -1 = auto
      */
+    Q_PROPERTY(int glSmoothScale READ glSmoothScale WRITE setGlSmoothScale NOTIFY glSmoothScaleChanged)
+    Q_PROPERTY(bool glStrictBinding READ isGlStrictBinding WRITE setGlStrictBinding NOTIFY glStrictBindingChanged)
+    /**
+     * Whether strict binding follows the driver or has been overwritten by a user defined config value.
+     * If @c true glStrictBinding is set by the OpenGL Scene during initialization.
+     * If @c false glStrictBinding is set from a config value and not updated during scene initialization.
+     */
+    Q_PROPERTY(bool glStrictBindingFollowsDriver READ isGlStrictBindingFollowsDriver WRITE setGlStrictBindingFollowsDriver NOTIFY glStrictBindingFollowsDriverChanged)
+    Q_PROPERTY(GlSwapStrategy glPreferBufferSwap READ glPreferBufferSwap WRITE setGlPreferBufferSwap NOTIFY glPreferBufferSwapChanged)
+    Q_PROPERTY(KWin::OpenGLPlatformInterface glPlatformInterface READ glPlatformInterface WRITE setGlPlatformInterface NOTIFY glPlatformInterfaceChanged)
+    Q_PROPERTY(bool windowsBlockCompositing READ windowsBlockCompositing WRITE setWindowsBlockCompositing NOTIFY windowsBlockCompositingChanged)
     Q_PROPERTY(bool allowTearing READ allowTearing WRITE setAllowTearing NOTIFY allowTearingChanged)
     Q_PROPERTY(bool interactiveWindowMoveEnabled READ interactiveWindowMoveEnabled WRITE setInteractiveWindowMoveEnabled NOTIFY interactiveWindowMoveEnabledChanged)
-    Q_PROPERTY(Qt::Corner pictureInPictureHomeCorner READ pictureInPictureHomeCorner WRITE setPictureInPictureHomeCorner NOTIFY pictureInPictureHomeCornerChanged)
-    Q_PROPERTY(int pictureInPictureMargin READ pictureInPictureMargin WRITE setPictureInPictureMargin NOTIFY pictureInPictureMarginChanged)
-    Q_PROPERTY(bool overlayVirtualKeyboardOnWindows READ overlayVirtualKeyboardOnWindows WRITE setOverlayVirtualKeyboardOnWindows NOTIFY overlayVirtualKeyboardOnWindowsChanged)
 public:
     explicit Options(QObject *parent = nullptr);
     ~Options() override;
@@ -195,7 +213,7 @@ public:
      * This enum type is used to specify the focus policy.
      *
      * Note that FocusUnderMouse and FocusStrictlyUnderMouse are not
-     * particularly useful. They are only provided for old-fashined
+     * particulary useful. They are only provided for old-fashined
      * die-hard UNIX people ;-)
      */
     enum FocusPolicy {
@@ -213,7 +231,7 @@ public:
          * The window that happens to be under the mouse pointer becomes active.
          * The invariant is: no window can have focus that is not under the mouse.
          * This also means that Alt-Tab won't work properly and popup dialogs are
-         * usually unusable with the keyboard. Note that the desktop and windows on
+         * usually unsable with the keyboard. Note that the desktop and windows on
          * the dock are excluded for convenience. They get focus only when clicking
          * on it.
          */
@@ -253,10 +271,6 @@ public:
     {
         return m_xwaylandEavesdropsMouse;
     }
-    bool xwaylandEisNoPrompt() const
-    {
-        return m_xwaylandEisNoPrompt;
-    }
 
     /**
      * Whether clicking on a window raises it in FocusFollowsMouse
@@ -289,6 +303,22 @@ public:
     int delayFocusInterval() const
     {
         return m_delayFocusInterval;
+    }
+
+    /**
+     * Whether shade hover is enabled or not.
+     */
+    bool isShadeHover() const
+    {
+        return m_shadeHover;
+    }
+
+    /**
+     * Shade hover interval.
+     */
+    int shadeHoverInterval()
+    {
+        return m_shadeHoverInterval;
     }
 
     /**
@@ -382,7 +412,7 @@ public:
      *
      * @see allowWindowActivation
      */
-    FocusStealingPreventionLevel focusStealingPreventionLevel() const
+    int focusStealingPreventionLevel() const
     {
         return m_focusStealingPreventionLevel;
     }
@@ -397,8 +427,10 @@ public:
         UnrestrictedResizeOp,
         CloseOp,
         OnAllDesktopsOp,
+        ShadeOp,
         KeepAboveOp,
         KeepBelowOp,
+        OperationsOp,
         WindowRulesOp,
         ToggleStoreSettingsOp = WindowRulesOp, ///< @obsolete
         HMaximizeOp,
@@ -406,7 +438,6 @@ public:
         LowerOp,
         FullScreenOp,
         NoBorderOp,
-        ExcludeFromCaptureOp,
         NoOp,
         SetupWindowShortcutOp,
         ApplicationRulesOp,
@@ -452,6 +483,9 @@ public:
         MouseActivateRaiseAndUnrestrictedMove,
         MouseResize,
         MouseUnrestrictedResize,
+        MouseShade,
+        MouseSetShade,
+        MouseUnsetShade,
         MouseMaximize,
         MouseRestore,
         MouseMinimize,
@@ -469,6 +503,7 @@ public:
 
     enum MouseWheelCommand {
         MouseWheelRaiseLower,
+        MouseWheelShadeUnshade,
         MouseWheelMaximizeRestore,
         MouseWheelAboveBelow,
         MouseWheelPreviousNextDesktop,
@@ -477,11 +512,11 @@ public:
     };
     Q_ENUM(MouseWheelCommand)
 
-    MouseCommand operationTitlebarMouseWheel(qreal delta) const
+    MouseCommand operationTitlebarMouseWheel(int delta) const
     {
         return wheelToMouseCommand(CmdTitlebarWheel, delta);
     }
-    MouseCommand operationWindowMouseWheel(qreal delta) const
+    MouseCommand operationWindowMouseWheel(int delta) const
     {
         return wheelToMouseCommand(CmdAllWheel, delta);
     }
@@ -584,14 +619,6 @@ public:
         return electric_border_tiling;
     }
     /**
-     * @returns true if each screen has its own active corners instead of limiting
-     * to only four corners across all screens.
-     */
-    bool electricBorderAllScreenCorner() const
-    {
-        return electric_border_all_screen_corner;
-    }
-    /**
      * @returns the factor that determines the corner part of the edge (ie. 0.1 means tiny corner)
      */
     float electricBorderCornerRatio() const
@@ -617,6 +644,8 @@ public:
      */
     double animationTimeFactor() const;
 
+    //----------------------
+    // Compositing settings
     CompositingType compositingMode() const
     {
         return m_compositingMode;
@@ -625,16 +654,56 @@ public:
     {
         m_compositingMode = mode;
     }
+    // Separate to mode so the user can toggle
+    bool isUseCompositing() const;
+
+    // General preferences
+    HiddenPreviews hiddenPreviews() const
+    {
+        return m_hiddenPreviews;
+    }
+    // OpenGL
+    // 1 = yes,
+    // 2 = try trilinear when transformed; else 1,
+    // -1 = auto
+    int glSmoothScale() const
+    {
+        return m_glSmoothScale;
+    }
+
+    // Settings that should be auto-detected
+    bool isGlStrictBinding() const
+    {
+        return m_glStrictBinding;
+    }
+    bool isGlStrictBindingFollowsDriver() const
+    {
+        return m_glStrictBindingFollowsDriver;
+    }
+    OpenGLPlatformInterface glPlatformInterface() const
+    {
+        return m_glPlatformInterface;
+    }
+
+    enum GlSwapStrategy {
+        CopyFrontBuffer = 'c',
+        PaintFullScreen = 'p',
+        ExtendDamage = 'e',
+        AutoSwapStrategy = 'a',
+    };
+    Q_ENUM(GlSwapStrategy)
+    GlSwapStrategy glPreferBufferSwap() const
+    {
+        return m_glPreferBufferSwap;
+    }
+
+    bool windowsBlockCompositing() const
+    {
+        return m_windowsBlockCompositing;
+    }
 
     bool allowTearing() const;
     bool interactiveWindowMoveEnabled() const;
-    bool overlayVirtualKeyboardOnWindows() const;
-
-    Qt::Corner pictureInPictureHomeCorner() const;
-    void setPictureInPictureHomeCorner(Qt::Corner corner);
-
-    int pictureInPictureMargin() const;
-    void setPictureInPictureMargin(int margin);
 
     // setters
     void setFocusPolicy(FocusPolicy focusPolicy);
@@ -642,12 +711,13 @@ public:
     void setXwaylandMaxCrashCount(int maxCrashCount);
     void setXwaylandEavesdrops(XwaylandEavesdropsMode mode);
     void setXwaylandEavesdropsMouse(bool eavesdropsMouse);
-    void setXWaylandEisNoPrompt(bool doNotPrompt);
     void setNextFocusPrefersMouse(bool nextFocusPrefersMouse);
     void setClickRaise(bool clickRaise);
     void setAutoRaise(bool autoRaise);
     void setAutoRaiseInterval(int autoRaiseInterval);
     void setDelayFocusInterval(int delayFocusInterval);
+    void setShadeHover(bool shadeHover);
+    void setShadeHoverInterval(int shadeHoverInterval);
     void setSeparateScreenFocus(bool separateScreenFocus);
     void setPlacement(PlacementPolicy placement);
     void setActivationDesktopPolicy(ActivationDesktopPolicy activationDesktopPolicy);
@@ -658,7 +728,7 @@ public:
     void setEdgeBarrier(int edgeBarrier);
     void setCornerBarrier(bool cornerBarrier);
     void setRollOverDesktops(bool rollOverDesktops);
-    void setFocusStealingPreventionLevel(FocusStealingPreventionLevel focusStealingPreventionLevel);
+    void setFocusStealingPreventionLevel(int focusStealingPreventionLevel);
     void setOperationTitlebarDblClick(WindowOperation operationTitlebarDblClick);
     void setOperationMaxButtonLeftClick(WindowOperation op);
     void setOperationMaxButtonRightClick(WindowOperation op);
@@ -680,15 +750,21 @@ public:
     void setDoubleClickBorderToMaximize(bool maximize);
     void setCondensedTitle(bool condensedTitle);
     void setElectricBorderMaximize(bool electricBorderMaximize);
-    void setElectricBorderAllScreenCorner(bool electricBorderAllScreenCorner);
     void setElectricBorderTiling(bool electricBorderTiling);
     void setElectricBorderCornerRatio(float electricBorderCornerRatio);
     void setBorderlessMaximizedWindows(bool borderlessMaximizedWindows);
     void setKillPingTimeout(int killPingTimeout);
     void setCompositingMode(int compositingMode);
+    void setUseCompositing(bool useCompositing);
+    void setHiddenPreviews(int hiddenPreviews);
+    void setGlSmoothScale(int glSmoothScale);
+    void setGlStrictBinding(bool glStrictBinding);
+    void setGlStrictBindingFollowsDriver(bool glStrictBindingFollowsDriver);
+    void setGlPreferBufferSwap(char glPreferBufferSwap);
+    void setGlPlatformInterface(OpenGLPlatformInterface interface);
+    void setWindowsBlockCompositing(bool set);
     void setAllowTearing(bool allow);
     void setInteractiveWindowMoveEnabled(bool set);
-    void setOverlayVirtualKeyboardOnWindows(bool overlay);
 
     // default values
     static WindowOperation defaultOperationTitlebarDblClick()
@@ -775,6 +851,34 @@ public:
     {
         return OpenGLCompositing;
     }
+    static bool defaultUseCompositing()
+    {
+        return true;
+    }
+    static HiddenPreviews defaultHiddenPreviews()
+    {
+        return HiddenPreviewsShown;
+    }
+    static int defaultGlSmoothScale()
+    {
+        return 2;
+    }
+    static bool defaultGlStrictBinding()
+    {
+        return true;
+    }
+    static bool defaultGlStrictBindingFollowsDriver()
+    {
+        return true;
+    }
+    static GlSwapStrategy defaultGlPreferBufferSwap()
+    {
+        return AutoSwapStrategy;
+    }
+    static OpenGLPlatformInterface defaultGlPlatformInterface()
+    {
+        return kwinApp()->shouldUseWaylandForCompositing() ? EglPlatformInterface : GlxPlatformInterface;
+    }
     static XwaylandCrashPolicy defaultXwaylandCrashPolicy()
     {
         return XwaylandCrashPolicy::Restart;
@@ -788,10 +892,6 @@ public:
         return XwaylandEavesdropsMode::AllKeysWithModifier;
     }
     static bool defaultXwaylandEavesdropsMouse()
-    {
-        return false;
-    }
-    static bool defaultXwaylandEisNoPrompt()
     {
         return false;
     }
@@ -814,12 +914,13 @@ Q_SIGNALS:
     void xwaylandMaxCrashCountChanged();
     void xwaylandEavesdropsChanged();
     void xwaylandEavesdropsMouseChanged();
-    void xwaylandEisNoPromptChanged();
     void nextFocusPrefersMouseChanged();
     void clickRaiseChanged();
     void autoRaiseChanged();
     void autoRaiseIntervalChanged();
     void delayFocusIntervalChanged();
+    void shadeHoverChanged();
+    void shadeHoverIntervalChanged();
     void separateScreenFocusChanged(bool);
     void placementChanged();
     void activationDesktopPolicyChanged();
@@ -854,17 +955,21 @@ Q_SIGNALS:
     void electricBorderMaximizeChanged();
     void electricBorderTilingChanged();
     void electricBorderCornerRatioChanged();
-    void electricBorderAllScreenCornerChanged();
     void borderlessMaximizedWindowsChanged();
     void killPingTimeoutChanged();
     void compositingModeChanged();
+    void useCompositingChanged();
+    void hiddenPreviewsChanged();
+    void glSmoothScaleChanged();
+    void glStrictBindingChanged();
+    void glStrictBindingFollowsDriverChanged();
+    void glPreferBufferSwapChanged();
+    void glPlatformInterfaceChanged();
+    void windowsBlockCompositingChanged();
     void animationSpeedChanged();
     void configChanged();
     void allowTearingChanged();
     void interactiveWindowMoveEnabledChanged();
-    void pictureInPictureHomeCornerChanged();
-    void pictureInPictureMarginChanged();
-    void overlayVirtualKeyboardOnWindowsChanged();
 
 private:
     void setElectricBorders(int borders);
@@ -878,6 +983,8 @@ private:
     bool m_autoRaise;
     int m_autoRaiseInterval;
     int m_delayFocusInterval;
+    bool m_shadeHover;
+    int m_shadeHoverInterval;
     bool m_separateScreenFocus;
     PlacementPolicy m_placement;
     ActivationDesktopPolicy m_activationDesktopPolicy;
@@ -888,15 +995,24 @@ private:
     int m_edgeBarrier;
     bool m_cornerBarrier;
     bool m_rollOverDesktops;
-    FocusStealingPreventionLevel m_focusStealingPreventionLevel;
+    int m_focusStealingPreventionLevel;
     int m_killPingTimeout;
     XwaylandCrashPolicy m_xwaylandCrashPolicy;
     int m_xwaylandMaxCrashCount;
     XwaylandEavesdropsMode m_xwaylandEavesdrops;
     bool m_xwaylandEavesdropsMouse;
-    bool m_xwaylandEisNoPrompt;
 
     CompositingType m_compositingMode;
+    bool m_useCompositing;
+    HiddenPreviews m_hiddenPreviews;
+    int m_glSmoothScale;
+    // Settings that should be auto-detected
+    bool m_glStrictBinding;
+    bool m_glStrictBindingFollowsDriver;
+    GlSwapStrategy m_glPreferBufferSwap;
+    OpenGLPlatformInterface m_glPlatformInterface;
+    bool m_windowsBlockCompositing;
+
     WindowOperation OpTitlebarDblClick;
     WindowOperation opMaxButtonRightClick = defaultOperationMaxButtonRightClick();
     WindowOperation opMaxButtonMiddleClick = defaultOperationMaxButtonMiddleClick();
@@ -922,20 +1038,15 @@ private:
 
     bool electric_border_maximize;
     bool electric_border_tiling;
-    bool electric_border_all_screen_corner;
     float electric_border_corner_ratio;
     bool borderless_maximized_windows;
     bool condensed_title;
 
     bool m_allowTearing = true;
     bool m_interactiveWindowMoveEnabled = true;
-    bool m_overlayVirtualKeyboardOnWindows = false;
     bool m_doubleClickBorderToMaximize = true;
 
-    Qt::Corner m_pictureInPictureHomeCorner = Qt::BottomRightCorner;
-    int m_pictureInPictureMargin = 20;
-
-    MouseCommand wheelToMouseCommand(MouseWheelCommand com, qreal delta) const;
+    MouseCommand wheelToMouseCommand(MouseWheelCommand com, int delta) const;
 };
 
 extern KWIN_EXPORT Options *options;
@@ -943,3 +1054,4 @@ extern KWIN_EXPORT Options *options;
 } // namespace
 
 Q_DECLARE_METATYPE(KWin::Options::WindowOperation)
+Q_DECLARE_METATYPE(KWin::OpenGLPlatformInterface)

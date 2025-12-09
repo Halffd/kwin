@@ -19,11 +19,6 @@ GraphicsBuffer::GraphicsBuffer(QObject *parent)
 {
 }
 
-GraphicsBuffer::~GraphicsBuffer()
-{
-    Q_ASSERT(m_dropped);
-}
-
 bool GraphicsBuffer::isReferenced() const
 {
     return m_refCount > 0;
@@ -79,11 +74,6 @@ const DmaBufAttributes *GraphicsBuffer::dmabufAttributes() const
 }
 
 const ShmAttributes *GraphicsBuffer::shmAttributes() const
-{
-    return nullptr;
-}
-
-const SinglePixelAttributes *GraphicsBuffer::singlePixelAttributes() const
 {
     return nullptr;
 }

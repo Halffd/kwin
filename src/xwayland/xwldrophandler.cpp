@@ -44,7 +44,7 @@ bool XwlDropHandler::handleClientMessage(xcb_client_message_event_t *event)
     return false;
 }
 
-void XwlDropHandler::updateDragTarget(SurfaceInterface *surface, const QPointF &position, quint32 serial)
+void XwlDropHandler::updateDragTarget(SurfaceInterface *surface, quint32 serial)
 {
     auto window = workspace()->findClient([surface](const X11Window *c) {
         return c->surface() == surface;
@@ -65,7 +65,6 @@ void XwlDropHandler::updateDragTarget(SurfaceInterface *surface, const QPointF &
             return;
         }
 
-        visit->enter(position);
         connect(visit, &Xvisit::finished, this, [this, visit]() {
             m_visits.removeOne(visit);
             if (m_currentVisit == visit) {
@@ -77,13 +76,6 @@ void XwlDropHandler::updateDragTarget(SurfaceInterface *surface, const QPointF &
 
         m_currentVisit = visit;
         m_visits.append(visit);
-    }
-}
-
-void XwlDropHandler::motion(const QPointF &position)
-{
-    if (m_currentVisit) {
-        m_currentVisit->sendPosition(position);
     }
 }
 }

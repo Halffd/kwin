@@ -34,6 +34,11 @@ static OnScreenNotification *osd()
 
 void show(const QString &message, const QString &iconName, int timeout)
 {
+    if (!kwinApp()->shouldUseWaylandForCompositing()) {
+        // FIXME: only supported on Wayland
+        return;
+    }
+
     if (QThread::currentThread() != qGuiApp->thread()) {
         QTimer::singleShot(0, QCoreApplication::instance(), [message, iconName, timeout] {
             show(message, iconName, timeout);
@@ -60,6 +65,10 @@ void show(const QString &message, const QString &iconName)
 
 void hide(HideFlags flags)
 {
+    if (!kwinApp()->shouldUseWaylandForCompositing()) {
+        // FIXME: only supported on Wayland
+        return;
+    }
     osd()->setSkipCloseAnimation(flags.testFlag(HideFlag::SkipCloseAnimation));
     osd()->setVisible(false);
 }

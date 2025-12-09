@@ -27,8 +27,8 @@ public:
     void beginFrame(const RenderTarget &renderTarget, const RenderViewport &viewport) override;
     void endFrame() override;
 
-    void renderBackground(const RenderTarget &renderTarget, const RenderViewport &viewport, const QRegion &deviceRegion) override;
-    void renderItem(const RenderTarget &renderTarget, const RenderViewport &viewport, Item *item, int mask, const QRegion &deviceRegion, const WindowPaintData &data, const std::function<bool(Item *)> &filter, const std::function<bool(Item *)> &holeFilter) override;
+    void renderBackground(const RenderTarget &renderTarget, const RenderViewport &viewport, const QRegion &region) override;
+    void renderItem(const RenderTarget &renderTarget, const RenderViewport &viewport, Item *item, int mask, const QRegion &region, const WindowPaintData &data) override;
 
     std::unique_ptr<ImageItem> createImageItem(Item *parent = nullptr) override;
 
@@ -36,7 +36,7 @@ private:
     void renderSurfaceItem(QPainter *painter, SurfaceItem *surfaceItem) const;
     void renderDecorationItem(QPainter *painter, DecorationItem *decorationItem) const;
     void renderImageItem(QPainter *painter, ImageItem *imageItem) const;
-    void renderItem(QPainter *painter, Item *item, const std::function<bool(Item *)> &filter) const;
+    void renderItem(QPainter *painter, Item *item) const;
 
     std::unique_ptr<QPainter> m_painter;
 };

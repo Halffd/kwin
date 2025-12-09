@@ -21,7 +21,6 @@
 #if KWIN_BUILD_ACTIVITIES
 #include "activities.h"
 #endif
-#include "input.h"
 #include "rules.h"
 #include "useractions.h"
 #include "virtualdesktops.h"
@@ -83,7 +82,7 @@ namespace KWin
    the timestamp of the action that originally caused mapping of the new window
    (e.g. when the application was started). If the first time is newer than
    the second one, the window will not be activated, as that indicates
-   further user actions took place after the action leading to this new
+   futher user actions took place after the action leading to this new
    mapped window. This check is done by Workspace::allowWindowActivation().
     There are several ways how to get the timestamp of action that caused
    the new mapped window (done in X11Window::readUserTimeMapTimestamp()) :
@@ -235,29 +234,40 @@ void Workspace::setActiveWindow(Window *window)
     updateFocusMousePosition(Cursors::self()->mouse()->pos());
 
     if (qobject_cast<WaylandWindow *>(window)) {
-        focusToNull();
+        // focusIn events only arrive for X11 windows, Wayland windows don't use such a mechanism
+        // and so X11 windows could wrongly get stuck in the list
+        should_get_focus.clear();
     }
 
-    Window *previousActiveWindow = m_activeWindow;
+    if (m_activeWindow != nullptr) {
+        // note that this may call setActiveWindow( NULL ), therefore the recursion counter
+        m_activeWindow->setActive(false);
+    }
     m_activeWindow = window;
-
-    if (previousActiveWindow) {
-        previousActiveWindow->setActive(false);
-    }
+    Q_ASSERT(window == nullptr || window->isActive());
 
     if (m_activeWindow) {
         m_lastActiveWindow = m_activeWindow;
         m_focusChain->update(m_activeWindow, FocusChain::MakeFirst);
         m_activeWindow->demandAttention(false);
-        m_activeWindow->setActive(true);
+
+        // activating a client can cause a non active fullscreen window to loose the ActiveLayer status on > 1 screens
+        if (outputs().count() > 1) {
+            for (auto it = m_windows.begin(); it != m_windows.end(); ++it) {
+                if (*it != m_activeWindow && (*it)->layer() == ActiveLayer && (*it)->output() == m_activeWindow->output()) {
+                    (*it)->updateLayer();
+                }
+            }
+        }
     }
 
     if (window) {
-        setActiveOutput(window->output());
         disableGlobalShortcutsForClient(window->rules()->checkDisableGlobalShortcuts(false));
     } else {
         disableGlobalShortcutsForClient(false);
     }
+
+    updateStackingOrder(); // e.g. fullscreens have different layer when active/not-active
 
 #if KWIN_BUILD_X11
     if (rootInfo()) {
@@ -284,7 +294,8 @@ void Workspace::setActiveWindow(Window *window)
 void Workspace::activateWindow(Window *window, bool force)
 {
     if (window == nullptr) {
-        resetFocus();
+        focusToNull();
+        setActiveWindow(nullptr);
         return;
     }
     if (!window->isClient() || window->isDeleted() || !window->wantsInput()) {
@@ -355,49 +366,78 @@ void Workspace::activateWindow(Window *window, bool force)
  */
 bool Workspace::requestFocus(Window *window, bool force)
 {
+    return takeActivity(window, force ? ActivityFocusForce : ActivityFocus);
+}
+
+bool Workspace::takeActivity(Window *window, ActivityFlags flags)
+{
     // the 'if ( window == m_activeWindow ) return;' optimization mustn't be done here
     if (!focusChangeEnabled() && (window != m_activeWindow)) {
-        return false;
+        flags &= ~ActivityFocus;
     }
 
-    Window *modal = window->findModal();
-    if (modal != nullptr && modal != window) {
-        if (modal->desktops() != window->desktops()) {
-            modal->setDesktops(window->desktops());
+    if (!window) {
+        focusToNull();
+        return true;
+    }
+
+    if (flags & ActivityFocus) {
+        Window *modal = window->findModal();
+        if (modal != nullptr && modal != window) {
+            if (modal->desktops() != window->desktops()) {
+                modal->setDesktops(window->desktops());
+            }
+            if (!modal->isShown() && !modal->isMinimized()) { // forced desktop or utility window
+                activateWindow(modal); // activating a minimized blocked window will unminimize its modal implicitly
+            }
+            // if the click was inside the window (i.e. handled is set),
+            // but it has a modal, there's no need to use handled mode, because
+            // the modal doesn't get the click anyway
+            // raising of the original window needs to be still done
+            if (flags & ActivityRaise) {
+                raiseWindow(window);
+            }
+            window = modal;
         }
-        if (!modal->isShown() && !modal->isMinimized()) { // forced desktop or utility window
-            activateWindow(modal); // activating a minimized blocked window will unminimize its modal implicitly
+        cancelDelayFocus();
+    }
+    if (!flags.testFlag(ActivityFocusForce) && (window->isDock() || window->isSplash())) {
+        // toplevel menus and dock windows don't take focus if not forced
+        // and don't have a flag that they take focus
+        if (!window->dockWantsInput()) {
+            flags &= ~ActivityFocus;
         }
-        window = modal;
     }
-    cancelDelayFocus();
-
-    if (!force && window->isSplash()) {
-        return false; // toplevel menus don't take focus if not forced
+    if (window->isShade()) {
+        if (window->wantsInput() && (flags & ActivityFocus)) {
+            // window cannot accept focus, but at least the window should be active (window menu, et. al. )
+            window->setActive(true);
+            focusToNull();
+        }
+        flags &= ~ActivityFocus;
     }
-
     if (!window->isShown()) { // shouldn't happen, call activateWindow() if needed
-        qCWarning(KWIN_CORE) << "Cannot focus a window that is hidden";
+        qCWarning(KWIN_CORE) << "takeActivity: not shown";
         return false;
     }
 
-    if (!window->wantsInput()) {
-        return false;
+    bool ret = true;
+
+    if (flags & ActivityFocus) {
+        ret &= window->takeFocus();
+    }
+    if (flags & ActivityRaise) {
+        workspace()->raiseWindow(window);
     }
 
-    window->takeFocus();
-    setActiveWindow(window);
+    if (!window->isOnActiveOutput()) {
+        setActiveOutput(window->output());
+    }
 
-    return true;
+    return ret;
 }
 
-void Workspace::resetFocus()
-{
-    focusToNull();
-    setActiveWindow(nullptr);
-}
-
-Window *Workspace::windowUnderMouse(LogicalOutput *output) const
+Window *Workspace::windowUnderMouse(Output *output) const
 {
     auto it = stackingOrder().constEnd();
     while (it != stackingOrder().constBegin()) {
@@ -408,7 +448,7 @@ Window *Workspace::windowUnderMouse(LogicalOutput *output) const
 
         // rule out windows which are not really visible.
         // the screen test is rather superfluous for xrandr & twinview since the geometry would differ -> TODO: might be dropped
-        if (!(window->isShown() && window->isOnCurrentDesktop() && window->isOnCurrentActivity() && window->isOnOutput(output))) {
+        if (!(window->isShown() && window->isOnCurrentDesktop() && window->isOnCurrentActivity() && window->isOnOutput(output) && !window->isShade())) {
             continue;
         }
 
@@ -420,62 +460,79 @@ Window *Workspace::windowUnderMouse(LogicalOutput *output) const
 }
 
 // deactivates 'window' and activates next window
-void Workspace::activateNextWindow(Window *window)
+bool Workspace::activateNextWindow(Window *window)
 {
-    if (m_activeWindow != window) {
-        return;
+    // if 'c' is not the active or the to-become active one, do nothing
+    if (!(window == m_activeWindow || (should_get_focus.count() > 0 && window == should_get_focus.last()))) {
+        return false;
     }
 
     closeActivePopup();
 
+    if (window != nullptr) {
+        if (window == m_activeWindow) {
+            setActiveWindow(nullptr);
+        }
+        should_get_focus.removeAll(window);
+    }
+
+    // if blocking focus, move focus to the desktop later if needed
+    // in order to avoid flickering
+    if (!focusChangeEnabled()) {
+        focusToNull();
+        return true;
+    }
+
+    if (!options->focusPolicyIsReasonable()) {
+        return false;
+    }
+
     Window *focusCandidate = nullptr;
 
-    if (options->focusPolicyIsReasonable()) {
-        VirtualDesktop *desktop = VirtualDesktopManager::self()->currentDesktop();
-        LogicalOutput *output = window ? window->output() : workspace()->activeOutput();
+    VirtualDesktop *desktop = VirtualDesktopManager::self()->currentDesktop();
+    Output *output = window ? window->output() : workspace()->activeOutput();
 
-        if (!focusCandidate && showingDesktop()) {
-            focusCandidate = findDesktop(desktop, output); // to not break the state
-        }
+    if (!focusCandidate && showingDesktop()) {
+        focusCandidate = findDesktop(desktop, output); // to not break the state
+    }
 
-        if (!focusCandidate && options->isNextFocusPrefersMouse()) {
-            focusCandidate = windowUnderMouse(output);
-            if (focusCandidate && (focusCandidate == window || focusCandidate->isDesktop())) {
-                // should rather not happen, but it cannot get the focus. rest of usability is tested above
-                focusCandidate = nullptr;
-            }
-        }
-
-        if (!focusCandidate) { // no suitable window under the mouse -> find sth. else
-            // first try to pass the focus to the (former) active clients leader
-            if (window && window->isTransient()) {
-                auto leaders = window->mainWindows();
-                if (leaders.count() == 1 && m_focusChain->isUsableFocusCandidate(leaders.at(0), window)) {
-                    focusCandidate = leaders.at(0);
-                    raiseWindow(focusCandidate); // also raise - we don't know where it came from
-                }
-            }
-            if (!focusCandidate) {
-                // nope, ask the focus chain for the next candidate
-                focusCandidate = m_focusChain->nextForDesktop(window, desktop);
-            }
-        }
-
-        if (focusCandidate == nullptr) { // last chance: focus the desktop
-            focusCandidate = findDesktop(desktop, output);
+    if (!focusCandidate && options->isNextFocusPrefersMouse()) {
+        focusCandidate = windowUnderMouse(output);
+        if (focusCandidate && (focusCandidate == window || focusCandidate->isDesktop())) {
+            // should rather not happen, but it cannot get the focus. rest of usability is tested above
+            focusCandidate = nullptr;
         }
     }
 
-    if (focusCandidate) {
-        if (requestFocus(focusCandidate)) {
-            return;
+    if (!focusCandidate) { // no suitable window under the mouse -> find sth. else
+        // first try to pass the focus to the (former) active clients leader
+        if (window && window->isTransient()) {
+            auto leaders = window->mainWindows();
+            if (leaders.count() == 1 && m_focusChain->isUsableFocusCandidate(leaders.at(0), window)) {
+                focusCandidate = leaders.at(0);
+                raiseWindow(focusCandidate); // also raise - we don't know where it came from
+            }
+        }
+        if (!focusCandidate) {
+            // nope, ask the focus chain for the next candidate
+            focusCandidate = m_focusChain->nextForDesktop(window, desktop);
         }
     }
 
-    resetFocus();
+    if (focusCandidate == nullptr) { // last chance: focus the desktop
+        focusCandidate = findDesktop(desktop, output);
+    }
+
+    if (focusCandidate != nullptr) {
+        requestFocus(focusCandidate);
+    } else {
+        focusToNull();
+    }
+
+    return true;
 }
 
-void Workspace::switchToOutput(LogicalOutput *output)
+void Workspace::switchToOutput(Output *output)
 {
     if (!options->focusPolicyIsReasonable()) {
         return;
@@ -486,10 +543,28 @@ void Workspace::switchToOutput(LogicalOutput *output)
     if (get_focus == nullptr) {
         get_focus = findDesktop(desktop, output);
     }
-    if (get_focus != nullptr && get_focus != activeWindow()) {
+    if (get_focus != nullptr && get_focus != mostRecentlyActivatedWindow()) {
         requestFocus(get_focus);
     }
     setActiveOutput(output);
+}
+
+void Workspace::gotFocusIn(const Window *window)
+{
+    if (should_get_focus.contains(window)) {
+        // remove also all sooner elements that should have got FocusIn,
+        // but didn't for some reason (and also won't anymore, because they were sooner)
+        while (should_get_focus.first() != window) {
+            should_get_focus.pop_front();
+        }
+        should_get_focus.pop_front(); // remove 'window'
+    }
+}
+
+void Workspace::setShouldGetFocus(Window *window)
+{
+    should_get_focus.append(window);
+    updateStackingOrder(); // e.g. fullscreens have different layer when active/not-active
 }
 
 // basically the same like allowWindowActivation(), this time allowing
@@ -498,15 +573,15 @@ void Workspace::switchToOutput(LogicalOutput *output)
 // to the same application
 bool Workspace::allowFullClientRaising(const KWin::Window *window, uint32_t time)
 {
-    FocusStealingPreventionLevel level = window->rules()->checkFSP(options->focusStealingPreventionLevel());
-    if (sessionManager()->state() == SessionState::Saving && level <= FocusStealingPreventionLevel::Medium) {
+    int level = window->rules()->checkFSP(options->focusStealingPreventionLevel());
+    if (sessionManager()->state() == SessionState::Saving && level <= 2) { // <= normal
         return true;
     }
-    Window *ac = activeWindow();
-    if (level == FocusStealingPreventionLevel::None) {
+    Window *ac = mostRecentlyActivatedWindow();
+    if (level == 0) { // none
         return true;
     }
-    if (level == FocusStealingPreventionLevel::Extreme) {
+    if (level == 4) { // extreme
         return false;
     }
     if (ac == nullptr || ac->isDesktop()) {
@@ -518,7 +593,7 @@ bool Workspace::allowFullClientRaising(const KWin::Window *window, uint32_t time
         qCDebug(KWIN_CORE) << "Raising: Belongs to active application";
         return true;
     }
-    if (level == FocusStealingPreventionLevel::High) {
+    if (level == 3) { // high
         return false;
     }
 #if KWIN_BUILD_X11
@@ -539,8 +614,15 @@ bool Workspace::allowFullClientRaising(const KWin::Window *window, uint32_t time
  */
 bool Workspace::restoreFocus()
 {
-    if (m_activeWindow) {
-        return requestFocus(m_activeWindow);
+    // this updateXTime() is necessary - as FocusIn events don't have
+    // a timestamp *sigh*, kwin's timestamp would be older than the timestamp
+    // that was used by whoever caused the focus change, and therefore
+    // the attempt to restore the focus would fail due to old timestamp
+#if KWIN_BUILD_X11
+    kwinApp()->updateXTime();
+#endif
+    if (should_get_focus.count() > 0) {
+        return requestFocus(should_get_focus.last());
     } else if (m_lastActiveWindow) {
         return requestFocus(m_lastActiveWindow);
     }
@@ -558,47 +640,6 @@ void Workspace::windowAttentionChanged(Window *window, bool set)
     } else {
         attention_chain.removeAll(window);
     }
-}
-
-void Workspace::setActivationToken(const QString &token, uint32_t serial, const QString &appId)
-{
-    m_activationToken = token;
-    m_activationTokenSerial = serial;
-    m_activationTokenAppId = appId;
-}
-
-bool Workspace::mayActivate(Window *window, const QString &token) const
-{
-    if (!m_activeWindow) {
-        return true;
-    }
-    if (m_activeWindow->hasTransient(window, true)) {
-        return true;
-    }
-    if (auto parentWindow = window->transientFor()) {
-        const bool allow = mayActivate(parentWindow, m_activationToken);
-        if (allow) {
-            return true;
-        }
-    }
-    const FocusStealingPreventionLevel focusStealingPreventionLevel = window->rules()->checkFSP(options->focusStealingPreventionLevel());
-    if (focusStealingPreventionLevel == FocusStealingPreventionLevel::None) {
-        return true;
-    }
-    if (!m_activationToken.isEmpty() && token == m_activationToken && input()->lastInteractionSerial() <= m_activationTokenSerial) {
-        return true;
-    } else if (focusStealingPreventionLevel == FocusStealingPreventionLevel::Extreme) {
-        // "Extreme" only accepts proper activation tokens
-        return false;
-    }
-    // with focus stealing prevention below "Extreme"
-    // also allow activation if the app id matches with the last activation token
-    if (!m_activationToken.isEmpty()
-        && input()->lastInteractionSerial() <= m_activationTokenSerial
-        && m_activationTokenAppId == window->desktopFileName()) {
-        return true;
-    }
-    return false;
 }
 
 } // namespace

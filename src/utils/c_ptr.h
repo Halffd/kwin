@@ -18,7 +18,9 @@ struct CDeleter
     template<typename T>
     void operator()(T *ptr)
     {
-        free(ptr);
+        if (ptr) {
+            free(ptr);
+        }
     }
 };
 

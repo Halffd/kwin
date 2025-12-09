@@ -10,7 +10,9 @@
 #include <QPointer>
 #include <QStringList>
 // Wayland
-#include <qwayland-server-primary-selection-unstable-v1.h>
+#include <qwayland-server-wp-primary-selection-unstable-v1.h>
+// system
+#include <unistd.h>
 
 namespace KWin
 {
@@ -44,17 +46,16 @@ void PrimarySelectionOfferV1InterfacePrivate::zwp_primary_selection_offer_v1_des
 void PrimarySelectionOfferV1InterfacePrivate::zwp_primary_selection_offer_v1_destroy_resource(
     QtWaylandServer::zwp_primary_selection_offer_v1::Resource *resource)
 {
-    Q_EMIT q->discarded();
     delete q;
 }
 
 void PrimarySelectionOfferV1InterfacePrivate::zwp_primary_selection_offer_v1_receive(Resource *resource, const QString &mimeType, qint32 fd)
 {
-    FileDescriptor pipe(fd);
-
-    if (source && source->mimeTypes().contains(mimeType)) {
-        source->requestData(mimeType, std::move(pipe));
+    if (!source) {
+        close(fd);
+        return;
     }
+    source->requestData(mimeType, fd);
 }
 
 PrimarySelectionOfferV1Interface::PrimarySelectionOfferV1Interface(AbstractDataSource *source, wl_resource *resource)

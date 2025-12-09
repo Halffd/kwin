@@ -20,7 +20,6 @@ class OutputInterface;
 class ScreencastV1InterfacePrivate;
 class ScreencastStreamV1InterfacePrivate;
 class ScreencastStreamV1Interface;
-class ClientConnection;
 
 class KWIN_EXPORT ScreencastStreamV1Interface : public QObject
 {
@@ -31,8 +30,6 @@ public:
     void sendCreated(quint32 nodeid);
     void sendFailed(const QString &error);
     void sendClosed();
-
-    ClientConnection *connection() const;
 
 Q_SIGNALS:
     void finished();

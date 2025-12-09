@@ -21,12 +21,11 @@
 namespace KWin
 {
 
-static constexpr int s_version = 2;
+static constexpr int s_version = 1;
 
 static constexpr uint32_t s_formats[] = {
     WL_SHM_FORMAT_ARGB8888,
     WL_SHM_FORMAT_XRGB8888,
-    WL_SHM_FORMAT_XYUV8888,
 #if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
     WL_SHM_FORMAT_ARGB2101010,
     WL_SHM_FORMAT_XRGB2101010,
@@ -253,7 +252,8 @@ GraphicsBuffer::Map ShmClientBuffer::map(MapFlags flags)
 
         static std::once_flag sigbusOnce;
         std::call_once(sigbusOnce, []() {
-            struct sigaction action{};
+            struct sigaction action;
+            memset(&action, 0, sizeof(action));
             sigemptyset(&action.sa_mask);
             action.sa_sigaction = sigbusHandler;
             action.sa_flags = SA_SIGINFO | SA_NODEFER;
@@ -327,11 +327,6 @@ void ShmClientBufferIntegrationPrivate::shm_create_pool(Resource *resource, uint
     }
 
     new ShmPool(q, resource->client(), id, resource->version(), std::move(fileDescriptor), std::move(mapping));
-}
-
-void ShmClientBufferIntegrationPrivate::shm_release(Resource *resource)
-{
-    wl_resource_destroy(resource->handle);
 }
 
 ShmClientBufferIntegration::ShmClientBufferIntegration(Display *display)

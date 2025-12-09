@@ -28,8 +28,8 @@ namespace KWin
 RotatingArcsItem::RotatingArcsItem(Item *parentItem)
     : Item(parentItem)
 {
-    const QString f[2] = {QStandardPaths::locate(QStandardPaths::GenericDataLocation, QStringLiteral("kwin-wayland/tm_outer.png")),
-                          QStandardPaths::locate(QStandardPaths::GenericDataLocation, QStringLiteral("kwin-wayland/tm_inner.png"))};
+    const QString f[2] = {QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QStringLiteral("/tm_outer.png")),
+                          QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QStringLiteral("/tm_inner.png"))};
     if (f[0].isEmpty() || f[1].isEmpty()) {
         return;
     }
@@ -105,13 +105,13 @@ void TrackMouseEffect::reconfigure(ReconfigureFlags)
     }
 }
 
-void TrackMouseEffect::postPaintScreen()
+void TrackMouseEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime)
 {
     QTime t = QTime::currentTime();
     m_angle = ((t.second() % 4) * 90.0) + (t.msec() / 1000.0 * 90.0);
     m_rotatingArcsItem->rotate(m_angle);
 
-    effects->postPaintScreen();
+    effects->prePaintScreen(data, presentTime);
 }
 
 void TrackMouseEffect::toggle()

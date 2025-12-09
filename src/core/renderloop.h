@@ -16,7 +16,8 @@ namespace KWin
 class RenderLoopPrivate;
 class SurfaceItem;
 class Item;
-class BackendOutput;
+class Output;
+class RenderLayer;
 class OutputLayer;
 
 /**
@@ -32,7 +33,7 @@ class KWIN_EXPORT RenderLoop : public QObject
     Q_OBJECT
 
 public:
-    explicit RenderLoop(BackendOutput *output);
+    explicit RenderLoop(Output *output);
     ~RenderLoop() override;
 
     /**
@@ -50,16 +51,16 @@ public:
     void uninhibit();
 
     /**
-     * This function must be called before the Compositor prepares a new frame.
-     * Note that this inhibits scheduleRepaint requests, without re-applying the
-     * missed requests afterwards
+     * This function must be called before the Compositor sumbits the next
+     * frame.
      */
     void prepareNewFrame();
 
     /**
-     * This function must be called after the Compositor, and uninhibits the renderloop
+     * This function must be called before the Compositor starts rendering the next
+     * frame.
      */
-    void newFramePrepared();
+    void beginPaint();
 
     /**
      * Returns the refresh rate at which the output is being updated, in millihertz.
@@ -76,7 +77,7 @@ public:
     /**
      * Schedules a compositing cycle at the next available moment.
      */
-    void scheduleRepaint(Item *item = nullptr, OutputLayer *outputLayer = nullptr);
+    void scheduleRepaint(Item *item = nullptr, RenderLayer *layer = nullptr, OutputLayer *outputLayer = nullptr);
 
     /**
      * Returns the timestamp of the last frame that has been presented on the screen.
@@ -99,12 +100,6 @@ public:
      * Returns the expected time how long it is going to take to render the next frame.
      */
     std::chrono::nanoseconds predictedRenderTime() const;
-
-    // TODO integrate cursor updates into the render loop / frame scheduling somehow?
-    // and then remove this again
-    bool activeWindowControlsVrrRefreshRate() const;
-
-    void timerEvent(QTimerEvent *event) override;
 
 Q_SIGNALS:
     /**

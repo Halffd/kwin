@@ -120,7 +120,6 @@ private:
         ServerCode,
     } m_option;
 
-    QByteArray m_basename;
     QByteArray m_protocolName;
     QByteArray m_protocolFilePath;
     QByteArray m_scannerName;
@@ -153,7 +152,6 @@ bool Scanner::parseArguments(int argc, char **argv)
         // --header-path=<path> (14 characters)
         // --prefix=<prefix> (9 characters)
         // --add-include=<include> (14 characters)
-        // --basename=<basename> (11 characters)
         for (int pos = 3; pos < argc; pos++) {
             const QByteArray &option = args[pos];
             if (option.startsWith("--header-path=")) {
@@ -164,8 +162,6 @@ bool Scanner::parseArguments(int argc, char **argv)
                 auto include = option.mid(14);
                 if (!include.isEmpty())
                     m_includes << include;
-            } else if (option.startsWith("--basename=")) {
-                m_basename = option.mid(11);
             } else {
                 return false;
             }
@@ -456,11 +452,10 @@ bool Scanner::process()
         return false;
     }
 
-    if (m_basename.isEmpty())
-        m_basename = QByteArray(m_protocolName).replace('_', '-');
-
-    // We should convert - to _ so that the preprocessor wont generate code which will lead to unexpected behavior
-    const QByteArray preProcessorProtocolName = QByteArray(m_basename).replace('-', '_').toUpper();
+    //We should convert - to _ so that the preprocessor wont generate code which will lead to unexpected behavior
+    //However, the wayland-scanner doesn't do so we will do the same for now
+    //QByteArray preProcessorProtocolName = QByteArray(m_protocolName).replace('-', '_').toUpper();
+    QByteArray preProcessorProtocolName = QByteArray(m_protocolName).toUpper();
 
     std::vector<WaylandInterface> interfaces;
 
@@ -487,9 +482,9 @@ bool Scanner::process()
         printf("\n");
         printf("#include \"wayland-server-core.h\"\n");
         if (m_headerPath.isEmpty())
-            printf("#include \"wayland-%s-server-protocol.h\"\n", m_basename.constData());
+            printf("#include \"wayland-%s-server-protocol.h\"\n", QByteArray(m_protocolName).replace('_', '-').constData());
         else
-            printf("#include <%s/wayland-%s-server-protocol.h>\n", m_headerPath.constData(), m_basename.constData());
+            printf("#include <%s/wayland-%s-server-protocol.h>\n", m_headerPath.constData(), QByteArray(m_protocolName).replace('_', '-').constData());
         printf("#include <QByteArray>\n");
         printf("#include <QMultiMap>\n");
         printf("#include <QString>\n");
@@ -672,9 +667,9 @@ bool Scanner::process()
 
     if (m_option == ServerCode) {
         if (m_headerPath.isEmpty())
-            printf("#include \"qwayland-server-%s.h\"\n", m_basename.constData());
+            printf("#include \"qwayland-server-%s.h\"\n", QByteArray(m_protocolName).replace('_', '-').constData());
         else
-            printf("#include <%s/qwayland-server-%s.h>\n", m_headerPath.constData(), m_basename.constData());
+            printf("#include <%s/qwayland-server-%s.h>\n", m_headerPath.constData(), QByteArray(m_protocolName).replace('_', '-').constData());
         printf("\n");
         printf("QT_BEGIN_NAMESPACE\n");
         printf("QT_WARNING_PUSH\n");
@@ -882,7 +877,7 @@ bool Scanner::process()
             printf("\n");
             printf("        struct wl_event_loop *event_loop = wl_display_get_event_loop(m_display);\n");
             printf("        m_globalRemovedEvent = wl_event_loop_add_timer(event_loop, deferred_destroy_global_func, this);\n");
-            printf("        wl_event_source_timer_update(m_globalRemovedEvent, 300000);\n");
+            printf("        wl_event_source_timer_update(m_globalRemovedEvent, 5000);\n");
             printf("    }\n");
             printf("\n");
 
@@ -954,8 +949,8 @@ bool Scanner::process()
                     printf("\n");
                     printf("    {\n");
                     printf("        Q_UNUSED(client);\n");
-                    printf("        Resource *qtResource = Resource::fromResource(resource);\n");
-                    printf("        if (Q_UNLIKELY(!qtResource->%s_object)) {\n", interfaceNameStripped);
+                    printf("        Resource *r = Resource::fromResource(resource);\n");
+                    printf("        if (Q_UNLIKELY(!r->%s_object)) {\n", interfaceNameStripped);
                     for (const WaylandArgument &a : e.arguments) {
                         if (a.type == QByteArrayLiteral("fd"))
                             printf("        close(%s);\n", a.name.constData());
@@ -964,8 +959,8 @@ bool Scanner::process()
                         printf("            wl_resource_destroy(resource);\n");
                     printf("            return;\n");
                     printf("        }\n");
-                    printf("        static_cast<%s *>(qtResource->%s_object)->%s_%s(\n", interfaceName, interfaceNameStripped, interfaceNameStripped, e.name.constData());
-                    printf("            qtResource");
+                    printf("        static_cast<%s *>(r->%s_object)->%s_%s(\n", interfaceName, interfaceNameStripped, interfaceNameStripped, e.name.constData());
+                    printf("            r");
                     for (const WaylandArgument &a : e.arguments) {
                         printf(",\n");
                         QByteArray cType = waylandToCType(a.type, a.interface);
@@ -1052,9 +1047,9 @@ bool Scanner::process()
         printf("#define %s\n", inclusionGuard.constData());
         printf("\n");
         if (m_headerPath.isEmpty())
-            printf("#include \"wayland-%s-client-protocol.h\"\n", m_basename.constData());
+            printf("#include \"wayland-%s-client-protocol.h\"\n", QByteArray(m_protocolName).replace('_', '-').constData());
         else
-            printf("#include <%s/wayland-%s-client-protocol.h>\n", m_headerPath.constData(), m_basename.constData());
+            printf("#include <%s/wayland-%s-client-protocol.h>\n", m_headerPath.constData(), QByteArray(m_protocolName).replace('_', '-').constData());
         printf("#include <QByteArray>\n");
         printf("#include <QString>\n");
         printf("\n");
@@ -1170,9 +1165,9 @@ bool Scanner::process()
 
     if (m_option == ClientCode) {
         if (m_headerPath.isEmpty())
-            printf("#include \"qwayland-%s.h\"\n", m_basename.constData());
+            printf("#include \"qwayland-%s.h\"\n", QByteArray(m_protocolName).replace('_', '-').constData());
         else
-            printf("#include <%s/qwayland-%s.h>\n", m_headerPath.constData(), m_basename.constData());
+            printf("#include <%s/qwayland-%s.h>\n", m_headerPath.constData(), QByteArray(m_protocolName).replace('_', '-').constData());
         printf("\n");
         printf("QT_BEGIN_NAMESPACE\n");
         printf("QT_WARNING_PUSH\n");

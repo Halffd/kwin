@@ -13,6 +13,7 @@
 #include "internalwindow.h"
 #include "wayland/shadow.h"
 #include "wayland/surface.h"
+#include "wayland_server.h"
 #include "window.h"
 #if KWIN_BUILD_X11
 #include "atoms.h"
@@ -44,7 +45,7 @@ Shadow::~Shadow()
 std::unique_ptr<Shadow> Shadow::createShadow(Window *window)
 {
     auto shadow = createShadowFromDecoration(window);
-    if (!shadow) {
+    if (!shadow && waylandServer()) {
         shadow = createShadowFromWayland(window);
     }
 #if KWIN_BUILD_X11
@@ -130,11 +131,11 @@ QList<uint32_t> Shadow::readX11ShadowProperty(xcb_window_t id)
     QList<uint32_t> ret;
     if (id != XCB_WINDOW_NONE) {
         Xcb::Property property(false, id, atoms->kde_net_wm_shadow, XCB_ATOM_CARDINAL, 0, 12);
-        const auto shadow = property.array<uint32_t>();
-        if (shadow.has_value() && shadow->size() == 12) {
+        uint32_t *shadow = property.value<uint32_t *>();
+        if (shadow) {
             ret.reserve(12);
             for (int i = 0; i < 12; ++i) {
-                ret << (*shadow)[i];
+                ret << shadow[i];
             }
         }
     }
@@ -289,10 +290,12 @@ bool Shadow::updateShadow()
         return false;
     }
 
-    if (m_window && m_window->surface()) {
-        if (const auto &s = m_window->surface()->shadow()) {
-            if (init(s)) {
-                return true;
+    if (waylandServer()) {
+        if (m_window && m_window->surface()) {
+            if (const auto &s = m_window->surface()->shadow()) {
+                if (init(s)) {
+                    return true;
+                }
             }
         }
     }

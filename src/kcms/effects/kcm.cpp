@@ -13,7 +13,7 @@
 #include <KPluginFactory>
 
 K_PLUGIN_FACTORY_WITH_JSON(DesktopEffectsKCMFactory,
-                           "kcm_kwin_effects.json",
+                           "kcm_kwin_effects_x11.json",
                            registerPlugin<KWin::DesktopEffectsKCM>();
                            registerPlugin<KWin::DesktopEffectsData>();)
 

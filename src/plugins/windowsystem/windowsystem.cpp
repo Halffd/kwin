@@ -23,6 +23,8 @@ namespace KWin
 {
 
 WindowSystem::WindowSystem()
+    : QObject()
+    , KWindowSystemPrivateV2()
 {
 }
 
@@ -42,7 +44,6 @@ bool WindowSystem::showingDesktop()
     return false;
 }
 
-#if KWINDOWSYSTEM_BUILD_DEPRECATED_SINCE(6, 19)
 void WindowSystem::requestToken(QWindow *win, uint32_t serial, const QString &appId)
 {
     auto seat = KWin::waylandServer()->seat();
@@ -52,7 +53,6 @@ void WindowSystem::requestToken(QWindow *win, uint32_t serial, const QString &ap
         Q_EMIT KWaylandExtras::self()->xdgActivationTokenArrived(serial, token);
     });
 }
-#endif
 
 void WindowSystem::setCurrentToken(const QString &token)
 {
@@ -70,21 +70,18 @@ quint32 WindowSystem::lastInputSerial(QWindow *window)
 
 void WindowSystem::exportWindow(QWindow *window)
 {
+    Q_UNUSED(window);
 }
 
 void WindowSystem::unexportWindow(QWindow *window)
 {
+    Q_UNUSED(window);
 }
 
 void WindowSystem::setMainWindow(QWindow *window, const QString &handle)
 {
-}
-
-QFuture<QString> WindowSystem::xdgActivationToken(QWindow *window, uint32_t serial, const QString &appId)
-{
-    auto seat = KWin::waylandServer()->seat();
-    auto token = KWin::waylandServer()->xdgActivationIntegration()->requestPrivilegedToken(nullptr, seat->display()->serial(), seat, appId);
-    return QtFuture::makeReadyFuture(token);
+    Q_UNUSED(window);
+    Q_UNUSED(handle);
 }
 }
 

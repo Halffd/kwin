@@ -16,6 +16,10 @@ const blacklist = [
 
     // KDE Plasma splash screen has to be animated only by the login effect.
     "ksplashqml ksplashqml",
+
+    // Spectacle needs to be blacklisted in order to stay out of its own screenshots.
+    "spectacle spectacle", // x11
+    "spectacle org.kde.spectacle", // wayland
 ];
 
 class ScaleEffect {
@@ -62,7 +66,7 @@ class ScaleEffect {
             return false;
         }
 
-        // Don't animate the outline and the screenlocker as it looks bad.
+        // Dont't animate the outline and the screenlocker as it looks bad.
         if (window.lockScreen || window.outline) {
             return false;
         }

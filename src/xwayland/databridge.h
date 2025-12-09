@@ -16,6 +16,7 @@
 
 namespace KWin
 {
+class DataDeviceInterface;
 class SurfaceInterface;
 class Window;
 
@@ -24,6 +25,7 @@ namespace Xwl
 class Clipboard;
 class Dnd;
 class Primary;
+enum class DragEventReply;
 
 /**
  * Interface class for all data sharing in the context of X selections
@@ -38,7 +40,7 @@ class DataBridge : public QObject, public QAbstractNativeEventFilter
 public:
     explicit DataBridge();
 
-    bool dragMoveFilter(Window *target, const QPointF &position);
+    DragEventReply dragMoveFilter(Window *target);
 
     Dnd *dnd() const
     {

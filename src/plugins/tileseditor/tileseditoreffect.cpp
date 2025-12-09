@@ -34,14 +34,14 @@ TilesEditorEffect::TilesEditorEffect()
     KGlobalAccel::self()->setShortcut(m_toggleAction.get(), {defaultToggleShortcut});
     m_toggleShortcut = KGlobalAccel::self()->shortcut(m_toggleAction.get());
 
-    loadFromModule(QStringLiteral("org.kde.kwin/tileseditor"), QStringLiteral("Main"));
+    setSource(QUrl::fromLocalFile(QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QStringLiteral("/effects/tileseditor/qml/main.qml"))));
 }
 
 TilesEditorEffect::~TilesEditorEffect()
 {
 }
 
-QVariantMap TilesEditorEffect::initialProperties(LogicalOutput *screen)
+QVariantMap TilesEditorEffect::initialProperties(Output *screen)
 {
     return QVariantMap{
         {QStringLiteral("effect"), QVariant::fromValue(this)},

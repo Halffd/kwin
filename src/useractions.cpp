@@ -13,7 +13,7 @@
 
  This file contains things relevant to direct user actions, such as
  responses to global keyboard shortcuts, or selecting actions
- from the window menu.
+ from the window operations menu.
 
 */
 
@@ -29,7 +29,6 @@
 #include "cursor.h"
 #include "input.h"
 #include "options.h"
-#include "pointer_input.h"
 #include "scripting/scripting.h"
 #include "useractions.h"
 #include "virtualdesktops.h"
@@ -74,12 +73,14 @@ UserActionsMenu::UserActionsMenu(QObject *parent)
     : QObject(parent)
     , m_menu(nullptr)
     , m_desktopMenu(nullptr)
+    , m_multipleDesktopsMenu(nullptr)
     , m_screenMenu(nullptr)
     , m_activityMenu(nullptr)
     , m_scriptsMenu(nullptr)
     , m_resizeOperation(nullptr)
     , m_moveOperation(nullptr)
     , m_maximizeOperation(nullptr)
+    , m_shadeOperation(nullptr)
     , m_keepAboveOperation(nullptr)
     , m_keepBelowOperation(nullptr)
     , m_fullScreenOperation(nullptr)
@@ -87,7 +88,6 @@ UserActionsMenu::UserActionsMenu(QObject *parent)
     , m_minimizeOperation(nullptr)
     , m_closeOperation(nullptr)
     , m_shortcutOperation(nullptr)
-    , m_excludeFromCapture(nullptr)
 {
 }
 
@@ -156,12 +156,12 @@ void UserActionsMenu::helperDialog(const QString &message)
         QAction *action = Workspace::self()->findChild<QAction *>(name);
         Q_ASSERT(action != nullptr);
         const auto shortcuts = KGlobalAccel::self()->shortcut(action);
-        return QStringLiteral("%1").arg(shortcuts.isEmpty() ? QString() : shortcuts.first().toString(QKeySequence::NativeText));
+        return QStringLiteral("%1 (%2)").arg(action->text(), shortcuts.isEmpty() ? QString() : shortcuts.first().toString(QKeySequence::NativeText));
     };
     if (message == QLatin1StringView("noborderaltf3")) {
         args << QStringLiteral("--msgbox") << i18n("You have selected to show a window without its border.\n"
                                                    "Without the border, you will not be able to enable the border "
-                                                   "again using the mouse: use the window menu instead, "
+                                                   "again using the mouse: use the window operations menu instead, "
                                                    "activated using the %1 keyboard shortcut.",
                                                    shortcut(QStringLiteral("Window Operations Menu")));
         type = QStringLiteral("altf3warning");
@@ -169,7 +169,7 @@ void UserActionsMenu::helperDialog(const QString &message)
         args << QStringLiteral("--msgbox") << i18n("You have selected to show a window in fullscreen mode.\n"
                                                    "If the application itself does not have an option to turn the fullscreen "
                                                    "mode off you will not be able to disable it "
-                                                   "again using the mouse: use the window menu instead, "
+                                                   "again using the mouse: use the window operations menu instead, "
                                                    "activated using the %1 keyboard shortcut.",
                                                    shortcut(QStringLiteral("Window Operations Menu")));
         type = QStringLiteral("altf3warning");
@@ -185,14 +185,6 @@ void UserActionsMenu::helperDialog(const QString &message)
         args << QStringLiteral("--dontagain") << QLatin1String("kwin_dialogsrc:") + type;
     }
     KProcess::startDetached(QStringLiteral("kdialog"), args);
-}
-
-void UserActionsMenu::setShortcut(QAction *action, const QString &actionName)
-{
-    const auto shortcuts = KGlobalAccel::self()->shortcut(Workspace::self()->findChild<QAction *>(actionName));
-    if (!shortcuts.isEmpty()) {
-        action->setShortcut(shortcuts.first());
-    }
 }
 
 void UserActionsMenu::init()
@@ -213,6 +205,13 @@ void UserActionsMenu::init()
             advancedMenu->setPalette(m_window->palette());
         }
     });
+
+    auto setShortcut = [](QAction *action, const QString &actionName) {
+        const auto shortcuts = KGlobalAccel::self()->shortcut(Workspace::self()->findChild<QAction *>(actionName));
+        if (!shortcuts.isEmpty()) {
+            action->setShortcut(shortcuts.first());
+        }
+    };
 
     m_moveOperation = advancedMenu->addAction(i18n("&Move"));
     m_moveOperation->setIcon(QIcon::fromTheme(QStringLiteral("transform-move")));
@@ -242,17 +241,17 @@ void UserActionsMenu::init()
     m_fullScreenOperation->setCheckable(true);
     m_fullScreenOperation->setData(Options::FullScreenOp);
 
+    m_shadeOperation = advancedMenu->addAction(i18n("&Shade"));
+    m_shadeOperation->setIcon(QIcon::fromTheme(QStringLiteral("window-shade")));
+    setShortcut(m_shadeOperation, QStringLiteral("Window Shade"));
+    m_shadeOperation->setCheckable(true);
+    m_shadeOperation->setData(Options::ShadeOp);
+
     m_noBorderOperation = advancedMenu->addAction(i18n("&No Titlebar and Frame"));
     m_noBorderOperation->setIcon(QIcon::fromTheme(QStringLiteral("edit-none-border")));
     setShortcut(m_noBorderOperation, QStringLiteral("Window No Border"));
     m_noBorderOperation->setCheckable(true);
     m_noBorderOperation->setData(Options::NoBorderOp);
-
-    m_excludeFromCapture = advancedMenu->addAction(i18n("&Hide from Screencast"));
-    m_excludeFromCapture->setIcon(QIcon::fromTheme(QStringLiteral("view-private")));
-    setShortcut(m_excludeFromCapture, QStringLiteral("Window Exclude From Capture"));
-    m_excludeFromCapture->setCheckable(true);
-    m_excludeFromCapture->setData(Options::ExcludeFromCaptureOp);
 
     advancedMenu->addSeparator();
 
@@ -301,6 +300,7 @@ void UserActionsMenu::discard()
     delete m_menu;
     m_menu = nullptr;
     m_desktopMenu = nullptr;
+    m_multipleDesktopsMenu = nullptr;
     m_screenMenu = nullptr;
     m_activityMenu = nullptr;
     m_scriptsMenu = nullptr;
@@ -317,6 +317,8 @@ void UserActionsMenu::menuAboutToShow()
     if (VirtualDesktopManager::self()->count() == 1) {
         delete m_desktopMenu;
         m_desktopMenu = nullptr;
+        delete m_multipleDesktopsMenu;
+        m_multipleDesktopsMenu = nullptr;
     } else {
         initDesktopPopup();
     }
@@ -332,13 +334,14 @@ void UserActionsMenu::menuAboutToShow()
     m_moveOperation->setEnabled(m_window->isMovableAcrossScreens());
     m_maximizeOperation->setEnabled(m_window->isMaximizable());
     m_maximizeOperation->setChecked(m_window->maximizeMode() == MaximizeFull);
+    m_shadeOperation->setEnabled(m_window->isShadeable());
+    m_shadeOperation->setChecked(m_window->shadeMode() != ShadeNone);
     m_keepAboveOperation->setChecked(m_window->keepAbove());
     m_keepBelowOperation->setChecked(m_window->keepBelow());
     m_fullScreenOperation->setEnabled(m_window->isFullScreenable());
     m_fullScreenOperation->setChecked(m_window->isFullScreen());
     m_noBorderOperation->setEnabled(m_window->userCanSetNoBorder());
     m_noBorderOperation->setChecked(m_window->noBorder());
-    m_excludeFromCapture->setChecked(m_window->excludeFromCapture());
     m_minimizeOperation->setEnabled(m_window->isMinimizable());
     m_closeOperation->setEnabled(m_window->isCloseable());
     m_shortcutOperation->setEnabled(m_window->rules()->checkShortcut(QString()).isNull());
@@ -396,18 +399,34 @@ void UserActionsMenu::showHideActivityMenu()
 
 void UserActionsMenu::initDesktopPopup()
 {
-    if (m_desktopMenu) {
-        return;
+    if (kwinApp()->operationMode() == Application::OperationModeWayland) {
+        if (m_multipleDesktopsMenu) {
+            return;
+        }
+
+        m_multipleDesktopsMenu = new QMenu(m_menu);
+        connect(m_multipleDesktopsMenu, &QMenu::aboutToShow, this, &UserActionsMenu::multipleDesktopsPopupAboutToShow);
+
+        QAction *action = m_multipleDesktopsMenu->menuAction();
+        // set it as the first item
+        m_menu->insertAction(m_maximizeOperation, action);
+        action->setText(i18n("&Desktops"));
+        action->setIcon(QIcon::fromTheme(QStringLiteral("virtual-desktops")));
+
+    } else {
+        if (m_desktopMenu) {
+            return;
+        }
+
+        m_desktopMenu = new QMenu(m_menu);
+        connect(m_desktopMenu, &QMenu::aboutToShow, this, &UserActionsMenu::desktopPopupAboutToShow);
+
+        QAction *action = m_desktopMenu->menuAction();
+        // set it as the first item
+        m_menu->insertAction(m_maximizeOperation, action);
+        action->setText(i18n("Move to &Desktop"));
+        action->setIcon(QIcon::fromTheme(QStringLiteral("virtual-desktops")));
     }
-
-    m_desktopMenu = new QMenu(m_menu);
-    connect(m_desktopMenu, &QMenu::aboutToShow, this, &UserActionsMenu::desktopPopupAboutToShow);
-
-    QAction *action = m_desktopMenu->menuAction();
-    // set it as the first item
-    m_menu->insertAction(m_maximizeOperation, action);
-    action->setText(i18n("&Desktops"));
-    action->setIcon(QIcon::fromTheme(QStringLiteral("virtual-desktops")));
 }
 
 void UserActionsMenu::initScreenPopup()
@@ -447,14 +466,84 @@ void UserActionsMenu::desktopPopupAboutToShow()
     if (!m_desktopMenu) {
         return;
     }
-    VirtualDesktopManager *vds = VirtualDesktopManager::self();
+    const VirtualDesktopManager *vds = VirtualDesktopManager::self();
 
     m_desktopMenu->clear();
     if (m_window) {
         m_desktopMenu->setPalette(m_window->palette());
     }
+    QActionGroup *group = new QActionGroup(m_desktopMenu);
 
-    QAction *action = m_desktopMenu->addAction(i18n("&All Desktops"));
+    QAction *action = m_desktopMenu->addAction(i18n("Move &To Current Desktop"));
+    action->setEnabled(m_window && (m_window->isOnAllDesktops() || !m_window->isOnDesktop(vds->currentDesktop())));
+    connect(action, &QAction::triggered, this, [this]() {
+        if (!m_window) {
+            return;
+        }
+        VirtualDesktopManager *vds = VirtualDesktopManager::self();
+        workspace()->sendWindowToDesktops(m_window, {vds->currentDesktop()}, false);
+    });
+
+    action = m_desktopMenu->addAction(i18n("&All Desktops"));
+    connect(action, &QAction::triggered, this, [this]() {
+        if (m_window) {
+            m_window->setOnAllDesktops(!m_window->isOnAllDesktops());
+        }
+    });
+    action->setCheckable(true);
+    if (m_window && m_window->isOnAllDesktops()) {
+        action->setChecked(true);
+    }
+    group->addAction(action);
+
+    m_desktopMenu->addSeparator();
+
+    const auto desktops = vds->desktops();
+    for (VirtualDesktop *desktop : desktops) {
+        action = m_desktopMenu->addAction(desktop->name().replace(QLatin1Char('&'), QStringLiteral("&&")));
+        connect(action, &QAction::triggered, this, [this, desktop]() {
+            if (m_window) {
+                workspace()->sendWindowToDesktops(m_window, {desktop}, false);
+            }
+        });
+        action->setCheckable(true);
+        group->addAction(action);
+
+        if (m_window && !m_window->isOnAllDesktops() && m_window->isOnDesktop(desktop)) {
+            action->setChecked(true);
+        }
+    }
+
+    m_desktopMenu->addSeparator();
+
+    action = m_desktopMenu->addAction(i18nc("Create a new desktop and move the window there", "&New Desktop"));
+    action->setIcon(QIcon::fromTheme(QStringLiteral("list-add")));
+    connect(action, &QAction::triggered, this, [this]() {
+        if (!m_window) {
+            return;
+        }
+        VirtualDesktopManager *vds = VirtualDesktopManager::self();
+        VirtualDesktop *desktop = vds->createVirtualDesktop(vds->count());
+        if (desktop) {
+            workspace()->sendWindowToDesktops(m_window, {desktop}, false);
+        }
+    });
+    action->setEnabled(vds->count() < vds->maximum());
+}
+
+void UserActionsMenu::multipleDesktopsPopupAboutToShow()
+{
+    if (!m_multipleDesktopsMenu) {
+        return;
+    }
+    VirtualDesktopManager *vds = VirtualDesktopManager::self();
+
+    m_multipleDesktopsMenu->clear();
+    if (m_window) {
+        m_multipleDesktopsMenu->setPalette(m_window->palette());
+    }
+
+    QAction *action = m_multipleDesktopsMenu->addAction(i18n("&All Desktops"));
     connect(action, &QAction::triggered, this, [this]() {
         if (m_window) {
             m_window->setOnAllDesktops(!m_window->isOnAllDesktops());
@@ -465,11 +554,11 @@ void UserActionsMenu::desktopPopupAboutToShow()
         action->setChecked(true);
     }
 
-    m_desktopMenu->addSeparator();
+    m_multipleDesktopsMenu->addSeparator();
 
     const auto desktops = vds->desktops();
     for (VirtualDesktop *desktop : desktops) {
-        QAction *action = m_desktopMenu->addAction(desktop->name().replace(QLatin1Char('&'), QStringLiteral("&&")));
+        QAction *action = m_multipleDesktopsMenu->addAction(desktop->name().replace(QLatin1Char('&'), QStringLiteral("&&")));
         connect(action, &QAction::triggered, this, [this, desktop]() {
             if (m_window) {
                 if (m_window->desktops().contains(desktop)) {
@@ -485,13 +574,11 @@ void UserActionsMenu::desktopPopupAboutToShow()
         }
     }
 
-    m_desktopMenu->addSeparator();
+    m_multipleDesktopsMenu->addSeparator();
 
-    for (auto i = 0; i < desktops.size(); ++i) {
-        VirtualDesktop *desktop = desktops.at(i);
+    for (VirtualDesktop *desktop : desktops) {
         QString name = i18n("Move to %1", desktop->name());
-        QAction *action = m_desktopMenu->addAction(name);
-        setShortcut(action, QStringLiteral("Window to Desktop %1").arg(i + 1));
+        QAction *action = m_multipleDesktopsMenu->addAction(name);
         connect(action, &QAction::triggered, this, [this, desktop]() {
             if (m_window) {
                 Workspace::self()->sendWindowToDesktops(m_window, {desktop}, false);
@@ -499,11 +586,11 @@ void UserActionsMenu::desktopPopupAboutToShow()
         });
     }
 
-    m_desktopMenu->addSeparator();
+    m_multipleDesktopsMenu->addSeparator();
 
     bool allowNewDesktops = vds->count() < vds->maximum();
 
-    action = m_desktopMenu->addAction(i18nc("Create a new desktop and add the window to that desktop", "Add to &New Desktop"));
+    action = m_multipleDesktopsMenu->addAction(i18nc("Create a new desktop and add the window to that desktop", "Add to &New Desktop"));
     connect(action, &QAction::triggered, this, [this, vds]() {
         if (!m_window) {
             return;
@@ -515,7 +602,7 @@ void UserActionsMenu::desktopPopupAboutToShow()
     });
     action->setEnabled(allowNewDesktops);
 
-    action = m_desktopMenu->addAction(i18nc("Create a new desktop and move the window to that desktop", "Move to New Desktop"));
+    action = m_multipleDesktopsMenu->addAction(i18nc("Create a new desktop and move the window to that desktop", "Move to New Desktop"));
     connect(action, &QAction::triggered, this, [this, vds]() {
         if (!m_window) {
             return;
@@ -543,11 +630,10 @@ void UserActionsMenu::screenPopupAboutToShow()
 
     const auto outputs = workspace()->outputs();
     for (int i = 0; i < outputs.count(); ++i) {
-        LogicalOutput *output = outputs[i];
+        Output *output = outputs[i];
         // assumption: there are not more than 9 screens attached.
         QAction *action = m_screenMenu->addAction(i18nc("@item:inmenu List of all Screens to send a window to. First argument is a number, second the output identifier. E.g. Screen 1 (HDMI1)",
                                                         "Screen &%1 (%2)", (i + 1), output->name()));
-        setShortcut(action, QStringLiteral("Window to Screen %1").arg(i));
         connect(action, &QAction::triggered, this, [this, output]() {
             m_window->sendToOutput(output);
         });
@@ -664,7 +750,7 @@ void UserActionsMenu::slotWindowOperation(QAction *action)
         helperDialog(type);
     }
     // need to delay performing the window operation as we need to have the
-    // window menu closed before we destroy the decoration. Otherwise Qt crashes
+    // user actions menu closed before we destroy the decoration. Otherwise Qt crashes
     QMetaObject::invokeMethod(
         workspace(), [c, op]() {
             workspace()->performWindowOperation(c, op);
@@ -835,6 +921,8 @@ void Workspace::initShortcuts()
                  0, &Workspace::slotWindowMaximizeHorizontal, false);
     initShortcut("Window Minimize", i18n("Minimize Window"),
                  Qt::META | Qt::Key_PageDown, &Workspace::slotWindowMinimize, false);
+    initShortcut("Window Shade", i18n("Shade Window"),
+                 0, &Workspace::slotWindowShade, false);
     initShortcut("Window Move", i18n("Move Window"),
                  0, &Workspace::slotWindowMove, true);
     initShortcut("Window Resize", i18n("Resize Window"),
@@ -939,7 +1027,7 @@ void Workspace::initShortcuts()
 
     for (int i = 0; i < 8; ++i) {
         initShortcut(QStringLiteral("Window to Screen %1").arg(i), i18n("Move Window to Screen %1", i), 0, [this, i]() {
-            LogicalOutput *output = outputs().value(i);
+            Output *output = outputs().value(i);
             if (output) {
                 slotWindowToScreen(output);
             }
@@ -960,7 +1048,7 @@ void Workspace::initShortcuts()
 
     for (int i = 0; i < 8; ++i) {
         initShortcut(QStringLiteral("Switch to Screen %1").arg(i), i18n("Switch to Screen %1", i), 0, [this, i]() {
-            LogicalOutput *output = outputs().value(i);
+            Output *output = outputs().value(i);
             if (output) {
                 slotSwitchToScreen(output);
             }
@@ -1029,6 +1117,9 @@ void Workspace::setupWindowShortcutDone(bool ok)
     m_windowKeysDialog->deleteLater();
     m_windowKeysDialog = nullptr;
     m_windowKeysWindow = nullptr;
+    if (m_activeWindow) {
+        m_activeWindow->takeFocus();
+    }
 }
 
 void Workspace::windowShortcutUpdated(Window *window)
@@ -1066,10 +1157,10 @@ void Workspace::performWindowOperation(Window *window, Options::WindowOperation 
         return;
     }
     if (op == Options::MoveOp || op == Options::UnrestrictedMoveOp) {
-        input()->pointer()->warp(window->frameGeometry().center());
+        Cursors::self()->mouse()->setPos(window->frameGeometry().center());
     }
     if (op == Options::ResizeOp || op == Options::UnrestrictedResizeOp) {
-        input()->pointer()->warp(window->frameGeometry().bottomRight());
+        Cursors::self()->mouse()->setPos(window->frameGeometry().bottomRight());
     }
     switch (op) {
     case Options::MoveOp:
@@ -1091,26 +1182,25 @@ void Workspace::performWindowOperation(Window *window, Options::WindowOperation 
         window->maximize(window->maximizeMode() == MaximizeFull
                              ? MaximizeRestore
                              : MaximizeFull);
-        raiseWindow(window);
-        requestFocus(window);
+        takeActivity(window, ActivityFocus | ActivityRaise);
         break;
     case Options::HMaximizeOp:
         window->maximize(window->maximizeMode() ^ MaximizeHorizontal);
-        raiseWindow(window);
-        requestFocus(window);
+        takeActivity(window, ActivityFocus | ActivityRaise);
         break;
     case Options::VMaximizeOp:
         window->maximize(window->maximizeMode() ^ MaximizeVertical);
-        raiseWindow(window);
-        requestFocus(window);
+        takeActivity(window, ActivityFocus | ActivityRaise);
         break;
     case Options::RestoreOp:
         window->maximize(MaximizeRestore);
-        raiseWindow(window);
-        requestFocus(window);
+        takeActivity(window, ActivityFocus | ActivityRaise);
         break;
     case Options::MinimizeOp:
         window->setMinimized(true);
+        break;
+    case Options::ShadeOp:
+        window->performMousePressCommand(Options::MouseShade, Cursors::self()->mouse()->pos());
         break;
     case Options::OnAllDesktopsOp:
         window->setOnAllDesktops(!window->isOnAllDesktops());
@@ -1122,9 +1212,6 @@ void Workspace::performWindowOperation(Window *window, Options::WindowOperation 
         if (window->userCanSetNoBorder()) {
             window->setNoBorder(!window->noBorder());
         }
-        break;
-    case Options::ExcludeFromCaptureOp:
-        window->setExcludeFromCapture(!window->excludeFromCapture());
         break;
     case Options::KeepAboveOp: {
         StackingUpdatesBlocker blocker(this);
@@ -1144,6 +1231,9 @@ void Workspace::performWindowOperation(Window *window, Options::WindowOperation 
         }
         break;
     }
+    case Options::OperationsOp:
+        window->performMousePressCommand(Options::MouseShade, Cursors::self()->mouse()->pos());
+        break;
     case Options::WindowRulesOp:
         m_rulebook->edit(window, false);
         break;
@@ -1177,7 +1267,7 @@ void Workspace::slotWindowToDesktop(VirtualDesktop *desktop)
     }
 }
 
-void Workspace::slotSwitchToScreen(LogicalOutput *output)
+void Workspace::slotSwitchToScreen(Output *output)
 {
     switchToOutput(output);
 }
@@ -1212,7 +1302,7 @@ void Workspace::slotSwitchToNextScreen()
     switchToOutput(findOutput(activeOutput(), Direction::DirectionNext, true));
 }
 
-void Workspace::slotWindowToScreen(LogicalOutput *output)
+void Workspace::slotWindowToScreen(Output *output)
 {
     if (USABLE_ACTIVE_WINDOW) {
         m_activeWindow->sendToOutput(output);
@@ -1302,6 +1392,16 @@ void Workspace::slotWindowMinimize()
 }
 
 /**
+ * Shades/unshades the active window respectively.
+ */
+void Workspace::slotWindowShade()
+{
+    if (USABLE_ACTIVE_WINDOW) {
+        performWindowOperation(m_activeWindow, Options::ShadeOp);
+    }
+}
+
+/**
  * Raises the active window.
  */
 void Workspace::slotWindowRaise()
@@ -1362,13 +1462,6 @@ void Workspace::slotWindowNoBorder()
 {
     if (USABLE_ACTIVE_WINDOW) {
         performWindowOperation(m_activeWindow, Options::NoBorderOp);
-    }
-}
-
-void Workspace::slotWindowExcludeFromCapture()
-{
-    if (USABLE_ACTIVE_WINDOW) {
-        performWindowOperation(m_activeWindow, Options::ExcludeFromCaptureOp);
     }
 }
 

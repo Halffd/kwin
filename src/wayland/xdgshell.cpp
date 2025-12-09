@@ -10,7 +10,6 @@
 #include "display.h"
 #include "output.h"
 #include "seat.h"
-#include "utils/gravity.h"
 #include "utils/resource.h"
 
 #include <QTimer>
@@ -85,6 +84,11 @@ void XdgShellInterfacePrivate::xdg_wm_base_create_positioner(Resource *resource,
 void XdgShellInterfacePrivate::xdg_wm_base_get_xdg_surface(Resource *resource, uint32_t id, ::wl_resource *surfaceResource)
 {
     SurfaceInterface *surface = SurfaceInterface::get(surfaceResource);
+
+    if (surface->buffer()) {
+        wl_resource_post_error(resource->handle, XDG_SURFACE_ERROR_UNCONFIGURED_BUFFER, "xdg_surface must not have a buffer at creation");
+        return;
+    }
 
     wl_resource *xdgSurfaceResource = wl_resource_create(resource->client(), &xdg_surface_interface, resource->version(), id);
 
@@ -182,7 +186,7 @@ void XdgSurfaceInterfacePrivate::xdg_surface_destroy_resource(Resource *resource
 
 void XdgSurfaceInterfacePrivate::xdg_surface_destroy(Resource *resource)
 {
-    if (!toplevel.isNull() || !popup.isNull() || !pip.isNull()) {
+    if (toplevel || popup) {
         qWarning() << "Tried to destroy xdg_surface before its role object";
     }
     wl_resource_destroy(resource->handle);
@@ -334,16 +338,9 @@ XdgToplevelInterfacePrivate::XdgToplevelInterfacePrivate(XdgToplevelInterface *t
 void XdgToplevelInterfacePrivate::apply(XdgToplevelCommit *commit)
 {
     auto xdgSurfacePrivate = XdgSurfaceInterfacePrivate::get(xdgSurface);
-    if (xdgSurfacePrivate->surface->buffer()) {
-        if (!xdgSurfacePrivate->isConfigured) {
-            wl_resource_post_error(xdgSurfacePrivate->resource()->handle, XDG_SURFACE_ERROR_UNCONFIGURED_BUFFER, "attached a buffer before configure event");
-            return;
-        }
-    } else {
-        if (xdgSurfacePrivate->firstBufferAttached) {
-            reset();
-            return;
-        }
+    if (xdgSurfacePrivate->firstBufferAttached && !xdgSurfacePrivate->surface->buffer()) {
+        reset();
+        return;
     }
 
     xdgSurfacePrivate->apply(commit);
@@ -379,13 +376,13 @@ void XdgToplevelInterfacePrivate::reset()
     auto xdgSurfacePrivate = XdgSurfaceInterfacePrivate::get(xdgSurface);
     xdgSurfacePrivate->reset();
 
-    title = QString();
-    appId = QString();
-    tag = QString();
-    description = QString();
+    windowTitle = QString();
+    windowClass = QString();
     minimumSize = QSize(0, 0);
     maximumSize = QSize(0, 0);
     customIcon = QIcon();
+    pending = XdgToplevelCommit{};
+    stashed.clear();
 
     Q_EMIT q->resetOccurred();
 }
@@ -412,20 +409,20 @@ void XdgToplevelInterfacePrivate::xdg_toplevel_set_parent(Resource *resource, ::
 
 void XdgToplevelInterfacePrivate::xdg_toplevel_set_title(Resource *resource, const QString &title)
 {
-    if (this->title == title) {
+    if (windowTitle == title) {
         return;
     }
-    this->title = title;
-    Q_EMIT q->titleChanged(title);
+    windowTitle = title;
+    Q_EMIT q->windowTitleChanged(title);
 }
 
 void XdgToplevelInterfacePrivate::xdg_toplevel_set_app_id(Resource *resource, const QString &app_id)
 {
-    if (appId == app_id) {
+    if (windowClass == app_id) {
         return;
     }
-    appId = app_id;
-    Q_EMIT q->appIdChanged(app_id);
+    windowClass = app_id;
+    Q_EMIT q->windowClassChanged(app_id);
 }
 
 void XdgToplevelInterfacePrivate::xdg_toplevel_show_window_menu(Resource *resource, ::wl_resource *seatResource, uint32_t serial, int32_t x, int32_t y)
@@ -463,42 +460,8 @@ void XdgToplevelInterfacePrivate::xdg_toplevel_resize(Resource *resource, ::wl_r
         return;
     }
 
-    Gravity gravity;
-    switch (xdgEdges) {
-    case resize_edge_none:
-        gravity = Gravity::None;
-        break;
-    case resize_edge_top:
-        gravity = Gravity::Top;
-        break;
-    case resize_edge_bottom:
-        gravity = Gravity::Bottom;
-        break;
-    case resize_edge_left:
-        gravity = Gravity::Left;
-        break;
-    case resize_edge_top_left:
-        gravity = Gravity::TopLeft;
-        break;
-    case resize_edge_bottom_left:
-        gravity = Gravity::BottomLeft;
-        break;
-    case resize_edge_right:
-        gravity = Gravity::Right;
-        break;
-    case resize_edge_top_right:
-        gravity = Gravity::TopRight;
-        break;
-    case resize_edge_bottom_right:
-        gravity = Gravity::BottomRight;
-        break;
-    default:
-        wl_resource_post_error(resource->handle, error_invalid_resize_edge, "invalid resize edge");
-        return;
-    }
-
     SeatInterface *seat = SeatInterface::get(seatResource);
-    Q_EMIT q->resizeRequested(seat, gravity, serial);
+    Q_EMIT q->resizeRequested(seat, XdgToplevelInterface::ResizeAnchor(xdgEdges), serial);
 }
 
 void XdgToplevelInterfacePrivate::xdg_toplevel_set_max_size(Resource *resource, int32_t width, int32_t height)
@@ -507,7 +470,7 @@ void XdgToplevelInterfacePrivate::xdg_toplevel_set_max_size(Resource *resource, 
         wl_resource_post_error(resource->handle, error_invalid_size, "width and height must be positive or zero");
         return;
     }
-    pending->maximumSize = QSize(width, height);
+    pending.maximumSize = QSize(width, height);
 }
 
 void XdgToplevelInterfacePrivate::xdg_toplevel_set_min_size(Resource *resource, int32_t width, int32_t height)
@@ -516,7 +479,7 @@ void XdgToplevelInterfacePrivate::xdg_toplevel_set_min_size(Resource *resource, 
         wl_resource_post_error(resource->handle, error_invalid_size, "width and height must be positive or zero");
         return;
     }
-    pending->minimumSize = QSize(width, height);
+    pending.minimumSize = QSize(width, height);
 }
 
 void XdgToplevelInterfacePrivate::xdg_toplevel_set_maximized(Resource *resource)
@@ -560,7 +523,7 @@ XdgToplevelInterface::XdgToplevelInterface(XdgSurfaceInterface *xdgSurface, ::wl
 {
     XdgSurfaceInterfacePrivate *surfacePrivate = XdgSurfaceInterfacePrivate::get(xdgSurface);
     surfacePrivate->toplevel = this;
-    surfacePrivate->pending = d->pending;
+    surfacePrivate->pending = &d->pending;
 
     d->init(resource);
 }
@@ -605,24 +568,14 @@ XdgToplevelInterface *XdgToplevelInterface::parentXdgToplevel() const
     return d->parentXdgToplevel;
 }
 
-QString XdgToplevelInterface::title() const
+QString XdgToplevelInterface::windowTitle() const
 {
-    return d->title;
+    return d->windowTitle;
 }
 
-QString XdgToplevelInterface::appId() const
+QString XdgToplevelInterface::windowClass() const
 {
-    return d->appId;
-}
-
-QString XdgToplevelInterface::tag() const
-{
-    return d->tag;
-}
-
-QString XdgToplevelInterface::description() const
-{
-    return d->description;
+    return d->windowClass;
 }
 
 QSize XdgToplevelInterface::minimumSize() const
@@ -638,11 +591,6 @@ QSize XdgToplevelInterface::maximumSize() const
 QIcon XdgToplevelInterface::customIcon() const
 {
     return d->customIcon;
-}
-
-XdgToplevelSessionV1Interface *XdgToplevelInterface::session() const
-{
-    return d->session;
 }
 
 quint32 XdgToplevelInterface::sendConfigure(const QSize &size, const States &states)
@@ -744,11 +692,6 @@ XdgToplevelInterface *XdgToplevelInterface::get(::wl_resource *resource)
     return nullptr;
 }
 
-wl_resource *XdgToplevelInterface::resource() const
-{
-    return d->resource()->handle;
-}
-
 XdgPopupInterfacePrivate *XdgPopupInterfacePrivate::get(XdgPopupInterface *popup)
 {
     return popup->d.get();
@@ -772,16 +715,9 @@ void XdgPopupInterfacePrivate::apply(XdgPopupCommit *commit)
     }
 
     auto xdgSurfacePrivate = XdgSurfaceInterfacePrivate::get(xdgSurface);
-    if (xdgSurfacePrivate->surface->buffer()) {
-        if (!xdgSurfacePrivate->isConfigured) {
-            wl_resource_post_error(xdgSurfacePrivate->resource()->handle, XDG_SURFACE_ERROR_UNCONFIGURED_BUFFER, "attached a buffer before configure event");
-            return;
-        }
-    } else {
-        if (xdgSurfacePrivate->firstBufferAttached) {
-            reset();
-            return;
-        }
+    if (xdgSurfacePrivate->firstBufferAttached && !xdgSurfacePrivate->surface->buffer()) {
+        reset();
+        return;
     }
 
     xdgSurfacePrivate->apply(commit);
@@ -795,6 +731,8 @@ void XdgPopupInterfacePrivate::apply(XdgPopupCommit *commit)
 void XdgPopupInterfacePrivate::reset()
 {
     auto xdgSurfacePrivate = XdgSurfaceInterfacePrivate::get(xdgSurface);
+    pending = XdgPopupCommit{};
+    stashed.clear();
     xdgSurfacePrivate->reset();
 }
 
@@ -832,7 +770,7 @@ XdgPopupInterface::XdgPopupInterface(XdgSurfaceInterface *xdgSurface, SurfaceInt
 {
     XdgSurfaceInterfacePrivate *surfacePrivate = XdgSurfaceInterfacePrivate::get(xdgSurface);
     surfacePrivate->popup = this;
-    surfacePrivate->pending = d->pending;
+    surfacePrivate->pending = &d->pending;
 
     d->parentSurface = parentSurface;
     d->positioner = positioner;

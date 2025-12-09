@@ -45,22 +45,21 @@ void WindowThumbnailItem::findImage()
     QString imagePath;
     switch (m_wId) {
     case Konqueror:
-        imagePath = QStringLiteral(":/kwin-tabbox-preview/falkon.png");
+        imagePath = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + "/kcm_kwintabbox/falkon.png");
         break;
     case Systemsettings:
-        imagePath = QStringLiteral(":/kwin-tabbox-preview/systemsettings.png");
+        imagePath = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + "/kcm_kwintabbox/systemsettings.png");
         break;
     case KMail:
-        imagePath = QStringLiteral(":/kwin-tabbox-preview/kmail.png");
+        imagePath = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + "/kcm_kwintabbox/kmail.png");
         break;
     case Dolphin:
-        imagePath = QStringLiteral(":/kwin-tabbox-preview/dolphin.png");
+        imagePath = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + "/kcm_kwintabbox/dolphin.png");
         break;
     case Desktop:
-        // Use the current default desktop wallpaper
         imagePath = QStandardPaths::locate(QStandardPaths::GenericDataLocation, "wallpapers/Next/contents/images/1280x800.png");
         if (imagePath.isNull()) {
-            imagePath = QStringLiteral(":/kwin-tabbox-preview/desktop.png");
+            imagePath = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + "/kcm_kwintabbox/desktop.png");
         }
         break;
     default:

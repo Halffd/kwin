@@ -63,7 +63,8 @@ void TestClientMachine::initTestCase()
         m_hostName = hostnamebuf;
     }
     addrinfo *res;
-    addrinfo addressHints{};
+    addrinfo addressHints;
+    memset(&addressHints, 0, sizeof(addressHints));
     addressHints.ai_family = PF_UNSPEC;
     addressHints.ai_socktype = SOCK_STREAM;
     addressHints.ai_flags |= AI_CANONNAME;

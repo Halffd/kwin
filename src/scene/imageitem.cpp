@@ -25,7 +25,6 @@ void ImageItem::setImage(const QImage &image)
 {
     m_image = image;
     discardQuads();
-    scheduleRepaint(boundingRect());
 }
 
 ImageItemOpenGL::ImageItemOpenGL(Item *parent)

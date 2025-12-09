@@ -8,6 +8,8 @@
 */
 #include "decorationbridge.h"
 
+#include "config-kwin.h"
+
 #include "decoratedwindow.h"
 #include "decorations_logging.h"
 #include "settings.h"
@@ -35,10 +37,14 @@ namespace KWin
 namespace Decoration
 {
 
+static const QString s_aurorae = QStringLiteral("org.kde.kwin.aurorae");
 static const QString s_pluginName = QStringLiteral("org.kde.kdecoration3");
 static const QString s_configKeyName = QStringLiteral("org.kde.kdecoration2");
-static const QString s_defaultPlugin = QStringLiteral("org.kde.breeze");
-static const QString s_fallbackPlugin = QStringLiteral("org.kde.kwin.aurorae");
+#if HAVE_BREEZE_DECO
+static const QString s_defaultPlugin = BREEZE_KDECORATION_PLUGIN_ID;
+#else
+static const QString s_defaultPlugin = s_aurorae;
+#endif
 
 static void migrateAuroraeTheme()
 {
@@ -98,37 +104,40 @@ void DecorationBridge::init()
 {
     m_noPlugin = readNoPlugin();
     if (m_noPlugin) {
-        waylandServer()->decorationManager()->setDefaultMode(ServerSideDecorationManagerInterface::Mode::None);
+        if (waylandServer()) {
+            waylandServer()->decorationManager()->setDefaultMode(ServerSideDecorationManagerInterface::Mode::None);
+        }
         return;
     }
+    m_plugin = readPlugin();
     m_settings = std::make_shared<KDecoration3::DecorationSettings>(this);
-
-    const QString pluginId = readPlugin();
-    if (!initPlugin(pluginId)) {
-        if (s_defaultPlugin != pluginId) {
-            initPlugin(s_defaultPlugin);
+    if (!initPlugin()) {
+        if (m_plugin != s_defaultPlugin) {
+            // try loading default plugin
+            m_plugin = s_defaultPlugin;
+            initPlugin();
         }
+        // default plugin failed to load, try fallback
         if (!m_factory) {
-            if (s_fallbackPlugin != pluginId) {
-                initPlugin(s_fallbackPlugin);
-            }
+            m_plugin = s_aurorae;
+            initPlugin();
         }
     }
-
-    waylandServer()->decorationManager()->setDefaultMode(m_factory ? ServerSideDecorationManagerInterface::Mode::Server : ServerSideDecorationManagerInterface::Mode::None);
+    if (waylandServer()) {
+        waylandServer()->decorationManager()->setDefaultMode(m_factory ? ServerSideDecorationManagerInterface::Mode::Server : ServerSideDecorationManagerInterface::Mode::None);
+    }
 }
 
-bool DecorationBridge::initPlugin(const QString &pluginId)
+bool DecorationBridge::initPlugin()
 {
-    const KPluginMetaData metaData = KPluginMetaData::findPluginById(s_pluginName, pluginId);
+    const KPluginMetaData metaData = KPluginMetaData::findPluginById(s_pluginName, m_plugin);
     if (!metaData.isValid()) {
-        qCWarning(KWIN_DECORATIONS) << "Could not locate decoration plugin" << pluginId;
+        qCWarning(KWIN_DECORATIONS) << "Could not locate decoration plugin" << m_plugin;
         return false;
     }
     qCDebug(KWIN_DECORATIONS) << "Trying to load decoration plugin: " << metaData.fileName();
     if (auto factoryResult = KPluginFactory::loadFactory(metaData)) {
         m_factory.reset(factoryResult.plugin);
-        m_plugin = pluginId;
         loadMetaData(metaData.rawData());
         return true;
     } else {
@@ -166,7 +175,15 @@ void DecorationBridge::reconfigure()
 
     const QString newPlugin = readPlugin();
     if (newPlugin != m_plugin) {
-        if (initPlugin(newPlugin)) {
+        // plugin changed, recreate everything
+        auto oldFactory = std::move(m_factory);
+        const auto oldPluginName = m_plugin;
+        m_plugin = newPlugin;
+        if (!initPlugin()) {
+            // loading new plugin failed
+            m_factory = std::move(oldFactory);
+            m_plugin = oldPluginName;
+        } else {
             recreateDecorations();
             // TODO: unload and destroy old plugin
         }

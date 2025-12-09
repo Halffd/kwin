@@ -16,7 +16,6 @@
 #include <KMessageBox>
 #include <KMessageDialog>
 #include <KService>
-#include <KWindowSystem>
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -27,6 +26,7 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QThread>
+#include <QWaylandClientExtensionTemplate>
 #include <QWindow>
 
 #include <qpa/qplatformwindow_p.h>
@@ -39,6 +39,7 @@
 #include <memory>
 
 #include "debug.h"
+#include "qwayland-xdg-foreign-unstable-v2.h"
 
 using namespace std::chrono_literals;
 
@@ -115,16 +116,49 @@ bool hasPidAborted(pid_t pid)
 
 } // namespace
 
+class XdgImported : public QtWayland::zxdg_imported_v2
+{
+public:
+    XdgImported(::zxdg_imported_v2 *object)
+        : QtWayland::zxdg_imported_v2(object)
+    {
+    }
+    ~XdgImported() override
+    {
+        destroy();
+    }
+};
+
+class XdgImporter : public QWaylandClientExtensionTemplate<XdgImporter>, public QtWayland::zxdg_importer_v2
+{
+public:
+    XdgImporter()
+        : QWaylandClientExtensionTemplate(1)
+    {
+        initialize();
+    }
+    ~XdgImporter() override
+    {
+        if (isActive()) {
+            destroy();
+        }
+    }
+    XdgImported *import(const QString &handle)
+    {
+        return new XdgImported(import_toplevel(handle));
+    }
+};
+
 int main(int argc, char *argv[])
 {
     KLocalizedString::setApplicationDomain(QByteArrayLiteral("kwin"));
     QApplication app(argc, argv);
     QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("tools-report-bug")));
-    QCoreApplication::setApplicationName(QStringLiteral("kwin_killer_helper"));
+    QCoreApplication::setApplicationName(QStringLiteral("kwin_killer_helper_x11"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("kde.org"));
     QApplication::setApplicationDisplayName(i18n("Window Manager"));
     QCoreApplication::setApplicationVersion(QStringLiteral("1.0"));
-    QApplication::setDesktopFileName(QStringLiteral("org.kde.kwin.killer"));
+    QApplication::setDesktopFileName(QStringLiteral("org.kde.kwin_x11.killer"));
 
     QCommandLineOption pidOption(QStringLiteral("pid"),
                                  i18n("PID of the application to terminate"), i18n("pid"));
@@ -159,12 +193,20 @@ int main(int argc, char *argv[])
     pid_t pid = parser.value(pidOption).toULong(&pid_ok);
     QString caption = parser.value(windowNameOption);
     QString appname = parser.value(applicationNameOption);
-    QString windowHandle = parser.value(widOption);
+    bool id_ok = false;
+    xcb_window_t wid = XCB_WINDOW_NONE;
+    QString windowHandle;
+    if (isX11) {
+        wid = parser.value(widOption).toULong(&id_ok);
+    } else {
+        windowHandle = parser.value(widOption);
+    }
 
+    // on Wayland XDG_ACTIVATION_TOKEN is set in the environment.
     bool time_ok = false;
     xcb_timestamp_t timestamp = parser.value(timestampOption).toULong(&time_ok);
 
-    if (!pid_ok || pid == 0 || windowHandle.isEmpty()
+    if (!pid_ok || pid == 0 || ((!id_ok || wid == XCB_WINDOW_NONE) && windowHandle.isEmpty())
         || (isX11 && (!time_ok || timestamp == XCB_CURRENT_TIME))
         || hostname.isEmpty() || caption.isEmpty() || appname.isEmpty()) {
         fprintf(stdout, "%s\n", qPrintable(i18n("This helper utility is not supposed to be called directly.")));
@@ -189,15 +231,12 @@ int main(int argc, char *argv[])
     hostname = hostname.toHtmlEscaped();
     QString pidString = QString::number(pid); // format pid ourself as it does not make sense to format an ID according to locale settings
 
-    const QString question = (caption == appname)
-        ? xi18nc("@info",
-                 "<para><application>%1</application> is not responding. Do you want to terminate this application?</para>"
-                 "<para><emphasis strong='true'>Terminating this application will close all of its windows. Any unsaved data will be lost.</emphasis></para>",
-                 appname)
-        : xi18nc("@info \"window title\" of application name is not responding.",
-                 "<para>\"%1\" of <application>%2</application> is not responding. Do you want to terminate this application?</para>"
-                 "<para><emphasis strong='true'>Terminating this application will close all of its windows. Any unsaved data will be lost.</emphasis></para>",
-                 caption, appname);
+    QString question = (caption == appname) ? xi18nc("@info", "<para><application>%1</application> is not responding. Do you want to terminate this application?</para>",
+                                                     appname)
+                                            : xi18nc("@info \"window title\" of application name is not responding.", "<para>\"%1\" of <application>%2</application> is not responding. Do you want to terminate this application?</para>",
+                                                     caption, appname);
+    question += xi18nc("@info",
+                       "<para><emphasis strong='true'>Terminating this application will close all of its windows. Any unsaved data will be lost.</emphasis></para>");
 
     KGuiItem continueButton = KGuiItem(i18nc("@action:button Terminate app", "&Terminate %1", appname), QStringLiteral("application-exit"));
     KGuiItem cancelButton = KGuiItem(i18nc("@action:button Wait for frozen app to maybe respond again", "&Wait Longer"), QStringLiteral("chronometer"));
@@ -208,7 +247,6 @@ int main(int argc, char *argv[])
 
     auto *dialog = new KMessageDialog(KMessageDialog::WarningContinueCancel, question);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setModal(true);
     dialog->setCaption(i18nc("@title:window", "Not Responding"));
 
     QIcon icon;
@@ -232,7 +270,16 @@ int main(int argc, char *argv[])
     dialog->setDetails(details.join(QLatin1Char('\n')));
     dialog->winId();
 
-    KWindowSystem::setMainWindow(dialog->windowHandle(), windowHandle);
+    std::unique_ptr<XdgImporter> xdgImporter;
+    std::unique_ptr<XdgImported> importedParent;
+
+    if (isX11) {
+        if (QWindow *foreignParent = QWindow::fromWinId(wid)) {
+            dialog->windowHandle()->setTransientParent(foreignParent);
+        }
+    } else {
+        xdgImporter = std::make_unique<XdgImporter>();
+    }
 
     QObject::connect(dialog, &QDialog::finished, &app, [pid, hostname, isLocal](int result) {
         if (result == KMessageBox::PrimaryAction) {
@@ -272,6 +319,16 @@ int main(int argc, char *argv[])
     });
 
     dialog->show();
+
+    if (xdgImporter) {
+        if (auto *waylandWindow = dialog->windowHandle()->nativeInterface<QNativeInterface::Private::QWaylandWindow>()) {
+            importedParent.reset(xdgImporter->import(windowHandle));
+            if (auto *surface = waylandWindow->surface()) {
+                importedParent->set_parent_of(surface);
+            }
+        }
+    }
+
     dialog->windowHandle()->requestActivate();
 
     return app.exec();

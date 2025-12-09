@@ -4,7 +4,6 @@
 
     SPDX-FileCopyrightText: 2019 Roman Gilg <subdiff@gmail.com>
     SPDX-FileCopyrightText: 2021 David Redondo <kde@david-redondo.de>
-    SPDX-FileCopyrightText: 2025 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
     SPDX-License-Identifier: GPL-2.0-or-later
 */
@@ -12,8 +11,15 @@
 
 #include "selection.h"
 
-namespace KWin::Xwl
+#include <memory>
+
+namespace KWin
 {
+class AbstractDataSource;
+
+namespace Xwl
+{
+class XwlDataSource;
 
 /**
  * Represents the X clipboard, which is on Wayland side just called
@@ -28,14 +34,29 @@ public:
     ~Primary() override;
 
 private:
-    void selectionDisowned() override;
-    void selectionClaimed(xcb_xfixes_selection_notify_event_t *event) override;
-    void targetsReceived(const QStringList &mimeTypes) override;
+    void doHandleXfixesNotify(xcb_xfixes_selection_notify_event_t *event) override;
+    void x11OfferLost() override;
+    void x11OffersChanged(const QStringList &added, const QStringList &removed) override;
+    /**
+     * React to Wl selection change.
+     */
+    void wlPrimarySelectionChanged(AbstractDataSource *dsi);
+    /**
+     * Check the current state of the selection and if a source needs
+     * to be created or destroyed.
+     */
+    void checkWlSource();
 
-    void onSelectionChanged();
-    void onActiveWindowChanged();
+    /**
+     * Returns if dsi is managed by our data bridge
+     */
+    bool ownsSelection(AbstractDataSource *dsi) const;
 
-    bool x11ClientsCanAccessSelection() const;
+    QMetaObject::Connection m_checkConnection;
+
+    Q_DISABLE_COPY(Primary)
+    std::unique_ptr<XwlDataSource> m_primarySelectionSource;
 };
 
-} // namespace KWin::Xwl
+} // namespace Xwl
+} // namespace KWin

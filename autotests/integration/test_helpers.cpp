@@ -12,14 +12,11 @@
 
 #include "kwin_wayland_test.h"
 
-#if KWIN_BUILD_X11
-#include "atoms.h"
+#if KWIN_BUILD_SCREENLOCKER
+#include "screenlockerwatcher.h"
 #endif
 #include "input_event.h"
 #include "inputmethod.h"
-#include "wayland-client/linuxdmabuf.h"
-#include "wayland-linux-dmabuf-unstable-v1-client-protocol.h"
-#include "wayland-zkde-screencast-unstable-v1-client-protocol.h"
 #include "wayland/display.h"
 #include "wayland_server.h"
 #include "workspace.h"
@@ -27,8 +24,6 @@
 #include <KWayland/Client/appmenu.h>
 #include <KWayland/Client/compositor.h>
 #include <KWayland/Client/connection_thread.h>
-#include <KWayland/Client/datadevicemanager.h>
-#include <KWayland/Client/datasource.h>
 #include <KWayland/Client/event_queue.h>
 #include <KWayland/Client/output.h>
 #include <KWayland/Client/plasmashell.h>
@@ -50,7 +45,6 @@
 #endif
 
 #include <QFutureWatcher>
-#include <QMimeDatabase>
 #include <QThread>
 #include <QtConcurrentRun>
 
@@ -484,13 +478,6 @@ std::unique_ptr<Connection> Connection::setup(AdditionalWaylandInterfaces flags)
                 return;
             }
         }
-        if (flags & AdditionalWaylandInterface::ScreencastingV1) {
-            if (interface == zkde_screencast_unstable_v1_interface.name) {
-                c->screencastingV1 = new ScreencastingV1();
-                c->screencastingV1->init(*c->registry, name, version);
-                return;
-            }
-        }
         if (flags & AdditionalWaylandInterface::ScreenEdgeV1) {
             if (interface == kde_screen_edge_manager_v1_interface.name) {
                 c->screenEdgeManagerV1 = new ScreenEdgeManagerV1();
@@ -527,48 +514,6 @@ std::unique_ptr<Connection> Connection::setup(AdditionalWaylandInterfaces flags)
                 c->colorManager = std::make_unique<ColorManagerV1>(*c->registry, name, version);
             }
         }
-        if (flags & AdditionalWaylandInterface::FifoV1) {
-            if (interface == wp_fifo_manager_v1_interface.name) {
-                c->fifoManager = std::make_unique<FifoManagerV1>(*c->registry, name, version);
-            }
-        }
-        if (interface == wp_presentation_interface.name) {
-            c->presentationTime = std::make_unique<PresentationTime>(*c->registry, name, version);
-        }
-        if (flags & AdditionalWaylandInterface::XdgActivation) {
-            if (interface == xdg_activation_v1_interface.name) {
-                c->xdgActivation = std::make_unique<XdgActivation>(*c->registry, name, version);
-            }
-        }
-        if (flags & AdditionalWaylandInterface::XdgSessionV1) {
-            if (interface == xx_session_manager_v1_interface.name) {
-                c->sessionManager = std::make_unique<XdgSessionManagerV1>(*c->registry, name, version);
-            }
-        }
-        if (flags & AdditionalWaylandInterface::WpTabletV2) {
-            if (interface == zwp_tablet_manager_v2_interface.name) {
-                c->tabletManager = std::make_unique<WpTabletManagerV2>(*c->registry, name, version);
-            }
-        }
-        if (flags & AdditionalWaylandInterface::KeyState && interface == org_kde_kwin_keystate_interface.name) {
-            c->keyState = std::make_unique<KeyStateV1>(*c->registry, name, version);
-        }
-        if (flags & AdditionalWaylandInterface::WpPrimarySelectionV1) {
-            if (interface == zwp_primary_selection_device_manager_v1_interface.name) {
-                c->primarySelectionManager = std::make_unique<WpPrimarySelectionDeviceManagerV1>(*c->registry, name, version);
-            }
-        }
-        if (flags & AdditionalWaylandInterface::XdgToplevelDragV1) {
-            if (interface == xdg_toplevel_drag_manager_v1_interface.name) {
-                c->toplevelDragManager = std::make_unique<XdgToplevelDragManagerV1>(*c->registry, name, version);
-            }
-        }
-        if (flags & AdditionalWaylandInterface::LinuxDmabuf && interface == zwp_linux_dmabuf_v1_interface.name) {
-            c->linuxDmabuf = std::make_unique<WaylandClient::LinuxDmabufV1>(*c->registry, name, version);
-        }
-        if (flags & AdditionalWaylandInterface::ColorRepresentation && interface == wp_color_representation_manager_v1_interface.name) {
-            c->colorRepresentation = std::make_unique<ColorRepresentationV1>(*c->registry, name, version);
-        }
     });
 
     QSignalSpy allAnnounced(registry, &KWayland::Client::Registry::interfacesAnnounced);
@@ -599,12 +544,6 @@ std::unique_ptr<Connection> Connection::setup(AdditionalWaylandInterfaces flags)
     if (flags.testFlag(AdditionalWaylandInterface::Seat)) {
         connection->seat = registry->createSeat(registry->interface(KWayland::Client::Registry::Interface::Seat).name, registry->interface(KWayland::Client::Registry::Interface::Seat).version);
         if (!connection->seat->isValid()) {
-            return nullptr;
-        }
-    }
-    if (flags.testFlag(AdditionalWaylandInterface::DataDeviceManager)) {
-        connection->dataDeviceManager = registry->createDataDeviceManager(registry->interface(KWayland::Client::Registry::Interface::DataDeviceManager).name, registry->interface(KWayland::Client::Registry::Interface::DataDeviceManager).version);
-        if (!connection->dataDeviceManager->isValid()) {
             return nullptr;
         }
     }
@@ -664,8 +603,6 @@ Connection::~Connection()
     plasmaShell = nullptr;
     delete seat;
     seat = nullptr;
-    delete dataDeviceManager;
-    dataDeviceManager = nullptr;
     delete pointerConstraints;
     pointerConstraints = nullptr;
     delete xdgShell;
@@ -692,8 +629,6 @@ Connection::~Connection()
     outputManagementV2 = nullptr;
     delete fractionalScaleManagerV1;
     fractionalScaleManagerV1 = nullptr;
-    delete screencastingV1;
-    screencastingV1 = nullptr;
     delete screenEdgeManagerV1;
     screenEdgeManagerV1 = nullptr;
     delete cursorShapeManagerV1;
@@ -705,16 +640,6 @@ Connection::~Connection()
     delete xdgWmDialogV1;
     xdgWmDialogV1 = nullptr;
     colorManager.reset();
-    fifoManager.reset();
-    presentationTime.reset();
-    xdgActivation.reset();
-    sessionManager.reset();
-    tabletManager.reset();
-    keyState.reset();
-    primarySelectionManager.reset();
-    toplevelDragManager.reset();
-    linuxDmabuf.reset();
-    colorRepresentation.reset();
 
     delete queue; // Must be destroyed last
     queue = nullptr;
@@ -729,44 +654,6 @@ Connection::~Connection()
     }
     outputs.clear();
     outputDevicesV2.clear();
-}
-
-class WaylandSyncPoint : public QObject
-{
-    Q_OBJECT
-
-public:
-    explicit WaylandSyncPoint(KWayland::Client::ConnectionThread *connection, KWayland::Client::EventQueue *eventQueue)
-    {
-        static const wl_callback_listener listener = {
-            .done = [](void *data, wl_callback *callback, uint32_t callback_data) {
-            auto syncPoint = static_cast<WaylandSyncPoint *>(data);
-            Q_EMIT syncPoint->done();
-        },
-        };
-
-        m_callback = wl_display_sync(connection->display());
-        eventQueue->addProxy(m_callback);
-        wl_callback_add_listener(m_callback, &listener, this);
-    }
-
-    ~WaylandSyncPoint() override
-    {
-        wl_callback_destroy(m_callback);
-    }
-
-Q_SIGNALS:
-    void done();
-
-private:
-    wl_callback *m_callback;
-};
-
-bool Connection::sync()
-{
-    WaylandSyncPoint syncPoint(connection, queue);
-    QSignalSpy doneSpy(&syncPoint, &WaylandSyncPoint::done);
-    return doneSpy.wait();
 }
 
 KWayland::Client::ConnectionThread *waylandConnection()
@@ -797,11 +684,6 @@ KWayland::Client::ShmPool *waylandShmPool()
 KWayland::Client::Seat *waylandSeat()
 {
     return s_waylandConnection->seat;
-}
-
-KWayland::Client::DataDeviceManager *waylandDataDeviceManager()
-{
-    return s_waylandConnection->dataDeviceManager;
 }
 
 KWayland::Client::PlasmaShell *waylandPlasmaShell()
@@ -854,11 +736,6 @@ KWayland::Client::Output *waylandOutput(const QString &name)
     return nullptr;
 }
 
-ScreencastingV1 *screencasting()
-{
-    return s_waylandConnection->screencastingV1;
-}
-
 QList<KWin::Test::WaylandOutputDeviceV2 *> waylandOutputDevicesV2()
 {
     return s_waylandConnection->outputDevicesV2;
@@ -877,51 +754,6 @@ SecurityContextManagerV1 *waylandSecurityContextManagerV1()
 ColorManagerV1 *colorManager()
 {
     return s_waylandConnection->colorManager.get();
-}
-
-FifoManagerV1 *fifoManager()
-{
-    return s_waylandConnection->fifoManager.get();
-}
-
-PresentationTime *presentationTime()
-{
-    return s_waylandConnection->presentationTime.get();
-}
-
-XdgActivation *xdgActivation()
-{
-    return s_waylandConnection->xdgActivation.get();
-}
-
-WpTabletManagerV2 *tabletManager()
-{
-    return s_waylandConnection->tabletManager.get();
-}
-
-KeyStateV1 *keyState()
-{
-    return s_waylandConnection->keyState.get();
-}
-
-WpPrimarySelectionDeviceManagerV1 *primarySelectionManager()
-{
-    return s_waylandConnection->primarySelectionManager.get();
-}
-
-XdgToplevelDragManagerV1 *toplevelDragManager()
-{
-    return s_waylandConnection->toplevelDragManager.get();
-}
-
-WaylandClient::LinuxDmabufV1 *linuxDmabuf()
-{
-    return s_waylandConnection->linuxDmabuf.get();
-}
-
-ColorRepresentationV1 *colorRepresentation()
-{
-    return s_waylandConnection->colorRepresentation.get();
 }
 
 bool waitForWaylandSurface(Window *window)
@@ -973,15 +805,6 @@ bool waitForWaylandKeyboard(KWayland::Client::Seat *seat)
 {
     QSignalSpy hasKeyboardSpy(seat, &KWayland::Client::Seat::hasKeyboardChanged);
     return hasKeyboardSpy.wait();
-}
-
-bool waitForWaylandTabletTool(Test::WpTabletToolV2 *tool)
-{
-    if (tool->ready()) {
-        return true;
-    }
-    QSignalSpy doneSpy(tool, &WpTabletToolV2::done);
-    return doneSpy.wait();
 }
 
 void render(KWayland::Client::Surface *surface, const QSize &size, const QColor &color, const QImage::Format &format)
@@ -1058,9 +881,42 @@ void flushWaylandConnection()
     }
 }
 
+class WaylandSyncPoint : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit WaylandSyncPoint(KWayland::Client::ConnectionThread *connection, KWayland::Client::EventQueue *eventQueue)
+    {
+        static const wl_callback_listener listener = {
+            .done = [](void *data, wl_callback *callback, uint32_t callback_data) {
+            auto syncPoint = static_cast<WaylandSyncPoint *>(data);
+            Q_EMIT syncPoint->done();
+        },
+        };
+
+        m_callback = wl_display_sync(connection->display());
+        eventQueue->addProxy(m_callback);
+        wl_callback_add_listener(m_callback, &listener, this);
+    }
+
+    ~WaylandSyncPoint() override
+    {
+        wl_callback_destroy(m_callback);
+    }
+
+Q_SIGNALS:
+    void done();
+
+private:
+    wl_callback *m_callback;
+};
+
 bool waylandSync()
 {
-    return s_waylandConnection->sync();
+    WaylandSyncPoint syncPoint(s_waylandConnection->connection, s_waylandConnection->queue);
+    QSignalSpy doneSpy(&syncPoint, &WaylandSyncPoint::done);
+    return doneSpy.wait();
 }
 
 std::unique_ptr<KWayland::Client::Surface> createSurface()
@@ -1204,9 +1060,7 @@ std::unique_ptr<XdgToplevel> createXdgToplevelSurface(XdgShell *shell, KWayland:
     XdgSurface *xdgSurface = new XdgSurface(shell, surface);
     std::unique_ptr<XdgToplevel> xdgToplevel = std::make_unique<XdgToplevel>(xdgSurface);
 
-    if (setup) {
-        setup(xdgToplevel.get());
-    }
+    setup(xdgToplevel.get());
     waitForConfigured(xdgSurface);
 
     return xdgToplevel;
@@ -1298,21 +1152,6 @@ std::unique_ptr<XdgDialogV1> createXdgDialogV1(XdgToplevel *toplevel)
     return std::make_unique<XdgDialogV1>(wm, toplevel);
 }
 
-std::unique_ptr<XdgSessionV1> createXdgSessionV1(XdgSessionManagerV1::reason reason, const QString &sessionId)
-{
-    XdgSessionManagerV1 *manager = s_waylandConnection->sessionManager.get();
-    if (!manager) {
-        qWarning() << "Could not create a xx_session_v1 because xx_session_manager_v1 global is not bound";
-        return nullptr;
-    }
-    return createXdgSessionV1(manager, reason, sessionId);
-}
-
-std::unique_ptr<XdgSessionV1> createXdgSessionV1(XdgSessionManagerV1 *manager, XdgSessionManagerV1::reason reason, const QString &sessionId)
-{
-    return std::make_unique<XdgSessionV1>(manager->get_session(reason, sessionId));
-}
-
 bool waitForWindowClosed(Window *window)
 {
     QSignalSpy closedSpy(window, &Window::closed);
@@ -1339,12 +1178,15 @@ bool lockScreen()
     if (!waylandServer()->isScreenLocked()) {
         return false;
     }
-    if (ScreenLocker::KSldApp::self()->lockState() != ScreenLocker::KSldApp::Locked) {
-        QSignalSpy lockedSpy(ScreenLocker::KSldApp::self(), &ScreenLocker::KSldApp::locked);
+    if (!kwinApp()->screenLockerWatcher()->isLocked()) {
+        QSignalSpy lockedSpy(kwinApp()->screenLockerWatcher(), &ScreenLockerWatcher::locked);
         if (!lockedSpy.isValid()) {
             return false;
         }
         if (!lockedSpy.wait()) {
+            return false;
+        }
+        if (!kwinApp()->screenLockerWatcher()->isLocked()) {
             return false;
         }
     }
@@ -1372,12 +1214,15 @@ bool unlockScreen()
     if (waylandServer()->isScreenLocked()) {
         return true;
     }
-    if (ScreenLocker::KSldApp::self()->lockState() == ScreenLocker::KSldApp::Locked) {
-        QSignalSpy lockedSpy(ScreenLocker::KSldApp::self(), &ScreenLocker::KSldApp::unlocked);
+    if (kwinApp()->screenLockerWatcher()->isLocked()) {
+        QSignalSpy lockedSpy(kwinApp()->screenLockerWatcher(), &ScreenLockerWatcher::locked);
         if (!lockedSpy.isValid()) {
             return false;
         }
         if (!lockedSpy.wait()) {
+            return false;
+        }
+        if (kwinApp()->screenLockerWatcher()->isLocked()) {
             return false;
         }
     }
@@ -1385,17 +1230,8 @@ bool unlockScreen()
 }
 #endif // KWIN_BUILD_LOCKSCREEN
 
-static bool haveDrmNode(int type)
+bool renderNodeAvailable()
 {
-#if !HAVE_LIBDRM_FAUX
-#if defined(Q_OS_LINUX)
-    // Workaround for libdrm being unaware of faux bus.
-    if (qEnvironmentVariableIsSet("CI")) {
-        return true;
-    }
-#endif
-#endif
-
     const int deviceCount = drmGetDevices2(0, nullptr, 0);
     if (deviceCount <= 0) {
         return false;
@@ -1409,19 +1245,9 @@ static bool haveDrmNode(int type)
         drmFreeDevices(devices.data(), devices.size());
     });
 
-    return std::any_of(devices.constBegin(), devices.constEnd(), [type](drmDevice *device) {
-        return device->available_nodes & (1 << type);
+    return std::any_of(devices.constBegin(), devices.constEnd(), [](drmDevice *device) {
+        return device->available_nodes & (1 << DRM_NODE_RENDER);
     });
-}
-
-bool renderNodeAvailable()
-{
-    return haveDrmNode(DRM_NODE_RENDER);
-}
-
-bool primaryNodeAvailable()
-{
-    return haveDrmNode(DRM_NODE_PRIMARY);
 }
 
 #if KWIN_BUILD_X11
@@ -1441,15 +1267,6 @@ Test::XcbConnectionPtr createX11Connection()
     watcher.setFuture(future);
     e.exec();
     return Test::XcbConnectionPtr(future.result());
-}
-
-void applyMotifHints(xcb_connection_t *connection, xcb_window_t window, const MotifHints &hints)
-{
-    if (hints.flags) {
-        xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window, atoms->motif_wm_hints, atoms->motif_wm_hints, 32, 5, &hints);
-    } else {
-        xcb_delete_property(connection, window, atoms->motif_wm_hints);
-    }
 }
 #endif
 
@@ -1910,400 +1727,6 @@ ColorManagerV1::~ColorManagerV1()
     wp_color_manager_v1_destroy(object());
 }
 
-ColorRepresentationV1::ColorRepresentationV1(::wl_registry *registry, uint32_t id, int version)
-    : QtWayland::wp_color_representation_manager_v1(registry, id, version)
-{
-}
-
-ColorRepresentationV1::~ColorRepresentationV1()
-{
-    destroy();
-}
-
-ColorRepresentationSurfaceV1::ColorRepresentationSurfaceV1(::wp_color_representation_surface_v1 *object)
-    : QtWayland::wp_color_representation_surface_v1(object)
-{
-}
-
-ColorRepresentationSurfaceV1::~ColorRepresentationSurfaceV1()
-{
-    destroy();
-}
-
-FifoManagerV1::FifoManagerV1(::wl_registry *registry, uint32_t id, int version)
-    : QtWayland::wp_fifo_manager_v1(registry, id, version)
-{
-}
-
-FifoManagerV1::~FifoManagerV1()
-{
-    wp_fifo_manager_v1_destroy(object());
-}
-
-PresentationTime::PresentationTime(::wl_registry *registry, uint32_t id, int version)
-    : QtWayland::wp_presentation(registry, id, version)
-{
-}
-
-PresentationTime::~PresentationTime()
-{
-    wp_presentation_destroy(object());
-}
-
-WpPresentationFeedback::WpPresentationFeedback(struct ::wp_presentation_feedback *obj)
-    : QtWayland::wp_presentation_feedback(obj)
-{
-}
-
-WpPresentationFeedback::~WpPresentationFeedback()
-{
-    wp_presentation_feedback_destroy(object());
-}
-
-void WpPresentationFeedback::wp_presentation_feedback_presented(uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec, uint32_t refresh, uint32_t seq_hi, uint32_t seq_lo, uint32_t flags)
-{
-    const std::chrono::nanoseconds timestamp = std::chrono::seconds((uint64_t(tv_sec_hi) << 32) | tv_sec_lo) + std::chrono::nanoseconds(tv_nsec);
-    Q_EMIT presented(timestamp, std::chrono::nanoseconds(refresh));
-}
-
-void WpPresentationFeedback::wp_presentation_feedback_discarded()
-{
-    Q_EMIT discarded();
-}
-
-XdgActivationToken::XdgActivationToken(::xdg_activation_token_v1 *object)
-    : QtWayland::xdg_activation_token_v1(object)
-{
-}
-
-XdgActivationToken::~XdgActivationToken()
-{
-    destroy();
-}
-
-QString XdgActivationToken::commitAndWait()
-{
-    QSignalSpy received(this, &XdgActivationToken::tokenReceived);
-    commit();
-    received.wait();
-    return m_token;
-}
-
-void XdgActivationToken::xdg_activation_token_v1_done(const QString &token)
-{
-    m_token = token;
-    Q_EMIT tokenReceived();
-}
-
-XdgActivation::XdgActivation(::wl_registry *registry, uint32_t id, int version)
-    : QtWayland::xdg_activation_v1(registry, id, version)
-{
-}
-
-XdgActivation::~XdgActivation()
-{
-    destroy();
-}
-
-std::unique_ptr<XdgActivationToken> XdgActivation::createToken()
-{
-    return std::make_unique<XdgActivationToken>(get_activation_token());
-}
-
-XdgToplevelSessionV1::XdgToplevelSessionV1(::xx_toplevel_session_v1 *session)
-    : QtWayland::xx_toplevel_session_v1(session)
-{
-}
-
-XdgToplevelSessionV1::~XdgToplevelSessionV1()
-{
-    destroy();
-}
-
-void XdgToplevelSessionV1::xx_toplevel_session_v1_restored(struct ::xdg_toplevel *surface)
-{
-    Q_EMIT restored();
-}
-
-XdgSessionV1::XdgSessionV1(::xx_session_v1 *session)
-    : QtWayland::xx_session_v1(session)
-{
-}
-
-XdgSessionV1::~XdgSessionV1()
-{
-    destroy();
-}
-
-std::unique_ptr<XdgToplevelSessionV1> XdgSessionV1::add(XdgToplevel *toplevel, const QString &toplevelId)
-{
-    return std::make_unique<XdgToplevelSessionV1>(add_toplevel(toplevel->object(), toplevelId));
-}
-
-std::unique_ptr<XdgToplevelSessionV1> XdgSessionV1::restore(XdgToplevel *toplevel, const QString &toplevelId)
-{
-    return std::make_unique<XdgToplevelSessionV1>(restore_toplevel(toplevel->object(), toplevelId));
-}
-
-void XdgSessionV1::xx_session_v1_created(const QString &id)
-{
-    Q_EMIT created(id);
-}
-
-void XdgSessionV1::xx_session_v1_restored()
-{
-    Q_EMIT restored();
-}
-
-void XdgSessionV1::xx_session_v1_replaced()
-{
-    Q_EMIT replaced();
-}
-
-XdgSessionManagerV1::XdgSessionManagerV1(::wl_registry *registry, uint32_t id, int version)
-    : QtWayland::xx_session_manager_v1(registry, id, version)
-{
-}
-
-XdgSessionManagerV1::~XdgSessionManagerV1()
-{
-    destroy();
-}
-
-KeyStateV1::KeyStateV1(::wl_registry *registry, uint32_t id, int version)
-    : QtWayland::org_kde_kwin_keystate(registry, id, version)
-{
-    fetchStates();
-}
-
-KeyStateV1::~KeyStateV1()
-{
-    destroy();
-}
-
-void KeyStateV1::org_kde_kwin_keystate_stateChanged(uint32_t key, uint32_t state)
-{
-    keyToState[key] = state;
-    Q_EMIT stateChanged();
-}
-
-WpTabletManagerV2::WpTabletManagerV2(::wl_registry *registry, uint32_t id, int version)
-    : QtWayland::zwp_tablet_manager_v2(registry, id, version)
-{
-}
-
-WpTabletManagerV2::~WpTabletManagerV2()
-{
-    destroy();
-}
-
-std::unique_ptr<WpTabletSeatV2> WpTabletManagerV2::createSeat(KWayland::Client::Seat *seat)
-{
-    return std::make_unique<WpTabletSeatV2>(get_tablet_seat(*seat));
-}
-
-WpTabletSeatV2::WpTabletSeatV2(::zwp_tablet_seat_v2 *seat)
-    : QtWayland::zwp_tablet_seat_v2(seat)
-{
-}
-
-WpTabletSeatV2::~WpTabletSeatV2()
-{
-    destroy();
-}
-
-void WpTabletSeatV2::zwp_tablet_seat_v2_tablet_added(::zwp_tablet_v2 *id)
-{
-    m_tablets.emplace_back(std::make_unique<WpTabletV2>(id));
-}
-
-void WpTabletSeatV2::zwp_tablet_seat_v2_tool_added(::zwp_tablet_tool_v2 *id)
-{
-    auto &tool = m_tools.emplace_back(std::make_unique<WpTabletToolV2>(id));
-    Q_EMIT toolAdded(tool.get());
-}
-
-void WpTabletSeatV2::zwp_tablet_seat_v2_pad_added(::zwp_tablet_pad_v2 *id)
-{
-    m_pads.emplace_back(std::make_unique<WpTabletPadV2>(id));
-}
-
-WpTabletV2::WpTabletV2(::zwp_tablet_v2 *id)
-    : QtWayland::zwp_tablet_v2(id)
-{
-}
-
-WpTabletV2::~WpTabletV2()
-{
-    destroy();
-}
-
-WpTabletToolV2::WpTabletToolV2(::zwp_tablet_tool_v2 *id)
-    : QtWayland::zwp_tablet_tool_v2(id)
-{
-}
-
-WpTabletToolV2::~WpTabletToolV2()
-{
-    destroy();
-}
-
-bool WpTabletToolV2::ready() const
-{
-    return m_ready;
-}
-
-void WpTabletToolV2::zwp_tablet_tool_v2_done()
-{
-    m_ready = true;
-    Q_EMIT done();
-}
-
-void WpTabletToolV2::zwp_tablet_tool_v2_down(uint32_t serial)
-{
-    Q_EMIT down(serial);
-}
-
-void WpTabletToolV2::zwp_tablet_tool_v2_up()
-{
-    Q_EMIT up();
-}
-
-void WpTabletToolV2::zwp_tablet_tool_v2_motion(wl_fixed_t x, wl_fixed_t y)
-{
-    Q_EMIT motion(QPointF(wl_fixed_to_double(x), wl_fixed_to_double(y)));
-}
-
-WpTabletPadV2::WpTabletPadV2(::zwp_tablet_pad_v2 *id)
-    : QtWayland::zwp_tablet_pad_v2(id)
-{
-}
-
-WpTabletPadV2::~WpTabletPadV2()
-{
-    destroy();
-}
-
-WpPrimarySelectionOfferV1::WpPrimarySelectionOfferV1(::zwp_primary_selection_offer_v1 *id)
-    : QtWayland::zwp_primary_selection_offer_v1(id)
-{
-}
-
-WpPrimarySelectionOfferV1::~WpPrimarySelectionOfferV1()
-{
-    destroy();
-}
-
-QList<QMimeType> WpPrimarySelectionOfferV1::mimeTypes() const
-{
-    return m_mimeTypes;
-}
-
-void WpPrimarySelectionOfferV1::zwp_primary_selection_offer_v1_offer(const QString &mime_type)
-{
-    m_mimeTypes.append(QMimeDatabase().mimeTypeForName(mime_type));
-}
-
-WpPrimarySelectionSourceV1::WpPrimarySelectionSourceV1(::zwp_primary_selection_source_v1 *id)
-    : QtWayland::zwp_primary_selection_source_v1(id)
-{
-}
-
-WpPrimarySelectionSourceV1::~WpPrimarySelectionSourceV1()
-{
-    destroy();
-}
-
-void WpPrimarySelectionSourceV1::zwp_primary_selection_source_v1_send(const QString &mime_type, int32_t fd)
-{
-    Q_EMIT sendDataRequested(mime_type, fd);
-}
-
-void WpPrimarySelectionSourceV1::zwp_primary_selection_source_v1_cancelled()
-{
-    Q_EMIT cancelled();
-}
-
-WpPrimarySelectionDeviceV1::WpPrimarySelectionDeviceV1(::zwp_primary_selection_device_v1 *id)
-    : QtWayland::zwp_primary_selection_device_v1(id)
-{
-}
-
-WpPrimarySelectionDeviceV1::~WpPrimarySelectionDeviceV1()
-{
-    destroy();
-}
-
-WpPrimarySelectionOfferV1 *WpPrimarySelectionDeviceV1::offer() const
-{
-    return m_offer.get();
-}
-
-std::unique_ptr<WpPrimarySelectionOfferV1> WpPrimarySelectionDeviceV1::takeOffer()
-{
-    return std::move(m_offer);
-}
-
-void WpPrimarySelectionDeviceV1::zwp_primary_selection_device_v1_data_offer(::zwp_primary_selection_offer_v1 *offer)
-{
-    m_offer = std::make_unique<WpPrimarySelectionOfferV1>(offer);
-}
-
-void WpPrimarySelectionDeviceV1::zwp_primary_selection_device_v1_selection(::zwp_primary_selection_offer_v1 *id)
-{
-    if (id) {
-        Q_EMIT selectionOffered(m_offer.get());
-    } else {
-        m_offer.reset();
-        Q_EMIT selectionCleared();
-    }
-}
-
-WpPrimarySelectionDeviceManagerV1::WpPrimarySelectionDeviceManagerV1(::wl_registry *registry, uint32_t id, int version)
-    : QtWayland::zwp_primary_selection_device_manager_v1(registry, id, version)
-{
-}
-
-WpPrimarySelectionDeviceManagerV1::~WpPrimarySelectionDeviceManagerV1()
-{
-    destroy();
-}
-
-std::unique_ptr<WpPrimarySelectionDeviceV1> WpPrimarySelectionDeviceManagerV1::getDevice(KWayland::Client::Seat *seat)
-{
-    return std::make_unique<WpPrimarySelectionDeviceV1>(get_device(*seat));
-}
-
-std::unique_ptr<WpPrimarySelectionSourceV1> WpPrimarySelectionDeviceManagerV1::createSource()
-{
-    return std::make_unique<WpPrimarySelectionSourceV1>(create_source());
-}
-
-XdgToplevelDragManagerV1::XdgToplevelDragManagerV1(::wl_registry *registry, uint32_t id, int version)
-    : QtWayland::xdg_toplevel_drag_manager_v1(registry, id, version)
-{
-}
-
-std::unique_ptr<XdgToplevelDragV1> XdgToplevelDragManagerV1::createDrag(KWayland::Client::DataSource *source)
-{
-    return std::make_unique<XdgToplevelDragV1>(get_xdg_toplevel_drag(*source));
-}
-
-XdgToplevelDragManagerV1::~XdgToplevelDragManagerV1()
-{
-    destroy();
-}
-
-XdgToplevelDragV1::XdgToplevelDragV1(::xdg_toplevel_drag_v1 *id)
-    : QtWayland::xdg_toplevel_drag_v1(id)
-{
-}
-
-XdgToplevelDragV1::~XdgToplevelDragV1()
-{
-    destroy();
-}
-
 void keyboardKeyPressed(quint32 key, quint32 time)
 {
     auto virtualKeyboard = static_cast<WaylandTestApplication *>(kwinApp())->virtualKeyboard();
@@ -2385,25 +1808,13 @@ void touchUp(qint32 id, quint32 time)
 void tabletPadButtonPressed(quint32 button, quint32 time)
 {
     auto virtualTabletPad = static_cast<WaylandTestApplication *>(kwinApp())->virtualTabletPad();
-    Q_EMIT virtualTabletPad->tabletPadButtonEvent(button, true, 0, 0, false, std::chrono::milliseconds(time), virtualTabletPad);
+    Q_EMIT virtualTabletPad->tabletPadButtonEvent(button, true, std::chrono::milliseconds(time), virtualTabletPad);
 }
 
 void tabletPadButtonReleased(quint32 button, quint32 time)
 {
     auto virtualTabletPad = static_cast<WaylandTestApplication *>(kwinApp())->virtualTabletPad();
-    Q_EMIT virtualTabletPad->tabletPadButtonEvent(button, false, 0, 0, false, std::chrono::milliseconds(time), virtualTabletPad);
-}
-
-void tabletPadDialEvent(double delta, int number, quint32 time)
-{
-    auto virtualTabletPad = static_cast<WaylandTestApplication *>(kwinApp())->virtualTabletPad();
-    Q_EMIT virtualTabletPad->tabletPadDialEvent(number, delta, 0, std::chrono::milliseconds(time), virtualTabletPad);
-}
-
-void tabletPadRingEvent(qreal position, int number, quint32 group, quint32 mode, quint32 time)
-{
-    auto virtualTabletPad = static_cast<WaylandTestApplication *>(kwinApp())->virtualTabletPad();
-    Q_EMIT virtualTabletPad->tabletPadRingEvent(number, position, true, group, mode, std::chrono::milliseconds(time), virtualTabletPad);
+    Q_EMIT virtualTabletPad->tabletPadButtonEvent(button, false, std::chrono::milliseconds(time), virtualTabletPad);
 }
 
 void tabletToolButtonPressed(quint32 button, quint32 time)
@@ -2425,98 +1836,6 @@ void tabletToolProximityEvent(const QPointF &pos, qreal xTilt, qreal yTilt, qrea
     auto tablet = static_cast<WaylandTestApplication *>(kwinApp())->virtualTablet();
     auto tool = static_cast<WaylandTestApplication *>(kwinApp())->virtualTabletTool();
     Q_EMIT tablet->tabletToolProximityEvent(pos, xTilt, yTilt, rotation, distance, tipNear, sliderPosition, tool, std::chrono::milliseconds(time), tablet);
-}
-
-void tabletToolAxisEvent(const QPointF &pos, qreal pressure, qreal xTilt, qreal yTilt, qreal rotation, qreal distance, bool tipDown, qreal sliderPosition, quint32 time)
-{
-    auto tablet = static_cast<WaylandTestApplication *>(kwinApp())->virtualTablet();
-    auto tool = static_cast<WaylandTestApplication *>(kwinApp())->virtualTabletTool();
-    Q_EMIT tablet->tabletToolAxisEvent(pos, pressure, xTilt, yTilt, rotation, distance, tipDown, sliderPosition, tool, std::chrono::milliseconds(time), tablet);
-}
-
-void tabletToolTipEvent(const QPointF &pos, qreal pressure, qreal xTilt, qreal yTilt, qreal rotation, qreal distance, bool tipDown, qreal sliderPosition, quint32 time)
-{
-    auto tablet = static_cast<WaylandTestApplication *>(kwinApp())->virtualTablet();
-    auto tool = static_cast<WaylandTestApplication *>(kwinApp())->virtualTabletTool();
-    Q_EMIT tablet->tabletToolTipEvent(pos, pressure, xTilt, yTilt, rotation, distance, tipDown, sliderPosition, tool, std::chrono::milliseconds(time), tablet);
-}
-
-XdgToplevelWindow::XdgToplevelWindow(const std::function<void(XdgToplevel *toplevel)> &setup)
-    : m_surface(createSurface())
-    , m_toplevel(createXdgToplevelSurface(m_surface.get(), setup))
-{
-}
-
-XdgToplevelWindow::XdgToplevelWindow(const std::function<void(KWayland::Client::Surface *surface, XdgToplevel *toplevel)> &setup)
-    : m_surface(createSurface())
-    , m_toplevel(createXdgToplevelSurface(m_surface.get(), [this, &setup](XdgToplevel *toplevel) {
-        setup(m_surface.get(), toplevel);
-    }))
-{
-}
-
-XdgToplevelWindow::~XdgToplevelWindow()
-{
-    if (m_window) {
-        m_toplevel.reset();
-        m_surface.reset();
-        waitForWindowClosed(m_window);
-    }
-}
-
-bool XdgToplevelWindow::show(const QSize &size, const QColor &color)
-{
-    m_window = renderAndWaitForShown(m_surface.get(), size, color);
-    return m_window != nullptr;
-}
-
-bool XdgToplevelWindow::show(const QImage &image)
-{
-    m_window = renderAndWaitForShown(m_surface.get(), image);
-    return m_window != nullptr;
-}
-
-void XdgToplevelWindow::unmap()
-{
-    m_surface->attachBuffer((wl_buffer *)nullptr);
-    m_surface->commit(KWayland::Client::Surface::CommitFlag::None);
-    // unmapping destroys the KWin::Window
-    m_window = nullptr;
-}
-
-bool XdgToplevelWindow::presentWait()
-{
-    const auto feedback = std::make_unique<Test::WpPresentationFeedback>(Test::presentationTime()->feedback(*m_surface));
-    m_surface->commit(KWayland::Client::Surface::CommitFlag::None);
-    QSignalSpy spy(feedback.get(), &Test::WpPresentationFeedback::presented);
-    return spy.wait();
-}
-
-bool XdgToplevelWindow::waitSurfaceConfigure()
-{
-    QSignalSpy surfaceConfigure(m_toplevel->xdgSurface(), &Test::XdgSurface::configureRequested);
-    return surfaceConfigure.wait();
-}
-
-std::optional<QSize> XdgToplevelWindow::handleConfigure(const QColor &color)
-{
-    QSignalSpy toplevelConfigure(m_toplevel.get(), &Test::XdgToplevel::configureRequested);
-    QSignalSpy surfaceConfigure(m_toplevel->xdgSurface(), &Test::XdgSurface::configureRequested);
-    if (!toplevelConfigure.wait()) {
-        return std::nullopt;
-    }
-    m_toplevel->xdgSurface()->ack_configure(surfaceConfigure.last().at(0).value<quint32>());
-    const QSize ret = toplevelConfigure.last().at(0).toSize();
-    if (ret == m_surface->size()) {
-        m_surface->commit(KWayland::Client::Surface::CommitFlag::None);
-        return ret;
-    }
-    Test::render(m_surface.get(), toplevelConfigure.last().at(0).toSize(), color);
-    QSignalSpy frameGeometryChanged(m_window, &KWin::Window::frameGeometryChanged);
-    if (!frameGeometryChanged.wait()) {
-        return std::nullopt;
-    }
-    return ret;
 }
 }
 }

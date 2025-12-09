@@ -6,13 +6,12 @@
 
 #include "effect/offscreeneffect.h"
 #include "core/output.h"
-#include "core/pixelgrid.h"
 #include "core/rendertarget.h"
 #include "core/renderviewport.h"
 #include "effect/effecthandler.h"
-#include "opengl/eglcontext.h"
 #include "opengl/gltexture.h"
 #include "opengl/glutils.h"
+#include "opengl/openglcontext.h"
 #include "scene/windowitem.h"
 
 namespace KWin
@@ -26,7 +25,7 @@ public:
     void setShader(GLShader *newShader);
     void setVertexSnappingMode(RenderGeometry::VertexSnappingMode mode);
 
-    void paint(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *window, const QRegion &deviceRegion,
+    void paint(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *window, const QRegion &region,
                const WindowPaintData &data, const WindowQuadList &quads);
 
     void maybeRender(EffectWindow *window);
@@ -85,7 +84,7 @@ void OffscreenEffect::unredirect(EffectWindow *window)
         return;
     }
 
-    if (!EglContext::currentContext()) {
+    if (!OpenGlContext::currentContext()) {
         effects->openglContext()->makeCurrent();
     }
 
@@ -108,15 +107,10 @@ void OffscreenEffect::apply(EffectWindow *window, int mask, WindowPaintData &dat
 
 void OffscreenData::maybeRender(EffectWindow *window)
 {
+    const QRectF logicalGeometry = window->expandedGeometry();
     const qreal scale = window->screen()->scale();
-    const QRectF logicalGeometry = snapToPixels(window->expandedGeometry(), scale);
     const QSize textureSize = (logicalGeometry.size() * scale).toSize();
 
-    if (textureSize.isEmpty()) {
-        m_fbo.reset();
-        m_texture.reset();
-        return;
-    }
     if (!m_texture || m_texture->size() != textureSize) {
         m_texture = GLTexture::allocate(GL_RGBA8, textureSize);
         if (!m_texture) {
@@ -166,12 +160,9 @@ void OffscreenData::setVertexSnappingMode(RenderGeometry::VertexSnappingMode mod
     m_vertexSnappingMode = mode;
 }
 
-void OffscreenData::paint(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *window, const QRegion &deviceRegion,
+void OffscreenData::paint(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *window, const QRegion &region,
                           const WindowPaintData &data, const WindowQuadList &quads)
 {
-    if (!m_texture) {
-        return;
-    }
     GLShader *shader = m_shader ? m_shader : ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::Modulate | ShaderTrait::AdjustSaturation | ShaderTrait::TransformColorspace);
     ShaderBinder binder(shader);
 
@@ -203,7 +194,7 @@ void OffscreenData::paint(const RenderTarget &renderTarget, const RenderViewport
     QMatrix4x4 mvp = viewport.projectionMatrix();
     mvp.translate(std::round(window->x() * scale), std::round(window->y() * scale));
 
-    const auto toXYZ = renderTarget.colorDescription()->containerColorimetry().toXYZ();
+    const auto toXYZ = renderTarget.colorDescription().containerColorimetry().toXYZ();
     shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, mvp * data.toMatrix(scale));
     shader->setUniform(GLShader::Vec4Uniform::ModulationConstant, QVector4D(rgb, rgb, rgb, a));
     shader->setUniform(GLShader::FloatUniform::Saturation, data.saturation());
@@ -212,8 +203,8 @@ void OffscreenData::paint(const RenderTarget &renderTarget, const RenderViewport
     shader->setUniform(GLShader::IntUniform::TextureHeight, m_texture->height());
     shader->setColorspaceUniforms(ColorDescription::sRGB, renderTarget.colorDescription(), RenderingIntent::Perceptual);
 
-    const bool clipping = deviceRegion != infiniteRegion();
-    const QRegion clipRegion = clipping ? viewport.transform().map(deviceRegion, renderTarget.transformedSize()) : infiniteRegion();
+    const bool clipping = region != infiniteRegion();
+    const QRegion clipRegion = clipping ? viewport.mapToRenderTarget(region) : infiniteRegion();
 
     if (clipping) {
         glEnable(GL_SCISSOR_TEST);
@@ -233,17 +224,17 @@ void OffscreenData::paint(const RenderTarget &renderTarget, const RenderViewport
     vbo->unbindArrays();
 }
 
-void OffscreenEffect::drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *window, int mask, const QRegion &deviceRegion, WindowPaintData &data)
+void OffscreenEffect::drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *window, int mask, const QRegion &region, WindowPaintData &data)
 {
     const auto it = d->windows.find(window);
     if (it == d->windows.end()) {
-        effects->drawWindow(renderTarget, viewport, window, mask, deviceRegion, data);
+        effects->drawWindow(renderTarget, viewport, window, mask, region, data);
         return;
     }
     OffscreenData *offscreenData = it->second.get();
 
-    const QRectF expandedGeometry = snapToPixels(window->expandedGeometry(), viewport.scale());
-    const QRectF frameGeometry = snapToPixels(window->frameGeometry(), viewport.scale());
+    const QRectF expandedGeometry = window->expandedGeometry();
+    const QRectF frameGeometry = window->frameGeometry();
 
     QRectF visibleRect = expandedGeometry;
     visibleRect.moveTopLeft(expandedGeometry.topLeft() - frameGeometry.topLeft());
@@ -258,7 +249,7 @@ void OffscreenEffect::drawWindow(const RenderTarget &renderTarget, const RenderV
     apply(window, mask, data, quads);
 
     offscreenData->maybeRender(window);
-    offscreenData->paint(renderTarget, viewport, window, deviceRegion, data, quads);
+    offscreenData->paint(renderTarget, viewport, window, region, data, quads);
 }
 
 void OffscreenEffect::handleWindowDamaged(EffectWindow *window)
@@ -320,13 +311,13 @@ CrossFadeEffect::CrossFadeEffect(QObject *parent)
 
 CrossFadeEffect::~CrossFadeEffect() = default;
 
-void CrossFadeEffect::drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *window, int mask, const QRegion &deviceRegion, WindowPaintData &data)
+void CrossFadeEffect::drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *window, int mask, const QRegion &region, WindowPaintData &data)
 {
     const auto it = d->windows.find(window);
 
     // paint the new window (if applicable) underneath
     if (data.crossFadeProgress() > 0 || it == d->windows.end()) {
-        Effect::drawWindow(renderTarget, viewport, window, mask, deviceRegion, data);
+        Effect::drawWindow(renderTarget, viewport, window, mask, region, data);
     }
 
     if (it == d->windows.end()) {
@@ -338,8 +329,8 @@ void CrossFadeEffect::drawWindow(const RenderTarget &renderTarget, const RenderV
     WindowPaintData previousWindowData = data;
     previousWindowData.setOpacity((1.0 - data.crossFadeProgress()) * data.opacity());
 
-    const QRectF expandedGeometry = snapToPixels(window->expandedGeometry(), viewport.scale());
-    const QRectF frameGeometry = snapToPixels(window->frameGeometry(), viewport.scale());
+    const QRectF expandedGeometry = window->expandedGeometry();
+    const QRectF frameGeometry = window->frameGeometry();
 
     // This is for the case of *non* live effect, when the window buffer we saved has a different size
     // compared to the size the window has now. The "old" window will be rendered scaled to the current
@@ -367,7 +358,7 @@ void CrossFadeEffect::drawWindow(const RenderTarget &renderTarget, const RenderV
 
     WindowQuadList quads;
     quads.append(quad);
-    offscreenData->paint(renderTarget, viewport, window, deviceRegion, previousWindowData, quads);
+    offscreenData->paint(renderTarget, viewport, window, region, previousWindowData, quads);
 }
 
 void CrossFadeEffect::redirect(EffectWindow *window)
@@ -406,7 +397,7 @@ void CrossFadeEffect::unredirect(EffectWindow *window)
         return;
     }
 
-    if (!EglContext::currentContext()) {
+    if (!OpenGlContext::currentContext()) {
         effects->openglContext()->makeCurrent();
     }
 

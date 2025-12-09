@@ -7,8 +7,9 @@
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 #include "dpmsinputeventfilter.h"
-#include "core/backendoutput.h"
+#include "core/output.h"
 #include "core/outputbackend.h"
+#include "core/session.h"
 #include "input_event.h"
 #include "main.h"
 #include "utils/keys.h"
@@ -18,8 +19,6 @@
 #include <QGuiApplication>
 #include <QKeyEvent>
 
-#include <QProximitySensor>
-
 namespace KWin
 {
 
@@ -28,31 +27,13 @@ DpmsInputEventFilter::DpmsInputEventFilter()
 {
     KSharedConfig::Ptr kwinSettings = kwinApp()->config();
     m_enableDoubleTap = kwinSettings->group(QStringLiteral("Wayland")).readEntry<bool>("DoubleTapWakeup", true);
-
-    // TODO: Disabled due to https://bugreports.qt.io/browse/QTBUG-141672, this call hangs on some devices (OnePlus 6)
-    static bool useProximitySensor = qEnvironmentVariableIntValue("KWIN_WAYLAND_USE_PROXIMITY_SENSOR");
-    if (useProximitySensor && m_enableDoubleTap) {
-        m_sensor = std::make_unique<QProximitySensor>();
-        connect(m_sensor.get(), &QProximitySensor::readingChanged, this, &DpmsInputEventFilter::updateProximitySensor, Qt::UniqueConnection);
-        m_sensor->start();
-        updateProximitySensor();
+    if (Session *session = kwinApp()->outputBackend()->session()) {
+        connect(session, &Session::awoke, this, &DpmsInputEventFilter::notify);
     }
 }
 
 DpmsInputEventFilter::~DpmsInputEventFilter()
 {
-    if (m_sensor) {
-        m_sensor->stop();
-        m_proximityClose = false;
-    }
-}
-
-void DpmsInputEventFilter::updateProximitySensor()
-{
-    // change proximity value only if there is valid sensor backend is connected
-    if (m_sensor->isConnectedToBackend() && !m_sensor->sensorsForType(m_sensor->type()).isEmpty()) {
-        m_proximityClose = m_sensor->reading()->close();
-    }
 }
 
 bool DpmsInputEventFilter::pointerMotion(PointerMotionEvent *event)
@@ -83,15 +64,6 @@ bool DpmsInputEventFilter::keyboardKey(KeyboardKeyEvent *event)
         // don't wake up the screens for media or volume keys
         return false;
     }
-
-    // Wakeup key is sent by either ACPI driver or other drivers when
-    // system is resumed from sleep but that is not necessarily wakeup intended
-    // to do full-scale dpms on event. Let system wake-up without display, only
-    // wake system up if we get actual keyboard key.
-    if (event->key == Qt::Key::Key_WakeUp) {
-        return false;
-    }
-
     if (event->state == KeyboardKeyState::Pressed) {
         notify();
     } else if (event->state == KeyboardKeyState::Released) {
@@ -100,7 +72,7 @@ bool DpmsInputEventFilter::keyboardKey(KeyboardKeyEvent *event)
     return true;
 }
 
-bool DpmsInputEventFilter::touchDown(TouchDownEvent *event)
+bool DpmsInputEventFilter::touchDown(qint32 id, const QPointF &pos, std::chrono::microseconds time)
 {
     if (m_enableDoubleTap) {
         if (m_touchPoints.isEmpty()) {
@@ -120,18 +92,17 @@ bool DpmsInputEventFilter::touchDown(TouchDownEvent *event)
             m_doubleTapTimer.invalidate();
             m_secondTap = false;
         }
-        m_touchPoints << event->id;
+        m_touchPoints << id;
     }
     return true;
 }
 
-bool DpmsInputEventFilter::touchUp(TouchUpEvent *event)
+bool DpmsInputEventFilter::touchUp(qint32 id, std::chrono::microseconds time)
 {
     if (m_enableDoubleTap) {
-        m_touchPoints.removeAll(event->id);
+        m_touchPoints.removeAll(id);
         if (m_touchPoints.isEmpty() && m_doubleTapTimer.isValid() && m_secondTap) {
-            // if device in pocket, do not wake device up
-            if (m_doubleTapTimer.elapsed() < qApp->doubleClickInterval() && !m_proximityClose) {
+            if (m_doubleTapTimer.elapsed() < qApp->doubleClickInterval()) {
                 notify();
             }
             m_doubleTapTimer.invalidate();
@@ -141,7 +112,7 @@ bool DpmsInputEventFilter::touchUp(TouchUpEvent *event)
     return true;
 }
 
-bool DpmsInputEventFilter::touchMotion(TouchMotionEvent *event)
+bool DpmsInputEventFilter::touchMotion(qint32 id, const QPointF &pos, std::chrono::microseconds time)
 {
     // ignore the event
     return true;
@@ -194,15 +165,12 @@ bool DpmsInputEventFilter::tabletPadRingEvent(TabletPadRingEvent *event)
     return true;
 }
 
-bool DpmsInputEventFilter::tabletPadDialEvent(TabletPadDialEvent *event)
-{
-    notify();
-    return true;
-}
-
 void DpmsInputEventFilter::notify()
 {
-    workspace()->requestDpmsState(Workspace::DpmsState::On);
+    const QList<Output *> outputs = workspace()->outputs();
+    for (Output *output : outputs) {
+        output->setDpmsMode(Output::DpmsMode::On);
+    }
 }
 
 }

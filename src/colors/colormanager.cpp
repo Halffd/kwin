@@ -24,8 +24,8 @@ public:
 ColorManager::ColorManager()
     : d(std::make_unique<ColorManagerPrivate>())
 {
-    const QList<LogicalOutput *> outputs = workspace()->outputs();
-    for (LogicalOutput *output : outputs) {
+    const QList<Output *> outputs = workspace()->outputs();
+    for (Output *output : outputs) {
         handleOutputAdded(output);
     }
 
@@ -41,7 +41,7 @@ QList<ColorDevice *> ColorManager::devices() const
     return d->devices;
 }
 
-ColorDevice *ColorManager::findDevice(BackendOutput *output) const
+ColorDevice *ColorManager::findDevice(Output *output) const
 {
     auto it = std::find_if(d->devices.begin(), d->devices.end(), [&output](ColorDevice *device) {
         return device->output() == output;
@@ -52,17 +52,17 @@ ColorDevice *ColorManager::findDevice(BackendOutput *output) const
     return nullptr;
 }
 
-void ColorManager::handleOutputAdded(LogicalOutput *output)
+void ColorManager::handleOutputAdded(Output *output)
 {
-    ColorDevice *device = new ColorDevice(output->backendOutput(), this);
+    ColorDevice *device = new ColorDevice(output, this);
     d->devices.append(device);
     Q_EMIT deviceAdded(device);
 }
 
-void ColorManager::handleOutputRemoved(LogicalOutput *output)
+void ColorManager::handleOutputRemoved(Output *output)
 {
     auto it = std::find_if(d->devices.begin(), d->devices.end(), [&output](ColorDevice *device) {
-        return device->output() == output->backendOutput();
+        return device->output() == output;
     });
     if (it == d->devices.end()) {
         qCWarning(KWIN_CORE) << "Could not find any color device for output" << output;

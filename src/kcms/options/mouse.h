@@ -40,12 +40,16 @@ class KTitleBarActionsConfig : public KCModule
     Q_OBJECT
 
 public:
-    KTitleBarActionsConfig(KWinOptionsSettings *settings, QWidget *parent);
+    KTitleBarActionsConfig(bool _standAlone, KWinOptionsSettings *settings, QWidget *parent);
+
+    void save() override;
 
 protected:
     void initialize(KWinOptionsSettings *settings);
 
 private:
+    bool standAlone;
+
     KWinMouseConfigForm *m_ui;
     KWinOptionsSettings *m_settings;
 };
@@ -55,7 +59,9 @@ class KWindowActionsConfig : public KCModule
     Q_OBJECT
 
 public:
-    KWindowActionsConfig(KWinOptionsSettings *settings, QWidget *parent);
+    KWindowActionsConfig(bool _standAlone, KWinOptionsSettings *settings, QWidget *parent);
+
+    void save() override;
 
     bool isDefaults() const;
     bool isSaveNeeded() const;
@@ -64,6 +70,8 @@ protected:
     void initialize(KWinOptionsSettings *settings);
 
 private:
+    bool standAlone;
+
     KWinActionsConfigForm *m_ui;
     KWinOptionsSettings *m_settings;
 };

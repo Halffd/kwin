@@ -60,6 +60,10 @@ void GlobalShortcutsTest::initTestCase()
     qRegisterMetaType<KWin::Window *>();
     qRegisterMetaType<KWin::InternalWindow *>();
     QVERIFY(waylandServer()->init(s_socketName));
+    Test::setOutputConfig({
+        QRect(0, 0, 1280, 1024),
+        QRect(1280, 0, 1280, 1024),
+    });
 
     kwinApp()->setConfig(KSharedConfig::openConfig(QString(), KConfig::SimpleConfig));
     qputenv("KWIN_XKB_DEFAULT_KEYMAP", "1");
@@ -67,10 +71,6 @@ void GlobalShortcutsTest::initTestCase()
     qputenv("XKB_DEFAULT_LAYOUT", "us,ru");
 
     kwinApp()->start();
-    Test::setOutputConfig({
-        QRect(0, 0, 1280, 1024),
-        QRect(1280, 0, 1280, 1024),
-    });
 }
 
 void GlobalShortcutsTest::init()
@@ -209,7 +209,7 @@ void GlobalShortcutsTest::testRepeatedTrigger()
 
 void GlobalShortcutsTest::testUserActionsMenu()
 {
-    // this test tries to trigger the window menu with Alt+F3
+    // this test tries to trigger the user actions menu with Alt+F3
     // the problem here is that pressing F3 consumes modifiers as it's part of the
     // Ctrl+alt+F3 keysym for vt switching. xkbcommon considers all modifiers as consumed
     // which a transformation to any keysym would cause
@@ -327,7 +327,8 @@ void GlobalShortcutsTest::testX11WindowShortcut()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, XCB_CW_EVENT_MASK, values);
-    xcb_size_hints_t hints{};
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);

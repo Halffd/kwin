@@ -64,16 +64,6 @@
       <max code="true">Rules::LastStringMatch</max>
     </entry>
 
-    <entry name="tag" type="String">
-      <label>Window tag</label>
-    </entry>
-    <entry name="tagmatch" type="Int">
-      <label>Window tag string match type</label>
-      <default code="true">Rules::UnimportantMatch</default>
-      <min code="true">Rules::FirstStringMatch</min>
-      <max code="true">Rules::LastStringMatch</max>
-    </entry>
-
     <entry name="types" type="UInt">
       <label>Window types that match</label>
       <default>NET::AllTypesMask</default>
@@ -221,6 +211,17 @@
     </entry>
     <entry name="minimizerule" type="Int">
       <label>Minimized rule type</label>
+      <min code="true">Rules::UnusedSetRule</min>
+      <max code="true">static_cast&lt;Rules::SetRule&gt;(Rules::ForceTemporarily)</max>
+      <default code="true">Rules::UnusedSetRule</default>
+    </entry>
+
+    <entry name="shade" type="Bool">
+      <label>Shaded</label>
+      <default>false</default>
+    </entry>
+    <entry name="shaderule" type="Int">
+      <label>Shaded rule type</label>
       <min code="true">Rules::UnusedSetRule</min>
       <max code="true">static_cast&lt;Rules::SetRule&gt;(Rules::ForceTemporarily)</max>
       <default code="true">Rules::UnusedSetRule</default>

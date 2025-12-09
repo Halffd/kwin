@@ -9,7 +9,6 @@
 */
 
 #include "effect/animationeffect.h"
-#include "core/renderviewport.h"
 #include "effect/anidata_p.h"
 #include "effect/effecthandler.h"
 #include "opengl/glshader.h"
@@ -57,7 +56,7 @@ AnimationEffect::AnimationEffect()
         s_clock.start();
     }
     /* this is the same as the QTimer::singleShot(0, SLOT(init())) kludge
-     * deferring the init and esp. the connection to the windowClosed slot */
+     * defering the init and esp. the connection to the windowClosed slot */
     QMetaObject::invokeMethod(this, &AnimationEffect::init, Qt::QueuedConnection);
 }
 
@@ -85,7 +84,7 @@ void AnimationEffect::init()
 
 bool AnimationEffect::isActive() const
 {
-    return !d->m_animations.empty();
+    return !d->m_animations.empty() && !effects->isScreenLocked();
 }
 
 #define RELATIVE_XY(_FIELD_) const bool relative[2] = {static_cast<bool>(metaData(Relative##_FIELD_##X, meta)), \
@@ -310,8 +309,6 @@ bool AnimationEffect::retarget(quint64 animationId, FPx2 newTarget, int newRemai
             if (anim->attribute == CrossFadePrevious) {
                 CrossFadeEffect::redirect(window);
             }
-
-            triggerRepaint();
             return true;
         }
     }
@@ -465,7 +462,7 @@ QRect AnimationEffect::clipRect(const QRect &geo, const AniData &anim) const
     return clip;
 }
 
-void AnimationEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
+void AnimationEffect::prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
 {
     auto entry = d->m_animations.find(w);
     if (entry != d->m_animations.end()) {
@@ -487,7 +484,7 @@ void AnimationEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPr
             }
         }
     }
-    effects->prePaintWindow(view, w, data, presentTime);
+    effects->prePaintWindow(w, data, presentTime);
 }
 
 static inline float geometryCompensation(int flags, float v)
@@ -501,14 +498,13 @@ static inline float geometryCompensation(int flags, float v)
     return 0.5 * (1.0 - v); // half compensation
 }
 
-void AnimationEffect::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data)
+void AnimationEffect::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, QRegion region, WindowPaintData &data)
 {
     auto it = d->m_animations.find(w);
     if (it == d->m_animations.end()) {
-        effects->paintWindow(renderTarget, viewport, w, mask, deviceRegion, data);
+        effects->paintWindow(renderTarget, viewport, w, mask, region, data);
         return;
     }
-    QRegion effectiveDeviceRegion = deviceRegion;
     auto &[window, pair] = *it;
     auto &[list, rect] = pair;
     for (auto &anim : list) {
@@ -548,7 +544,7 @@ void AnimationEffect::paintWindow(const RenderTarget &renderTarget, const Render
             break;
         }
         case Clip:
-            effectiveDeviceRegion &= viewport.mapToDeviceCoordinatesAligned(clipRect(w->expandedGeometry().toAlignedRect(), anim));
+            region = clipRect(w->expandedGeometry().toAlignedRect(), anim);
             break;
         case Translation:
             data += QPointF(interpolated(anim, 0), interpolated(anim, 1));
@@ -628,7 +624,7 @@ void AnimationEffect::paintWindow(const RenderTarget &renderTarget, const Render
             break;
         }
     }
-    effects->paintWindow(renderTarget, viewport, w, mask, effectiveDeviceRegion, data);
+    effects->paintWindow(renderTarget, viewport, w, mask, region, data);
 }
 
 void AnimationEffect::postPaintScreen()
@@ -937,7 +933,7 @@ void AnimationEffect::_windowExpandedGeometryChanged(KWin::EffectWindow *w)
         auto &[data, rect] = entry->second;
         rect = QRect();
         updateLayerRepaints();
-        if (!rect.isNull()) { // actually got updated, ie. is in use - ensure it gets a repaint
+        if (!rect.isNull()) { // actually got updated, ie. is in use - ensure it get's a repaint
             w->addLayerRepaint(rect);
         }
     }

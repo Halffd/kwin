@@ -26,7 +26,7 @@ public:
     virtual ~DataSourceInterface();
 
     void accept(const QString &mimeType) override;
-    void requestData(const QString &mimeType, FileDescriptor fd) override;
+    void requestData(const QString &mimeType, qint32 fd) override;
     void cancel() override;
 
     QStringList mimeTypes() const override;
@@ -36,11 +36,11 @@ public:
     /**
      * @returns The Drag and Drop actions supported by this DataSourceInterface.
      */
-    DnDActions supportedDragAndDropActions() const override;
-    DnDAction selectedDndAction() const override;
+    DataDeviceManagerInterface::DnDActions supportedDragAndDropActions() const override;
+    DataDeviceManagerInterface::DnDAction selectedDndAction() const override;
     void dropPerformed() override;
     void dndFinished() override;
-    void dndAction(DnDAction action) override;
+    void dndAction(DataDeviceManagerInterface::DnDAction action) override;
     void dndCancelled() override;
 
     wl_resource *resource() const;

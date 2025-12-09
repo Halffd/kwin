@@ -3,13 +3,10 @@
     This file is part of the KDE project.
 
     SPDX-FileCopyrightText: 2019 Roman Gilg <subdiff@gmail.com>
-    SPDX-FileCopyrightText: 2025 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 #pragma once
-
-#include "utils/filedescriptor.h"
 
 #include <QList>
 #include <QObject>
@@ -22,35 +19,41 @@ class QTimer;
 
 namespace KWin
 {
-class AbstractDataSource;
-
 namespace Xwl
 {
 class TransferWltoX;
 class TransferXtoWl;
-class XwlDataSource;
+class WlSource;
+class X11Source;
 
 /**
- * The Selection class represents an X selection. Three selections are supported by us: the clipboard,
- * the primary selection, and the XDND selection.
+ * Base class representing generic X selections and their respective
+ * Wayland counter-parts.
  *
- * At any moment in time, a selection can have either a Wayland source or an X11 source.
+ * The class needs to be subclassed and adjusted according to the
+ * selection, but provides common fucntionality to be expected of all
+ * selections.
  *
- * If a Wayland source is attached to the selection, we will claim the ownership of the selection. If
- * the selection is claimed by another X client, a proxy data source will be created and set as the current
- * data source.
+ * A selection should exist through the whole runtime of an Xwayland
+ * session.
  *
- * Note that with the clipboard and the primary selection, an X11 client can read Wayland data sources
- * only if it is focused. X11 clients can write to the clipboard and the primary selection regardless of
- * whether they are focused or not.
+ * Independently of each other the class holds the currently active
+ * source instance and active transfers relative to the represented
+ * selection.
  */
 class Selection : public QObject
 {
     Q_OBJECT
 
 public:
+    static xcb_atom_t mimeTypeToAtom(const QString &mimeType);
+    static xcb_atom_t mimeTypeToAtomLiteral(const QString &mimeType);
+    static QStringList atomToMimeTypes(xcb_atom_t atom);
+    static QString atomName(xcb_atom_t atom);
     static void sendSelectionNotify(xcb_selection_request_event_t *event, bool success);
 
+    // on selection owner changes by X clients (Xwl -> Wl)
+    bool handleXfixesNotify(xcb_xfixes_selection_notify_event_t *event);
     bool filterEvent(xcb_generic_event_t *event);
 
     xcb_atom_t atom() const
@@ -61,56 +64,48 @@ public:
     {
         return m_window;
     }
-    xcb_timestamp_t timestamp() const
-    {
-        return m_timestamp;
-    }
-    void setTimestamp(xcb_timestamp_t timestamp)
-    {
-        m_timestamp = timestamp;
-    }
+    void overwriteRequestorWindow(xcb_window_t window);
 
-    bool ownsDataSource(AbstractDataSource *dataSource) const;
-
-    void startTransferToWayland(const QString &mimeType, FileDescriptor fd);
-    bool startTransferToX(xcb_selection_request_event_t *event);
+Q_SIGNALS:
+    void transferFinished(xcb_timestamp_t eventTime);
 
 protected:
     Selection(xcb_atom_t atom, QObject *parent);
     void registerXfixes();
 
-    // Called when the selection is claimed or disowned by somebody else, not us.
-    virtual void selectionClaimed(xcb_xfixes_selection_notify_event_t *event);
-    virtual void selectionDisowned();
-
-    void requestTargets();
-    virtual void targetsReceived(const QStringList &mimeTypes);
+    virtual void doHandleXfixesNotify(xcb_xfixes_selection_notify_event_t *event) = 0;
+    virtual void x11OfferLost() = 0;
+    virtual void x11OffersChanged(const QStringList &added, const QStringList &removed) = 0;
 
     virtual bool handleClientMessage(xcb_client_message_event_t *event)
     {
         return false;
     }
     // sets the current provider of the selection
-    void setWlSource(AbstractDataSource *source);
-    AbstractDataSource *wlSource() const
+    void setWlSource(WlSource *source);
+    WlSource *wlSource() const
     {
         return m_waylandSource;
     }
-    XwlDataSource *x11Source() const
+    void createX11Source(xcb_xfixes_selection_notify_event_t *event);
+    X11Source *x11Source() const
     {
-        return m_xSource.get();
+        return m_xSource;
     }
     // must be called in order to provide data from Wl to X
     void ownSelection(bool own);
+    void setWindow(xcb_window_t window)
+    {
+        m_window = window;
+    }
 
-    bool handleXfixesNotify(xcb_xfixes_selection_notify_event_t *event);
+private:
     bool handleSelectionRequest(xcb_selection_request_event_t *event);
     bool handleSelectionNotify(xcb_selection_notify_event_t *event);
     bool handlePropertyNotify(xcb_property_notify_event_t *event);
-    bool handleSelectionTargets(xcb_selection_notify_event_t *event);
 
-    void sendTargets(xcb_selection_request_event_t *event);
-    void sendTimestamp(xcb_selection_request_event_t *event);
+    void startTransferToWayland(xcb_atom_t target, qint32 fd);
+    void startTransferToX(xcb_selection_request_event_t *event, qint32 fd);
 
     // Timeout transfers, which have become inactive due to client errors.
     void timeoutTransfers();
@@ -118,19 +113,21 @@ protected:
     void endTimeoutTransfersTimer();
 
     xcb_atom_t m_atom = XCB_ATOM_NONE;
-    xcb_window_t m_owner = XCB_WINDOW_NONE;
     xcb_window_t m_window = XCB_WINDOW_NONE;
-    xcb_timestamp_t m_timestamp = 0;
+    xcb_window_t m_requestorWindow = XCB_WINDOW_NONE;
+    xcb_timestamp_t m_timestamp;
 
     // Active source, if any. Only one of them at max can exist
     // at the same time.
-    AbstractDataSource *m_waylandSource = nullptr;
-    std::unique_ptr<XwlDataSource> m_xSource;
+    WlSource *m_waylandSource = nullptr;
+    X11Source *m_xSource = nullptr;
 
     // active transfers
     QList<TransferWltoX *> m_wlToXTransfers;
     QList<TransferXtoWl *> m_xToWlTransfers;
     QTimer *m_timeoutTransfers = nullptr;
+
+    bool m_disownPending = false;
 
     Q_DISABLE_COPY(Selection)
 };

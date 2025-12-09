@@ -53,9 +53,6 @@ PresentationTimeFeedback::PresentationTimeFeedback()
 
 PresentationTimeFeedback::~PresentationTimeFeedback()
 {
-    if (m_presented) {
-        return;
-    }
     wl_resource *resource;
     wl_resource *tmp;
     wl_resource_for_each_safe (resource, tmp, &resources) {
@@ -66,10 +63,6 @@ PresentationTimeFeedback::~PresentationTimeFeedback()
 
 void PresentationTimeFeedback::presented(std::chrono::nanoseconds refreshCycleDuration, std::chrono::nanoseconds timestamp, PresentationMode mode)
 {
-    if (m_presented) {
-        return;
-    }
-    m_presented = true;
     const auto secs = std::chrono::duration_cast<std::chrono::seconds>(timestamp);
     const uint32_t tvSecHi = secs.count() >> 32;
     const uint32_t tvSecLo = secs.count() & 0xffffffff;

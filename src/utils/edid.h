@@ -84,8 +84,7 @@ public:
 
     QString hash() const;
 
-    std::optional<Colorimetry> defaultColorimetry() const;
-    std::optional<Colorimetry> nativeColorimetry() const;
+    std::optional<Colorimetry> colorimetry() const;
 
     double desiredMinLuminance() const;
     std::optional<double> desiredMaxFrameAverageLuminance() const;
@@ -107,20 +106,14 @@ public:
      */
     std::optional<QSize> likelyNativeResolution() const;
 
-    QByteArray pnpId() const;
-
-    std::optional<uint32_t> minVrrRefreshRateHz() const;
-
 private:
     QSize m_physicalSize;
     QByteArray m_vendor;
     QByteArray m_eisaId;
-    QByteArray m_pnpId;
     QByteArray m_monitorName;
     QByteArray m_serialNumber;
     QString m_hash;
-    std::optional<Colorimetry> m_defaultColorimetry;
-    std::optional<Colorimetry> m_nativeColorimetry;
+    std::optional<Colorimetry> m_colorimetry;
     struct HDRMetadata
     {
         double desiredContentMinLuminance;
@@ -131,7 +124,6 @@ private:
     };
     std::optional<HDRMetadata> m_hdrMetadata;
     std::optional<QSize> m_nativeResolution;
-    std::optional<uint32_t> m_minVrrRefreshRateHz;
 
     QByteArray m_identifier;
 

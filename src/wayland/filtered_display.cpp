@@ -5,7 +5,6 @@
 */
 
 #include "filtered_display.h"
-#include "clientconnection.h"
 #include "display.h"
 
 #include <wayland-server.h>
@@ -22,7 +21,7 @@ public:
     static bool globalFilterCallback(const wl_client *client, const wl_global *global, void *data)
     {
         auto t = static_cast<FilteredDisplayPrivate *>(data);
-        auto clientConnection = ClientConnection::get(const_cast<wl_client *>(client));
+        auto clientConnection = t->q->getConnection(const_cast<wl_client *>(client));
         auto interface = wl_global_get_interface(global);
         auto name = QByteArray::fromRawData(interface->name, strlen(interface->name));
         return t->q->allowInterface(clientConnection, name);

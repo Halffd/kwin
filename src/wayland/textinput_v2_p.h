@@ -60,8 +60,7 @@ public:
     TextInputContentHints contentHints = TextInputContentHint::None;
     TextInputContentPurpose contentPurpose = TextInputContentPurpose::Normal;
     SeatInterface *seat = nullptr;
-    QPointer<SurfaceInterface> focusedSurface;
-    quint32 focusedSerial = 0;
+    QPointer<SurfaceInterface> surface;
     QString surroundingText;
     qint32 surroundingTextCursorPosition = 0;
     qint32 surroundingTextSelectionAnchor = 0;

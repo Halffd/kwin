@@ -17,8 +17,6 @@
 #include "options.h"
 #include "sm.h"
 #include "utils/common.h"
-#include "utils/filedescriptor.h"
-#include "utils/serial.h"
 // KF
 #include <netwm_def.h>
 // Qt
@@ -54,9 +52,8 @@ namespace TabBox
 class TabBox;
 }
 
-class Gravity;
 class Window;
-class LogicalOutput;
+class Output;
 class Compositor;
 class Group;
 class InternalWindow;
@@ -69,6 +66,7 @@ class X11EventFilter;
 class FocusChain;
 class ApplicationMenu;
 class PlacementTracker;
+enum class Predicate;
 class Outline;
 class RuleBook;
 class ScreenEdges;
@@ -79,14 +77,12 @@ class PlaceholderInputEventFilter;
 class PlaceholderOutput;
 class Placement;
 class OutputConfiguration;
-class RootTile;
 class TileManager;
 class OutputConfigurationStore;
 class LidSwitchTracker;
 class DpmsInputEventFilter;
 class OrientationSensor;
 class BrightnessDevice;
-class BackendOutput;
 
 class KWIN_EXPORT Workspace : public QObject
 {
@@ -105,13 +101,52 @@ public:
 #if KWIN_BUILD_X11
     bool workspaceEvent(xcb_generic_event_t *);
 
-    UInt32Serial x11FocusSerial() const;
-    void setX11FocusSerial(UInt32Serial serial);
-
+    /**
+     * @brief Finds the first Client matching the condition expressed by passed in @p func.
+     *
+     * Internally findClient uses the std::find_if algorithm and that determines how the function
+     * needs to be implemented. An example usage for finding a Client with a matching windowId
+     * @code
+     * xcb_window_t w; // our test window
+     * X11Window *client = findClient([w](const X11Window *c) -> bool {
+     *     return c->window() == w;
+     * });
+     * @endcode
+     *
+     * For the standard cases of matching the window id with one of the Client's windows use
+     * the simplified overload method findClient(Predicate, xcb_window_t). Above example
+     * can be simplified to:
+     * @code
+     * xcb_window_t w; // our test window
+     * X11Window *client = findClient(Predicate::WindowMatch, w);
+     * @endcode
+     *
+     * @param func Unary function that accepts a X11Window *as argument and
+     * returns a value convertible to bool. The value returned indicates whether the
+     * X11Window *is considered a match in the context of this function.
+     * The function shall not modify its argument.
+     * This can either be a function pointer or a function object.
+     * @return KWin::X11Window *The found Client or @c null
+     * @see findClient(Predicate, xcb_window_t)
+     */
     X11Window *findClient(std::function<bool(const X11Window *)> func) const;
-    X11Window *findClient(xcb_window_t w) const;
+    /**
+     * @brief Finds the Client matching the given match @p predicate for the given window.
+     *
+     * @param predicate Which window should be compared
+     * @param w The window id to test against
+     * @return KWin::X11Window *The found Client or @c null
+     * @see findClient(std::function<bool (const X11Window *)>)
+     */
+    X11Window *findClient(Predicate predicate, xcb_window_t w) const;
     void forEachClient(std::function<void(X11Window *)> func);
     X11Window *findUnmanaged(std::function<bool(const X11Window *)> func) const;
+    /**
+     * @brief Finds the Unmanaged with the given window id.
+     *
+     * @param w The window id to search for
+     * @return KWin::Unmanaged* Found Unmanaged or @c null if there is no Unmanaged with given Id.
+     */
     X11Window *findUnmanaged(xcb_window_t w) const;
 #endif
 
@@ -129,9 +164,9 @@ public:
      */
     Window *findInternal(QWindow *w) const;
 
-    QRectF clientArea(clientAreaOption, const LogicalOutput *output, const VirtualDesktop *desktop) const;
+    QRectF clientArea(clientAreaOption, const Output *output, const VirtualDesktop *desktop) const;
     QRectF clientArea(clientAreaOption, const Window *window) const;
-    QRectF clientArea(clientAreaOption, const Window *window, const LogicalOutput *output) const;
+    QRectF clientArea(clientAreaOption, const Window *window, const Output *output) const;
     QRectF clientArea(clientAreaOption, const Window *window, const QPointF &pos) const;
 
     /**
@@ -142,12 +177,13 @@ public:
 
     bool initializing() const;
 
-    LogicalOutput *xineramaIndexToOutput(int index) const;
+    Output *xineramaIndexToOutput(int index) const;
 
-    QList<LogicalOutput *> outputOrder() const;
+    void setOutputOrder(const QList<Output *> &order);
+    QList<Output *> outputOrder() const;
 
-    LogicalOutput *activeOutput() const;
-    void setActiveOutput(LogicalOutput *output);
+    Output *activeOutput() const;
+    void setActiveOutput(Output *output);
     void setActiveOutput(const QPointF &pos);
 
     /**
@@ -155,14 +191,28 @@ public:
      * if no window has the focus)
      */
     Window *activeWindow() const;
+    /**
+     * Window that was activated, but it's not yet really activeWindow(), because
+     * we didn't process yet the matching FocusIn event. Used mostly in focus
+     * stealing prevention code.
+     */
+    Window *mostRecentlyActivatedWindow() const;
 
-    Window *windowUnderMouse(LogicalOutput *output) const;
+    Window *windowUnderMouse(Output *output) const;
 
     void activateWindow(Window *window, bool force = false);
     bool requestFocus(Window *window, bool force = false);
-    void resetFocus();
+    enum ActivityFlag {
+        ActivityFocus = 1 << 0, // focus the window
+        ActivityFocusForce = 1 << 1 | ActivityFocus, // focus even if Dock etc.
+        ActivityRaise = 1 << 2 // raise the window
+    };
+    Q_DECLARE_FLAGS(ActivityFlags, ActivityFlag)
+    bool takeActivity(Window *window, ActivityFlags flags);
     bool restoreFocus();
-    void activateNextWindow(Window *window);
+    void gotFocusIn(const Window *window);
+    void setShouldGetFocus(Window *window);
+    bool activateNextWindow(Window *window);
     bool focusChangeEnabled()
     {
         return block_focus == 0;
@@ -188,6 +238,7 @@ public:
     void stackAbove(Window *window, Window *reference);
     void raiseOrLowerWindow(Window *window);
     void updateStackingOrder(bool propagate_new_windows = false);
+    void forceRestacking();
 
     void constrain(Window *below, Window *above);
     void unconstrain(Window *below, Window *above);
@@ -197,37 +248,31 @@ public:
     /**
      * @returns List of all windows (either X11 or Wayland) currently managed by Workspace
      */
-    QList<Window *> windows() const
+    const QList<Window *> windows() const
     {
         return m_windows;
     }
+
+#if KWIN_BUILD_X11
+    void stackScreenEdgesUnderOverrideRedirect();
+#endif
 
     SessionManager *sessionManager() const;
 
     /**
      * @returns the TileManager associated to a given output
      */
-    TileManager *tileManager(LogicalOutput *output) const;
-
-    /**
-     * Returns the root tile for the given @a output on the current virtual desktop.
-     */
-    RootTile *rootTile(LogicalOutput *output) const;
-
-    /**
-     * Returns the root tile for the given @a output and @a desktop.
-     */
-    RootTile *rootTile(LogicalOutput *output, VirtualDesktop *desktop) const;
+    TileManager *tileManager(Output *output);
 
 public:
-    QPointF cascadeOffset(const QRectF &area) const;
+    QPoint cascadeOffset(const QRectF &area) const;
 
     //-------------------------------------------------
     // Unsorted
 
 public:
     StrutRects previousRestrictedMoveArea(const VirtualDesktop *desktop, StrutAreas areas = StrutAreaAll) const;
-    QHash<const LogicalOutput *, QRect> previousScreenSizes() const;
+    QHash<const Output *, QRect> previousScreenSizes() const;
 
     /**
      * Returns @c true if the workspace is currently being rearranged; otherwise returns @c false.
@@ -258,9 +303,9 @@ public:
     QList<Window *> unconstrainedStackingOrder() const;
     QList<Window *> ensureStackingOrder(const QList<Window *> &windows) const;
 
-    Window *topWindowOnDesktop(VirtualDesktop *desktop, LogicalOutput *output = nullptr, bool unconstrained = false,
+    Window *topWindowOnDesktop(VirtualDesktop *desktop, Output *output = nullptr, bool unconstrained = false,
                                bool only_normal = true) const;
-    Window *findDesktop(VirtualDesktop *desktop, LogicalOutput *output) const;
+    Window *findDesktop(VirtualDesktop *desktop, Output *output) const;
     void addWindowToDesktop(Window *window, VirtualDesktop *desktop);
     void removeWindowFromDesktop(Window *window, VirtualDesktop *desktop);
     void sendWindowToDesktops(Window *window, const QList<VirtualDesktop *> &desktops, bool dont_activate);
@@ -281,7 +326,8 @@ public:
 #endif
 
     /**
-     * Shows the window menu and makes it active if it's not already.
+     * Shows the menu operations menu for the window and makes it active if
+     * it's not already.
      */
     void showWindowMenu(const QRect &pos, Window *cl);
     UserActionsMenu *userActionsMenu() const
@@ -310,14 +356,11 @@ public:
         DirectionPrev,
         DirectionNext
     };
-    LogicalOutput *findOutput(LogicalOutput *reference, Direction direction, bool wrapAround = false) const;
-    LogicalOutput *findOutput(const QString &name) const;
-    LogicalOutput *findOutput(BackendOutput *backendOutput) const;
-    void switchToOutput(LogicalOutput *output);
+    Output *findOutput(Output *reference, Direction direction, bool wrapAround = false) const;
+    void switchToOutput(Output *output);
 
-    QString outputLayoutId() const;
-    QList<LogicalOutput *> outputs() const;
-    LogicalOutput *outputAt(const QPointF &pos) const;
+    QList<Output *> outputs() const;
+    Output *outputAt(const QPointF &pos) const;
 
     /**
      * Set "Show Desktop" status
@@ -344,16 +387,6 @@ public:
     void addDeleted(Window *);
 
     void focusToNull(); // SELI TODO: Public?
-#if KWIN_BUILD_X11
-    /**
-     * Returns the id of the null window. The null window is a special window that gets focused
-     * when no other X11 window can be focused.
-     *
-     * If the root window gets focus, it serves us as a signal to activate any window of our choice.
-     * In case no window can be focused, then the null window will be focused.
-     */
-    xcb_window_t nullFocusWindow() const;
-#endif
 
     void windowShortcutUpdated(Window *window);
     bool shortcutAvailable(const QKeySequence &cut, Window *ignore = nullptr) const;
@@ -407,6 +440,10 @@ public:
      * @internal
      * Used by session management
      */
+    bool inShouldGetFocus(Window *w) const
+    {
+        return should_get_focus.contains(w);
+    }
     Window *lastActiveWindow() const
     {
         return m_lastActiveWindow;
@@ -429,19 +466,7 @@ public:
      * Apply the requested output configuration. Note that you must use this function
      * instead of Platform::applyOutputChanges().
      */
-    OutputConfigurationError applyOutputConfiguration(OutputConfiguration &config);
-    void updateXwaylandScale();
-
-    void setActivationToken(const QString &token, uint32_t serial, const QString &appId);
-    bool mayActivate(Window *window, const QString &token) const;
-
-    enum class DpmsState {
-        Off,
-        AboutToTurnOff,
-        On
-    };
-    void requestDpmsState(DpmsState state);
-    DpmsState dpmsState() const;
+    OutputConfigurationError applyOutputConfiguration(const OutputConfiguration &config, const std::optional<QList<Output *>> &outputOrder = std::nullopt);
 
 public Q_SLOTS:
     void performWindowOperation(KWin::Window *window, Options::WindowOperation op);
@@ -450,8 +475,8 @@ public Q_SLOTS:
     void slotWindowToDesktop(VirtualDesktop *desktop);
 
     // void slotWindowToListPosition( int );
-    void slotSwitchToScreen(LogicalOutput *output);
-    void slotWindowToScreen(LogicalOutput *output);
+    void slotSwitchToScreen(Output *output);
+    void slotWindowToScreen(Output *output);
     void slotSwitchToLeftScreen();
     void slotSwitchToRightScreen();
     void slotSwitchToAboveScreen();
@@ -471,6 +496,7 @@ public Q_SLOTS:
     void slotWindowMaximizeVertical();
     void slotWindowMaximizeHorizontal();
     void slotWindowMinimize();
+    void slotWindowShade();
     void slotWindowRaise();
     void slotWindowLower();
     void slotWindowRaiseOrLower();
@@ -499,7 +525,6 @@ public Q_SLOTS:
     void slotWindowOnAllDesktops();
     void slotWindowFullScreen();
     void slotWindowNoBorder();
-    void slotWindowExcludeFromCapture();
 
     void slotWindowToNextDesktop();
     void slotWindowToPreviousDesktop();
@@ -558,8 +583,8 @@ Q_SIGNALS:
     void configChanged();
     void showingDesktopChanged(bool showing, bool animated);
     void outputOrderChanged();
-    void outputAdded(KWin::LogicalOutput *);
-    void outputRemoved(KWin::LogicalOutput *);
+    void outputAdded(KWin::Output *);
+    void outputRemoved(KWin::Output *);
     void outputsChanged();
     /**
      * This signal is emitted when the stacking order changed, i.e. a window is risen
@@ -567,7 +592,6 @@ Q_SIGNALS:
      */
     void stackingOrderChanged();
     void aboutToRearrange();
-    void dpmsStateChanged(std::chrono::milliseconds animationTime);
 
 private:
     void init();
@@ -615,11 +639,13 @@ private:
     void activateWindowOnDesktop(VirtualDesktop *desktop);
     Window *findWindowToActivateOnDesktop(VirtualDesktop *desktop);
     void removeWindow(Window *window);
+    QString getPlacementTrackerHash();
 
     void updateOutputConfiguration();
-    void updateOutputs();
-    void assignBrightnessDevices(OutputConfiguration &outputConfig);
-    void updateOutputOrder();
+    void updateOutputs(const std::optional<QList<Output *>> &outputOrder = std::nullopt);
+    void createDpmsFilter();
+    void maybeDestroyDpmsFilter();
+    void assignBrightnessDevices();
 
     bool breaksShowingDesktop(Window *window) const;
 
@@ -641,9 +667,9 @@ private:
 
     void updateTabbox();
 
-    QList<LogicalOutput *> m_outputs;
-    LogicalOutput *m_activeOutput = nullptr;
-    QList<LogicalOutput *> m_outputOrder;
+    QList<Output *> m_outputs;
+    Output *m_activeOutput = nullptr;
+    QList<Output *> m_outputOrder;
 
     Window *m_activeWindow;
     Window *m_lastActiveWindow;
@@ -659,6 +685,8 @@ private:
 
     QList<Window *> unconstrained_stacking_order; // Topmost last
     QList<Window *> stacking_order; // Topmost last
+    bool force_restacking;
+    QList<Window *> should_get_focus; // Last is most recent
     QList<Window *> attention_chain;
 
     bool showing_desktop;
@@ -668,9 +696,10 @@ private:
     bool was_user_interaction;
 #if KWIN_BUILD_X11
     QList<xcb_window_t> manual_overlays; // Topmost last
+    std::unique_ptr<X11EventFilter> m_wasUserInteractionFilter;
     std::unique_ptr<Xcb::Window> m_nullFocus;
+    std::unique_ptr<X11EventFilter> m_movingClientFilter;
     std::unique_ptr<X11EventFilter> m_syncAlarmFilter;
-    UInt32Serial m_x11FocusSerial = 0;
 #endif
 
     int block_focus;
@@ -696,10 +725,10 @@ private:
 #endif
     QHash<const VirtualDesktop *, QRectF> m_workAreas;
     QHash<const VirtualDesktop *, StrutRects> m_restrictedAreas;
-    QHash<const VirtualDesktop *, QHash<const LogicalOutput *, QRectF>> m_screenAreas;
+    QHash<const VirtualDesktop *, QHash<const Output *, QRectF>> m_screenAreas;
     QRect m_geometry;
 
-    QHash<const LogicalOutput *, QRect> m_oldScreenGeometries;
+    QHash<const Output *, QRect> m_oldScreenGeometries;
     QHash<const VirtualDesktop *, StrutRects> m_oldRestrictedAreas;
     QTimer m_rearrangeTimer;
     bool m_inRearrange = false;
@@ -729,21 +758,11 @@ private:
 
     PlaceholderOutput *m_placeholderOutput = nullptr;
     std::unique_ptr<PlaceholderInputEventFilter> m_placeholderFilter;
-    std::map<LogicalOutput *, std::unique_ptr<TileManager>> m_tileManagers;
+    std::map<Output *, std::unique_ptr<TileManager>> m_tileManagers;
     std::unique_ptr<OutputConfigurationStore> m_outputConfigStore;
     std::unique_ptr<LidSwitchTracker> m_lidSwitchTracker;
     std::unique_ptr<OrientationSensor> m_orientationSensor;
     std::unique_ptr<DpmsInputEventFilter> m_dpmsFilter;
-    KConfigWatcher::Ptr m_kdeglobalsWatcher;
-
-    QString m_activationToken;
-    QString m_activationTokenAppId;
-    uint32_t m_activationTokenSerial = 0;
-
-    DpmsState m_dpms = DpmsState::On;
-    QList<QString> m_recentlyRemovedDpmsOffOutputs;
-    QTimer m_dpmsTimer;
-    FileDescriptor m_sleepInhibitor;
 
 private:
     friend bool performTransiencyCheck();
@@ -773,7 +792,7 @@ private:
 //---------------------------------------------------------
 // Unsorted
 
-inline QList<LogicalOutput *> Workspace::outputs() const
+inline QList<Output *> Workspace::outputs() const
 {
     return m_outputs;
 }
@@ -781,6 +800,11 @@ inline QList<LogicalOutput *> Workspace::outputs() const
 inline Window *Workspace::activeWindow() const
 {
     return m_activeWindow;
+}
+
+inline Window *Workspace::mostRecentlyActivatedWindow() const
+{
+    return should_get_focus.count() > 0 ? should_get_focus.last() : m_activeWindow;
 }
 
 #if KWIN_BUILD_X11
@@ -822,6 +846,12 @@ inline bool Workspace::globalShortcutsDisabled() const
     return m_globalShortcutsDisabledForWindow;
 }
 
+inline void Workspace::forceRestacking()
+{
+    force_restacking = true;
+    StackingUpdatesBlocker blocker(this); // Do restacking if not blocked
+}
+
 inline void Workspace::updateFocusMousePosition(const QPointF &pos)
 {
     focusMousePos = pos;
@@ -838,3 +868,4 @@ inline Workspace *workspace()
 }
 
 } // namespace
+Q_DECLARE_OPERATORS_FOR_FLAGS(KWin::Workspace::ActivityFlags)

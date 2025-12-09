@@ -58,14 +58,15 @@ public:
     void removeDesktop(const QString &id);
 
     /**
-     * @returns All the desktops present.
+     * @returns All tghe desktops present.
      */
     QList<PlasmaVirtualDesktopInterface *> desktops() const;
 
     /**
-     * Schedules the done event to be sent at the next available opportunity.
+     * Inform the clients that all the properties have been sent, and
+     * their client-side representation is complete.
      */
-    void scheduleDone();
+    void sendDone();
 
 Q_SIGNALS:
     /**
@@ -124,16 +125,6 @@ public:
      * @returns true if this desktop is active. Only one at a time will be.
      */
     bool isActive() const;
-
-    /**
-     * Sets the position of this desktop to @a position.
-     */
-    void setPosition(uint position);
-
-    /**
-     * Returns the position of this virtual desktop.
-     */
-    uint position() const;
 
     /**
      * Inform the clients that all the properties have been sent, and

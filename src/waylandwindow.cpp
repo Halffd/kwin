@@ -34,7 +34,6 @@ Q_DECLARE_FLAGS(WaylandGeometryTypes, WaylandGeometryType)
 
 WaylandWindow::WaylandWindow(SurfaceInterface *surface)
     : m_isScreenLocker(surface->client() == waylandServer()->screenLockerClientConnection())
-    , m_pid(surface->client()->processId())
 {
     setSurface(surface);
 
@@ -65,7 +64,7 @@ QString WaylandWindow::captionSuffix() const
 
 pid_t WaylandWindow::pid() const
 {
-    return m_pid;
+    return surface() ? surface()->client()->processId() : -1;
 }
 
 bool WaylandWindow::isClient() const
@@ -83,9 +82,9 @@ bool WaylandWindow::isLocalhost() const
     return true;
 }
 
-RectF WaylandWindow::resizeWithChecks(const RectF &geometry, const QSizeF &size) const
+QRectF WaylandWindow::resizeWithChecks(const QRectF &geometry, const QSizeF &size)
 {
-    const RectF area = workspace()->clientArea(WorkArea, this, geometry.center());
+    const QRectF area = workspace()->clientArea(WorkArea, this, geometry.center());
 
     qreal width = size.width();
     qreal height = size.height();
@@ -97,7 +96,7 @@ RectF WaylandWindow::resizeWithChecks(const RectF &geometry, const QSizeF &size)
     if (height > area.height()) {
         height = area.height();
     }
-    return RectF(geometry.topLeft(), QSizeF(width, height));
+    return QRectF(geometry.topLeft(), QSizeF(width, height));
 }
 
 void WaylandWindow::killWindow()
@@ -188,6 +187,14 @@ void WaylandWindow::setCaption(const QString &caption)
     }
 }
 
+void WaylandWindow::doSetActive()
+{
+    if (isActive()) { // TODO: Xwayland clients must be unfocused somewhere else.
+        StackingUpdatesBlocker blocker(workspace());
+        workspace()->focusToNull();
+    }
+}
+
 void WaylandWindow::cleanGrouping()
 {
     // We want to break parent-child relationships, but preserve stacking
@@ -205,17 +212,17 @@ void WaylandWindow::cleanGrouping()
     }
 }
 
-RectF WaylandWindow::frameRectToBufferRect(const RectF &rect) const
+QRectF WaylandWindow::frameRectToBufferRect(const QRectF &rect) const
 {
-    return RectF(rect.topLeft(), snapToPixels(surface()->size(), targetScale()));
+    return QRectF(rect.topLeft(), snapToPixels(surface()->size(), targetScale()));
 }
 
-void WaylandWindow::updateGeometry(const RectF &rect)
+void WaylandWindow::updateGeometry(const QRectF &rect)
 {
-    const RectF oldClientGeometry = m_clientGeometry;
-    const RectF oldFrameGeometry = m_frameGeometry;
-    const RectF oldBufferGeometry = m_bufferGeometry;
-    const LogicalOutput *oldOutput = m_output;
+    const QRectF oldClientGeometry = m_clientGeometry;
+    const QRectF oldFrameGeometry = m_frameGeometry;
+    const QRectF oldBufferGeometry = m_bufferGeometry;
+    const Output *oldOutput = m_output;
 
     m_clientGeometry = frameRectToClientRect(rect);
     m_frameGeometry = rect;

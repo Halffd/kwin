@@ -45,12 +45,12 @@ void MinimizeAllScriptTest::initTestCase()
     qRegisterMetaType<Window *>();
 
     QVERIFY(waylandServer()->init(s_socketName));
-
-    kwinApp()->start();
     Test::setOutputConfig({
         QRect(0, 0, 1280, 1024),
         QRect(1280, 0, 1280, 1024),
     });
+
+    kwinApp()->start();
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 2);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -61,7 +61,7 @@ static QString locateMainScript(const QString &pluginName)
 {
     const QList<KPluginMetaData> offers = KPackage::PackageLoader::self()->findPackages(
         QStringLiteral("KWin/Script"),
-        QStringLiteral("kwin-wayland/scripts"),
+        KWIN_DATADIR + QStringLiteral("/scripts"),
         [&](const KPluginMetaData &metaData) {
         return metaData.pluginId() == pluginName;
     });

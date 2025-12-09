@@ -47,13 +47,15 @@ public:
     bool isMovableAcrossScreens() const override;
     bool isResizable() const override;
     bool isPlaceable() const override;
+    bool noBorder() const override;
+    bool userCanSetNoBorder() const override;
     bool wantsInput() const override;
     bool isInternal() const override;
     bool isLockScreen() const override;
     bool isOutline() const override;
-    RectF resizeWithChecks(const RectF &geometry, const QSizeF &size) const override;
-    DecorationPolicy decorationPolicy() const override;
-    void setDecorationPolicy(DecorationPolicy policy) override;
+    QRectF resizeWithChecks(const QRectF &geometry, const QSizeF &size) override;
+    bool takeFocus() override;
+    void setNoBorder(bool set) override;
     void invalidateDecoration() override;
     void destroyWindow() override;
     bool hasPopupGrab() const override;
@@ -67,7 +69,6 @@ public:
 
     void present(const InternalWindowFrame &frame);
     qreal bufferScale() const;
-    void doSetNextTargetScale() override;
     QWindow *handle() const;
 
 Q_SIGNALS:
@@ -76,24 +77,27 @@ Q_SIGNALS:
 protected:
     bool acceptsFocus() const override;
     bool belongsToSameApplication(const Window *other, SameApplicationChecks checks) const override;
+    void doInteractiveResizeSync(const QRectF &rect) override;
     void updateCaption() override;
-    void moveResizeInternal(const RectF &rect, MoveResizeMode mode) override;
+    void moveResizeInternal(const QRectF &rect, MoveResizeMode mode) override;
     std::unique_ptr<WindowItem> createItem(Item *parentItem) override;
 
 private:
-    void commitGeometry(const RectF &rect);
+    void requestGeometry(const QRectF &rect);
+    void commitGeometry(const QRectF &rect);
     void setCaption(const QString &caption);
     void markAsMapped();
-    DecorationMode preferredDecorationMode() const;
+    void syncGeometryToInternalWindow();
+    void updateInternalWindowGeometry();
     void updateDecoration(bool check_workspace_pos, bool force = false);
-    void createDecoration(const RectF &oldGeometry);
+    void createDecoration(const QRectF &oldGeometry);
     void destroyDecoration();
 
     QWindow *m_handle = nullptr;
     QString m_captionNormal;
     QString m_captionSuffix;
     Qt::WindowFlags m_internalWindowFlags = Qt::WindowFlags();
-    DecorationPolicy m_decorationPolicy = DecorationPolicy::PreferredByClient;
+    bool m_userNoBorder = false;
     GraphicsBufferRef m_graphicsBufferRef;
     OutputTransform m_bufferTransform = OutputTransform::Normal;
 

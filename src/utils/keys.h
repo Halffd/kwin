@@ -9,7 +9,6 @@
 #pragma once
 
 #include <QInputEvent>
-#include <QStringView>
 #include <array>
 
 namespace KWin
@@ -34,26 +33,5 @@ static constexpr std::array s_mediaKeys = {
 static inline bool isMediaKey(int key)
 {
     return std::ranges::find(s_mediaKeys, key) != s_mediaKeys.end();
-}
-
-static inline Qt::KeyboardModifiers stringToKeyboardModifiers(QStringView string)
-{
-    const auto parts = string.split(QLatin1Char('+'));
-
-    Qt::KeyboardModifiers modifiers{};
-    for (const auto part : parts) {
-        if (part == QLatin1StringView("Meta")) {
-            modifiers |= Qt::MetaModifier;
-        } else if (part == QLatin1StringView("Ctrl") || part == QLatin1StringView("Control")) {
-            // NOTE: "Meta+Control" is provided KQuickControls.KeySequenceItem instead of "Meta+Ctrl"
-            modifiers |= Qt::ControlModifier;
-        } else if (part == QLatin1StringView("Alt")) {
-            modifiers |= Qt::AltModifier;
-        } else if (part == QLatin1StringView("Shift")) {
-            modifiers |= Qt::ShiftModifier;
-        }
-    }
-
-    return modifiers;
 }
 }

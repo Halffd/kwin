@@ -40,12 +40,12 @@ void XWaylandInputTest::initTestCase()
 {
     qRegisterMetaType<KWin::Window *>();
     QVERIFY(waylandServer()->init(s_socketName));
-
-    kwinApp()->start();
     Test::setOutputConfig({
         QRect(0, 0, 1280, 1024),
         QRect(1280, 0, 1280, 1024),
     });
+
+    kwinApp()->start();
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 2);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -136,7 +136,8 @@ void XWaylandInputTest::testPointerEnterLeaveSsd()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, XCB_CW_EVENT_MASK, values);
-    xcb_size_hints_t hints{};
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
@@ -191,6 +192,9 @@ void XWaylandInputTest::testPointerEventLeaveCsd()
     if (xcb_get_setup(c.get())->release_number < 11800000) {
         QSKIP("XWayland 1.18 required");
     }
+    if (!Xcb::Extensions::self()->isShapeAvailable()) {
+        QSKIP("SHAPE extension is required");
+    }
 
     X11EventReaderHelper eventReader(c.get());
     QSignalSpy enteredSpy(&eventReader, &X11EventReaderHelper::entered);
@@ -203,6 +207,7 @@ void XWaylandInputTest::testPointerEventLeaveCsd()
     clientFrameExtent.top = 5;
     clientFrameExtent.bottom = 20;
 
+    // Need to set the bounding shape in order to create a window without decoration.
     xcb_rectangle_t boundingRect;
     boundingRect.x = 0;
     boundingRect.y = 0;
@@ -215,14 +220,13 @@ void XWaylandInputTest::testPointerEventLeaveCsd()
     xcb_create_window(c.get(), XCB_COPY_FROM_PARENT, windowId, rootWindow(),
                       boundingRect.x, boundingRect.y, boundingRect.width, boundingRect.height,
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, XCB_CW_EVENT_MASK, values);
-    xcb_size_hints_t hints{};
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
     xcb_icccm_size_hints_set_position(&hints, 1, boundingRect.x, boundingRect.y);
     xcb_icccm_size_hints_set_size(&hints, 1, boundingRect.width, boundingRect.height);
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
-    Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
-                                                 .flags = Test::MWM_HINTS_DECORATIONS,
-                                                 .decorations = 0,
-                                             });
+    xcb_shape_rectangles(c.get(), XCB_SHAPE_SO_SET, XCB_SHAPE_SK_BOUNDING,
+                         XCB_CLIP_ORDERING_UNSORTED, windowId, 0, 0, 1, &boundingRect);
     NETWinInfo info(c.get(), windowId, rootWindow(), NET::WMAllProperties, NET::WM2AllProperties);
     info.setWindowType(NET::Normal);
     info.setGtkFrameExtents(clientFrameExtent);
@@ -235,8 +239,8 @@ void XWaylandInputTest::testPointerEventLeaveCsd()
     QVERIFY(window);
     QVERIFY(!window->isDecorated());
     QVERIFY(window->isClientSideDecorated());
-    QCOMPARE(window->bufferGeometry(), RectF(0, 0, 120, 225));
-    QCOMPARE(window->frameGeometry(), RectF(10, 5, 100, 200));
+    QCOMPARE(window->bufferGeometry(), QRectF(0, 0, 120, 225));
+    QCOMPARE(window->frameGeometry(), QRectF(10, 5, 100, 200));
 
     QMetaObject::invokeMethod(window, "setReadyForPainting");
     QVERIFY(window->readyForPainting());

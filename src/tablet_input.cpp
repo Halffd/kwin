@@ -8,15 +8,12 @@
 */
 #include "tablet_input.h"
 #include "core/inputdevice.h"
-#include "core/outputbackend.h"
 #include "cursorsource.h"
 #include "decorations/decoratedwindow.h"
 #include "input_event.h"
 #include "input_event_spy.h"
 #include "osd.h"
 #include "pointer_input.h"
-#include "wayland/display.h"
-#include "wayland/seat.h"
 #include "wayland/tablet_v2.h"
 #include "wayland_server.h"
 #include "window.h"
@@ -32,13 +29,6 @@
 
 namespace KWin
 {
-
-static QPointF confineToBoundingBox(const QPointF &pos, const QRectF &boundingBox)
-{
-    return QPointF(
-        std::clamp(pos.x(), boundingBox.left(), boundingBox.right() - 1.0),
-        std::clamp(pos.y(), boundingBox.top(), boundingBox.bottom() - 1.0));
-}
 
 class SurfaceCursor : public Cursor
 {
@@ -112,7 +102,7 @@ void TabletInputRedirection::init()
     auto tabletNextOutput = new QAction(this);
     tabletNextOutput->setProperty("componentName", QStringLiteral("kwin"));
     tabletNextOutput->setText(i18n("Move the tablet to the next output"));
-    tabletNextOutput->setObjectName(QStringLiteral("Move Tablet to Next LogicalOutput"));
+    tabletNextOutput->setObjectName(QStringLiteral("Move Tablet to Next Output"));
     KGlobalAccel::setGlobalShortcut(tabletNextOutput, QList<QKeySequence>());
     connect(tabletNextOutput, &QAction::triggered, this, &TabletInputRedirection::trackNextOutput);
 }
@@ -141,13 +131,6 @@ void TabletInputRedirection::integrateDevice(InputDevice *device)
 
     if (device->isTabletPad()) {
         tabletSeat->addPad(device);
-    }
-
-    // Ensure that the cursor position to set to the center of the screen in relative (mouse) mode
-    if (device->tabletToolIsRelative()) {
-        if (auto output = workspace()->activeOutput(); output != nullptr) {
-            m_lastPosition = output->geometry().center();
-        }
     }
 }
 
@@ -218,10 +201,10 @@ void TabletInputRedirection::tabletToolAxisEvent(const QPointF &pos, qreal press
     ensureTabletTool(tool);
 
     m_lastPosition = pos;
-    m_cursorByTool[tool]->setPos(m_lastPosition);
+    m_cursorByTool[tool]->setPos(pos);
 
     update();
-    workspace()->setActiveOutput(m_lastPosition);
+    workspace()->setActiveOutput(pos);
 
     TabletToolAxisEvent ev{
         .device = device,
@@ -237,48 +220,8 @@ void TabletInputRedirection::tabletToolAxisEvent(const QPointF &pos, qreal press
         .tool = tool,
     };
 
-    input()->processSpies(&InputEventSpy::tabletToolAxisEvent, &ev);
-    input()->processFilters(&InputEventFilter::tabletToolAxisEvent, &ev);
-    input()->setLastInputHandler(this);
-}
-
-void TabletInputRedirection::tabletToolAxisEventRelative(const QPointF &delta,
-                                                         qreal pressure, qreal xTilt, qreal yTilt, qreal rotation, qreal distance, bool tipDown, qreal sliderPosition, InputDeviceTabletTool *tool,
-                                                         std::chrono::microseconds time, InputDevice *device)
-{
-    if (!inited()) {
-        return;
-    }
-
-    ensureTabletTool(tool);
-
-    m_lastPosition += delta;
-
-    // Make sure pointer doesn't go outside of the screens range
-    LogicalOutput *output = Workspace::self()->outputAt(m_lastPosition);
-    m_lastPosition = confineToBoundingBox(m_lastPosition, output->geometryF());
-
-    m_cursorByTool[tool]->setPos(m_lastPosition);
-
-    update();
-    workspace()->setActiveOutput(output);
-
-    TabletToolAxisEvent ev{
-        .device = device,
-        .rotation = rotation,
-        .position = m_lastPosition,
-        .buttons = tipDown ? Qt::LeftButton : Qt::NoButton,
-        .pressure = pressure,
-        .sliderPosition = sliderPosition,
-        .xTilt = xTilt,
-        .yTilt = yTilt,
-        .distance = distance,
-        .timestamp = time,
-        .tool = tool,
-    };
-
-    input()->processSpies(&InputEventSpy::tabletToolAxisEvent, &ev);
-    input()->processFilters(&InputEventFilter::tabletToolAxisEvent, &ev);
+    input()->processSpies(std::bind(&InputEventSpy::tabletToolAxisEvent, std::placeholders::_1, &ev));
+    input()->processFilters(std::bind(&InputEventFilter::tabletToolAxisEvent, std::placeholders::_1, &ev));
     input()->setLastInputHandler(this);
 }
 
@@ -290,22 +233,19 @@ void TabletInputRedirection::tabletToolProximityEvent(const QPointF &pos, qreal 
 
     ensureTabletTool(tool);
 
-    if (!device->tabletToolIsRelative()) {
-        m_lastPosition = pos;
-    }
-
+    m_lastPosition = pos;
     if (tipNear) {
-        m_cursorByTool[tool]->setPos(m_lastPosition);
+        m_cursorByTool[tool]->setPos(pos);
     }
 
     update();
-    workspace()->setActiveOutput(m_lastPosition);
+    workspace()->setActiveOutput(pos);
 
     TabletToolProximityEvent ev{
         .type = tipNear ? TabletToolProximityEvent::EnterProximity : TabletToolProximityEvent::LeaveProximity,
         .device = device,
         .rotation = rotation,
-        .position = m_lastPosition,
+        .position = pos,
         .sliderPosition = sliderPosition,
         .xTilt = xTilt,
         .yTilt = yTilt,
@@ -314,8 +254,8 @@ void TabletInputRedirection::tabletToolProximityEvent(const QPointF &pos, qreal 
         .tool = tool,
     };
 
-    input()->processSpies(&InputEventSpy::tabletToolProximityEvent, &ev);
-    input()->processFilters(&InputEventFilter::tabletToolProximityEvent, &ev);
+    input()->processSpies(std::bind(&InputEventSpy::tabletToolProximityEvent, std::placeholders::_1, &ev));
+    input()->processFilters(std::bind(&InputEventFilter::tabletToolProximityEvent, std::placeholders::_1, &ev));
     input()->setLastInputHandler(this);
 }
 
@@ -327,31 +267,19 @@ void TabletInputRedirection::tabletToolTipEvent(const QPointF &pos, qreal pressu
 
     ensureTabletTool(tool);
 
-    if (!device->tabletToolIsRelative()) {
-        m_lastPosition = pos;
-    }
-
+    m_lastPosition = pos;
     if (tipDown) {
-        m_cursorByTool[tool]->setPos(m_lastPosition);
-    }
-
-    if (!tipDown) {
-        m_tipDown = false;
+        m_cursorByTool[tool]->setPos(pos);
     }
 
     update();
-
-    if (tipDown) {
-        m_tipDown = true;
-    }
-
-    workspace()->setActiveOutput(m_lastPosition);
+    workspace()->setActiveOutput(pos);
 
     TabletToolTipEvent ev{
         .type = tipDown ? TabletToolTipEvent::Press : TabletToolTipEvent::Release,
         .device = device,
         .rotation = rotation,
-        .position = m_lastPosition,
+        .position = pos,
         .buttons = tipDown ? Qt::LeftButton : Qt::NoButton,
         .pressure = pressure,
         .sliderPosition = sliderPosition,
@@ -362,15 +290,9 @@ void TabletInputRedirection::tabletToolTipEvent(const QPointF &pos, qreal pressu
         .tool = tool,
     };
 
-    input()->processSpies(&InputEventSpy::tabletToolTipEvent, &ev);
-    input()->processFilters(&InputEventFilter::tabletToolTipEvent, &ev);
+    input()->processSpies(std::bind(&InputEventSpy::tabletToolTipEvent, std::placeholders::_1, &ev));
+    input()->processFilters(std::bind(&InputEventFilter::tabletToolTipEvent, std::placeholders::_1, &ev));
     input()->setLastInputHandler(this);
-    if (tipDown) {
-        input()->setLastInteractionSerial(waylandServer()->seat()->display()->serial());
-        if (auto f = focus()) {
-            f->setLastUsageSerial(waylandServer()->seat()->display()->serial());
-        }
-    }
 }
 
 void KWin::TabletInputRedirection::tabletToolButtonEvent(uint button, bool isPressed, InputDeviceTabletTool *tool, std::chrono::microseconds time, InputDevice *device)
@@ -385,94 +307,57 @@ void KWin::TabletInputRedirection::tabletToolButtonEvent(uint button, bool isPre
 
     ensureTabletTool(tool);
 
-    m_buttonDown = isPressed;
-
-    input()->processSpies(&InputEventSpy::tabletToolButtonEvent, &event);
-    input()->processFilters(&InputEventFilter::tabletToolButtonEvent, &event);
+    input()->processSpies(std::bind(&InputEventSpy::tabletToolButtonEvent, std::placeholders::_1, &event));
+    input()->processFilters(std::bind(&InputEventFilter::tabletToolButtonEvent, std::placeholders::_1, &event));
     input()->setLastInputHandler(this);
-    if (isPressed) {
-        input()->setLastInteractionSerial(waylandServer()->seat()->display()->serial());
-        if (auto f = focus()) {
-            f->setLastUsageSerial(waylandServer()->seat()->display()->serial());
-        }
-    }
 }
 
-void KWin::TabletInputRedirection::tabletPadButtonEvent(uint button, bool isPressed, quint32 group, quint32 mode, bool isModeSwitch, std::chrono::microseconds time, InputDevice *device)
+void KWin::TabletInputRedirection::tabletPadButtonEvent(uint button, bool isPressed, std::chrono::microseconds time, InputDevice *device)
 {
     TabletPadButtonEvent event{
         .device = device,
         .button = button,
         .pressed = isPressed,
-        .group = group,
-        .mode = mode,
-        .isModeSwitch = isModeSwitch,
         .time = time,
     };
-    input()->processSpies(&InputEventSpy::tabletPadButtonEvent, &event);
-    input()->processFilters(&InputEventFilter::tabletPadButtonEvent, &event);
+    input()->processSpies(std::bind(&InputEventSpy::tabletPadButtonEvent, std::placeholders::_1, &event));
+    input()->processFilters(std::bind(&InputEventFilter::tabletPadButtonEvent, std::placeholders::_1, &event));
     input()->setLastInputHandler(this);
-    if (isPressed) {
-        input()->setLastInteractionSerial(waylandServer()->seat()->display()->serial());
-        if (auto f = focus()) {
-            f->setLastUsageSerial(waylandServer()->seat()->display()->serial());
-        }
-    }
 }
 
-void KWin::TabletInputRedirection::tabletPadStripEvent(int number, qreal position, bool isFinger, quint32 group, quint32 mode, std::chrono::microseconds time, InputDevice *device)
+void KWin::TabletInputRedirection::tabletPadStripEvent(int number, int position, bool isFinger, std::chrono::microseconds time, InputDevice *device)
 {
     TabletPadStripEvent event{
         .device = device,
         .number = number,
         .position = position,
         .isFinger = isFinger,
-        .group = group,
-        .mode = mode,
         .time = time,
     };
 
-    input()->processSpies(&InputEventSpy::tabletPadStripEvent, &event);
-    input()->processFilters(&InputEventFilter::tabletPadStripEvent, &event);
+    input()->processSpies(std::bind(&InputEventSpy::tabletPadStripEvent, std::placeholders::_1, &event));
+    input()->processFilters(std::bind(&InputEventFilter::tabletPadStripEvent, std::placeholders::_1, &event));
     input()->setLastInputHandler(this);
 }
 
-void KWin::TabletInputRedirection::tabletPadRingEvent(int number, qreal position, bool isFinger, quint32 group, quint32 mode, std::chrono::microseconds time, InputDevice *device)
+void KWin::TabletInputRedirection::tabletPadRingEvent(int number, int position, bool isFinger, std::chrono::microseconds time, InputDevice *device)
 {
     TabletPadRingEvent event{
         .device = device,
         .number = number,
         .position = position,
         .isFinger = isFinger,
-        .group = group,
-        .mode = mode,
         .time = time,
     };
 
-    input()->processSpies(&InputEventSpy::tabletPadRingEvent, &event);
-    input()->processFilters(&InputEventFilter::tabletPadRingEvent, &event);
-    input()->setLastInputHandler(this);
-}
-
-void KWin::TabletInputRedirection::tabletPadDialEvent(int number, double delta, quint32 group, std::chrono::microseconds time, InputDevice *device)
-{
-
-    TabletPadDialEvent event{
-        .device = device,
-        .number = number,
-        .delta = delta,
-        .group = group,
-        .time = time,
-    };
-
-    input()->processSpies(&InputEventSpy::tabletPadDialEvent, &event);
-    input()->processFilters(&InputEventFilter::tabletPadDialEvent, &event);
+    input()->processSpies(std::bind(&InputEventSpy::tabletPadRingEvent, std::placeholders::_1, &event));
+    input()->processFilters(std::bind(&InputEventFilter::tabletPadRingEvent, std::placeholders::_1, &event));
     input()->setLastInputHandler(this);
 }
 
 bool TabletInputRedirection::focusUpdatesBlocked()
 {
-    return input()->isSelectingWindow() || m_tipDown || m_buttonDown;
+    return input()->isSelectingWindow();
 }
 
 void TabletInputRedirection::cleanupDecoration(Decoration::DecoratedWindowImpl *old,

@@ -46,7 +46,7 @@
         "Description[tr]": "Pencereleri küçültürken sihirli bir lambaya öykün",
         "Description[uk]": "Імітація ефекту чарівної лампи під час мінімізації вікон",
         "Description[vi]": "Mô phỏng một cây đèn thần khi thu nhỏ các cửa sổ",
-        "Description[zh_CN]": "窗口最小化时绘制仿照神灯的过渡动画",
+        "Description[zh_CN]": "窗口最小化时绘制仿照神灯的过渡动效",
         "Description[zh_TW]": "最小化視窗時模擬魔術燈",
         "EnabledByDefault": false,
         "License": "GPL",
@@ -95,7 +95,7 @@
         "Name[tr]": "Sihirli Lamba",
         "Name[uk]": "Чарівна лампа",
         "Name[vi]": "Đèn thần",
-        "Name[zh_CN]": "最小化过渡动画 (神灯)",
+        "Name[zh_CN]": "最小化过渡动效 (神灯)",
         "Name[zh_TW]": "魔術燈"
     },
     "X-KDE-ConfigModule": "kwin_magiclamp_config",

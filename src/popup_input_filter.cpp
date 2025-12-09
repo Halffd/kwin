@@ -24,7 +24,6 @@ PopupInputFilter::PopupInputFilter()
     , InputEventFilter(InputFilterOrder::Popup)
 {
     connect(workspace(), &Workspace::windowAdded, this, &PopupInputFilter::handleWindowAdded);
-    connect(workspace(), &Workspace::windowActivated, this, &PopupInputFilter::handleWindowFocusChanged);
 }
 
 void PopupInputFilter::handleWindowAdded(Window *window)
@@ -47,12 +46,6 @@ void PopupInputFilter::handleWindowAdded(Window *window)
             }
         });
     }
-}
-
-void PopupInputFilter::handleWindowFocusChanged()
-{
-    // user focussed a window through another mechanism such as a shortcut
-    cancelPopups();
 }
 
 bool PopupInputFilter::pointerButton(PointerButtonEvent *event)
@@ -100,20 +93,24 @@ bool PopupInputFilter::keyboardKey(KeyboardKeyEvent *event)
                                                        event->state == KeyboardKeyState::Repeated);
     } else if (qobject_cast<WaylandWindow *>(last)) {
         if (!passToInputMethod(event)) {
+            if (event->state == KeyboardKeyState::Repeated) {
+                return true;
+            }
+
             waylandServer()->seat()->setTimestamp(event->timestamp);
-            waylandServer()->seat()->notifyKeyboardKey(event->nativeScanCode, event->state, event->serial);
+            waylandServer()->seat()->notifyKeyboardKey(event->nativeScanCode, event->state);
         }
     }
 
     return true;
 }
 
-bool PopupInputFilter::touchDown(TouchDownEvent *event)
+bool PopupInputFilter::touchDown(qint32 id, const QPointF &pos, std::chrono::microseconds time)
 {
     if (m_popupWindows.isEmpty()) {
         return false;
     }
-    auto pointerFocus = input()->findToplevel(event->pos);
+    auto pointerFocus = input()->findToplevel(pos);
     if (!pointerFocus || !Window::belongToSameApplication(pointerFocus, m_popupWindows.constLast())) {
         // a touch on a window (or no window) not belonging to the popup window
         cancelPopups();
@@ -122,7 +119,7 @@ bool PopupInputFilter::touchDown(TouchDownEvent *event)
     }
     if (pointerFocus && pointerFocus->isDecorated()) {
         // test whether it is on the decoration
-        if (!exclusiveContains(pointerFocus->clientGeometry(), event->pos)) {
+        if (!exclusiveContains(pointerFocus->clientGeometry(), pos)) {
             cancelPopups();
             return true;
         }

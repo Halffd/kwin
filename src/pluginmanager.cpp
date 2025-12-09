@@ -18,7 +18,7 @@
 namespace KWin
 {
 
-static const QString s_pluginDirectory = QStringLiteral("kwin/plugins");
+static const QString s_pluginDirectory = KWIN_PLUGINDIR + QStringLiteral("/plugins");
 
 static QJsonValue readPluginInfo(const QJsonObject &metadata, const QString &key)
 {
@@ -108,7 +108,7 @@ bool PluginManager::loadPlugin(const KPluginMetaData &metadata)
 
     std::unique_ptr<PluginFactory> factory(qobject_cast<PluginFactory *>(pluginLoader.instance()));
     if (!factory) {
-        qCWarning(KWIN_CORE) << "Failed to get plugin factory for" << pluginId << pluginLoader.errorString();
+        qCWarning(KWIN_CORE) << "Failed to get plugin factory for" << pluginId;
         return false;
     }
 

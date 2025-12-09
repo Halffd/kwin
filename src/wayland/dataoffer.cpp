@@ -13,6 +13,8 @@
 #include <QStringList>
 // Wayland
 #include <qwayland-server-wayland.h>
+// system
+#include <unistd.h>
 
 namespace KWin
 {
@@ -23,8 +25,8 @@ public:
     DataOfferInterface *q;
     QPointer<AbstractDataSource> source;
 
-    std::optional<DnDActions> supportedDnDActions = std::nullopt;
-    std::optional<DnDAction> preferredDnDAction = std::nullopt;
+    std::optional<DataDeviceManagerInterface::DnDActions> supportedDnDActions = std::nullopt;
+    std::optional<DataDeviceManagerInterface::DnDAction> preferredDnDAction = std::nullopt;
 
 protected:
     void data_offer_destroy_resource(Resource *resource) override;
@@ -42,8 +44,8 @@ DataOfferInterfacePrivate::DataOfferInterfacePrivate(AbstractDataSource *_source
 {
     // defaults are set to sensible values for < version 3 interfaces
     if (wl_resource_get_version(resource) < WL_DATA_OFFER_ACTION_SINCE_VERSION) {
-        supportedDnDActions = DnDAction::Copy | DnDAction::Move;
-        preferredDnDAction = DnDAction::Copy;
+        supportedDnDActions = DataDeviceManagerInterface::DnDAction::Copy | DataDeviceManagerInterface::DnDAction::Move;
+        preferredDnDAction = DataDeviceManagerInterface::DnDAction::Copy;
     }
 }
 
@@ -57,11 +59,11 @@ void DataOfferInterfacePrivate::data_offer_accept(Resource *resource, uint32_t s
 
 void DataOfferInterfacePrivate::data_offer_receive(Resource *resource, const QString &mime_type, int32_t fd)
 {
-    FileDescriptor pipe(fd);
-
-    if (source && source->mimeTypes().contains(mime_type)) {
-        source->requestData(mime_type, std::move(pipe));
+    if (!source) {
+        close(fd);
+        return;
     }
+    source->requestData(mime_type, fd);
 }
 
 void DataOfferInterfacePrivate::data_offer_destroy(QtWaylandServer::wl_data_offer::Resource *resource)
@@ -98,24 +100,24 @@ void DataOfferInterfacePrivate::data_offer_set_actions(Resource *resource, uint3
         return;
     }
 
-    DnDActions supportedActions;
+    DataDeviceManagerInterface::DnDActions supportedActions;
     if (dnd_actions & QtWaylandServer::wl_data_device_manager::dnd_action_copy) {
-        supportedActions |= DnDAction::Copy;
+        supportedActions |= DataDeviceManagerInterface::DnDAction::Copy;
     }
     if (dnd_actions & QtWaylandServer::wl_data_device_manager::dnd_action_move) {
-        supportedActions |= DnDAction::Move;
+        supportedActions |= DataDeviceManagerInterface::DnDAction::Move;
     }
     if (dnd_actions & QtWaylandServer::wl_data_device_manager::dnd_action_ask) {
-        supportedActions |= DnDAction::Ask;
+        supportedActions |= DataDeviceManagerInterface::DnDAction::Ask;
     }
 
-    DnDAction preferredAction = DnDAction::None;
+    DataDeviceManagerInterface::DnDAction preferredAction = DataDeviceManagerInterface::DnDAction::None;
     if (preferred_action == QtWaylandServer::wl_data_device_manager::dnd_action_copy) {
-        preferredAction = DnDAction::Copy;
+        preferredAction = DataDeviceManagerInterface::DnDAction::Copy;
     } else if (preferred_action == QtWaylandServer::wl_data_device_manager::dnd_action_move) {
-        preferredAction = DnDAction::Move;
+        preferredAction = DataDeviceManagerInterface::DnDAction::Move;
     } else if (preferred_action == QtWaylandServer::wl_data_device_manager::dnd_action_ask) {
-        preferredAction = DnDAction::Ask;
+        preferredAction = DataDeviceManagerInterface::DnDAction::Ask;
     }
 
     if (supportedDnDActions != supportedActions || preferredDnDAction != preferredAction) {
@@ -135,13 +137,13 @@ void DataOfferInterface::sendSourceActions()
     }
     uint32_t wlActions = QtWaylandServer::wl_data_device_manager::dnd_action_none;
     const auto actions = d->source->supportedDragAndDropActions();
-    if (actions.testFlag(DnDAction::Copy)) {
+    if (actions.testFlag(DataDeviceManagerInterface::DnDAction::Copy)) {
         wlActions |= QtWaylandServer::wl_data_device_manager::dnd_action_copy;
     }
-    if (actions.testFlag(DnDAction::Move)) {
+    if (actions.testFlag(DataDeviceManagerInterface::DnDAction::Move)) {
         wlActions |= QtWaylandServer::wl_data_device_manager::dnd_action_move;
     }
-    if (actions.testFlag(DnDAction::Ask)) {
+    if (actions.testFlag(DataDeviceManagerInterface::DnDAction::Ask)) {
         wlActions |= QtWaylandServer::wl_data_device_manager::dnd_action_ask;
     }
     d->send_source_actions(wlActions);
@@ -149,7 +151,6 @@ void DataOfferInterface::sendSourceActions()
 
 void DataOfferInterfacePrivate::data_offer_destroy_resource(QtWaylandServer::wl_data_offer::Resource *resource)
 {
-    Q_EMIT q->discarded();
     delete q;
 }
 
@@ -183,27 +184,27 @@ wl_resource *DataOfferInterface::resource() const
     return d->resource()->handle;
 }
 
-std::optional<DnDActions> DataOfferInterface::supportedDragAndDropActions() const
+std::optional<DataDeviceManagerInterface::DnDActions> DataOfferInterface::supportedDragAndDropActions() const
 {
     return d->supportedDnDActions;
 }
 
-std::optional<DnDAction> DataOfferInterface::preferredDragAndDropAction() const
+std::optional<DataDeviceManagerInterface::DnDAction> DataOfferInterface::preferredDragAndDropAction() const
 {
     return d->preferredDnDAction;
 }
 
-void DataOfferInterface::dndAction(DnDAction action)
+void DataOfferInterface::dndAction(DataDeviceManagerInterface::DnDAction action)
 {
     if (d->resource()->version() < WL_DATA_OFFER_ACTION_SINCE_VERSION) {
         return;
     }
     uint32_t wlAction = QtWaylandServer::wl_data_device_manager::dnd_action_none;
-    if (action == DnDAction::Copy) {
+    if (action == DataDeviceManagerInterface::DnDAction::Copy) {
         wlAction = QtWaylandServer::wl_data_device_manager::dnd_action_copy;
-    } else if (action == DnDAction::Move) {
+    } else if (action == DataDeviceManagerInterface::DnDAction::Move) {
         wlAction = QtWaylandServer::wl_data_device_manager::dnd_action_move;
-    } else if (action == DnDAction::Ask) {
+    } else if (action == DataDeviceManagerInterface::DnDAction::Ask) {
         wlAction = QtWaylandServer::wl_data_device_manager::dnd_action_ask;
     }
     d->send_action(wlAction);

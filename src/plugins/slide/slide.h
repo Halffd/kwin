@@ -22,15 +22,15 @@ namespace KWin
 /*
  * How it Works:
  *
- * This effect doesn't change the current desktop, only receives changes from the VirtualDesktopManager.
- * The only visually apparent inputs are desktopChanged() and desktopChanging().
+ * This effect doesn't change the current desktop, only recieves changes from the VirtualDesktopManager.
+ * The only visually aparent inputs are desktopChanged() and desktopChanging().
  *
- * When responding to desktopChanging(), the draw position is only affected by what's received from there.
+ * When responding to desktopChanging(), the draw position is only affected by what's recieved from there.
  * After desktopChanging() is done, or without desktopChanging() having been called at all, desktopChanged() is called.
  * The desktopChanged() function configures the m_startPos and m_endPos for the animation, and the duration.
  *
  * m_currentPosition and everything else not labeled "drawCoordinate" uses desktops as a unit.
- * Exmp: 1.2 means the desktop at index 1 shifted over by .2 desktops.
+ * Exmp: 1.2 means the dekstop at index 1 shifted over by .2 desktops.
  * All coords must be positive.
  *
  * For the wrapping effect, the render loop has to handle desktop coordinates larger than the total grid's width.
@@ -57,11 +57,11 @@ public:
     void reconfigure(ReconfigureFlags) override;
 
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime) override;
-    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen) override;
+    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen) override;
     void postPaintScreen() override;
 
-    void prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
-    void paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceGeometry, WindowPaintData &data) override;
+    void prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
+    void paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, QRegion region, WindowPaintData &data) override;
 
     bool isActive() const override;
     int requestedEffectChainPosition() const override;
@@ -80,7 +80,7 @@ private Q_SLOTS:
     void windowDeleted(EffectWindow *w);
 
 private:
-    QPoint getDrawCoords(QPointF pos, LogicalOutput *screen);
+    QPoint getDrawCoords(QPointF pos, Output *screen);
     bool isTranslated(const EffectWindow *w) const;
     bool willBePainted(const EffectWindow *w) const;
     bool shouldElevate(const EffectWindow *w) const;
@@ -89,7 +89,7 @@ private:
     QPointF forcePositivePosition(QPointF p) const;
     void optimizePath(); // Find the best path to target desktop
 
-    void startAnimation(const QPointF &oldPos, VirtualDesktop *current, EffectWindow *movingWindow = nullptr);
+    void startAnimation(VirtualDesktop *old, VirtualDesktop *current, EffectWindow *movingWindow = nullptr);
     void prepareSwitching();
     void finishedSwitching();
 
@@ -113,14 +113,12 @@ private:
     QPointF m_startPos;
     QPointF m_endPos;
 
-    QPointF m_gesturePos;
-
     EffectWindow *m_movingWindow = nullptr;
     std::chrono::milliseconds m_lastPresentTime = std::chrono::milliseconds::zero();
+    QPointF m_currentPosition; // Should always be kept up to date with where on the grid we're seeing.
 
     struct
     {
-        QPointF position;
         bool wrap;
         QList<VirtualDesktop *> visibleDesktops;
     } m_paintCtx;

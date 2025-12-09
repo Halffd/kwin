@@ -20,9 +20,7 @@ void gainRealTime()
     const int minPriority = sched_get_priority_min(SCHED_RR);
     sched_param sp;
     sp.sched_priority = minPriority;
-    if (pthread_setschedparam(pthread_self(), SCHED_RR | SCHED_RESET_ON_FORK, &sp) != 0) {
-        qWarning("Failed to gain real time thread priority (See CAP_SYS_NICE in the capabilities(7) man page). error: %s", strerror(errno));
-    }
+    pthread_setschedparam(pthread_self(), SCHED_RR | SCHED_RESET_ON_FORK, &sp);
 #endif
 }
 

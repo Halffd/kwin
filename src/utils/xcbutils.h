@@ -61,13 +61,9 @@ qreal KWIN_EXPORT nativeRound(qreal value);
  */
 QRectF KWIN_EXPORT nativeFloor(const QRectF &value);
 
-QString KWIN_EXPORT atomName(xcb_atom_t atom);
-
-QStringList KWIN_EXPORT atomToMimeTypes(xcb_atom_t atom);
-xcb_atom_t KWIN_EXPORT mimeTypeToAtom(const QString &mimeType);
-
 // forward declaration of methods
 static void defineCursor(xcb_window_t window, xcb_cursor_t cursor);
+static void setInputFocus(xcb_window_t window, uint8_t revertTo = XCB_INPUT_FOCUS_POINTER_ROOT, xcb_timestamp_t time = xTime());
 static void moveWindow(xcb_window_t window, const QPoint &pos);
 static void moveWindow(xcb_window_t window, int32_t x, int32_t y);
 static void lowerWindow(xcb_window_t window);
@@ -755,31 +751,38 @@ public:
      * Note: for the automatic format detection the size of the type T may not vary between
      * architectures. Thus one needs to use e.g. uint32_t instead of long. In general all xcb
      * data types can be used, all Xlib data types can not be used.
+     *
+     * @param defaultValue The default value to return in case of error
+     * @param ok Set to @c false in case of error, @c true in case of success
+     * @return The read value or @p defaultValue in error case
      */
     template<typename T>
-        requires(!std::is_pointer_v<T>)
-    inline std::optional<T> value()
+    inline typename std::enable_if<!std::is_pointer<T>::value, T>::type value(T defaultValue = T(), bool *ok = nullptr)
     {
-        return value<T>(sizeof(T) * 8, m_type);
+        return value<T>(sizeof(T) * 8, m_type, defaultValue, ok);
     }
     /**
      * @brief Reads the property as a POD type.
      *
-     * Returns the first value of the property data, or in case of @p format or @p type
-     * mismatch, std::nullopt.
+     * Returns the first value of the property data. In case of @p format or @p type mismatch
+     * the @p defaultValue is returned. The optional argument @p ok is set
+     * to @c false in case of error and to @c true in case of successful reading of
+     * the property.
      *
      * @param format The expected format of the property value, e.g. 32 for XCB_ATOM_CARDINAL
      * @param type The expected type of the property value, e.g. XCB_ATOM_CARDINAL
+     * @param defaultValue The default value to return in case of error
+     * @param ok Set to @c false in case of error, @c true in case of success
+     * @return The read value or @p defaultValue in error case
      */
     template<typename T>
-        requires(!std::is_pointer_v<T>)
-    inline std::optional<T> value(uint8_t format, xcb_atom_t type)
+    inline typename std::enable_if<!std::is_pointer<T>::value, T>::type value(uint8_t format, xcb_atom_t type, T defaultValue = T(), bool *ok = nullptr)
     {
-        const auto ret = array<T>(format, type);
-        if (!ret || ret->empty()) {
-            return std::nullopt;
+        T *reply = value<T *>(format, type, nullptr, ok);
+        if (!reply) {
+            return defaultValue;
         }
-        return ret->front();
+        return reply[0];
     }
     /**
      * @brief Overloaded method for convenience.
@@ -788,12 +791,15 @@ public:
      * Note: for the automatic format detection the size of the type T may not vary between
      * architectures. Thus one needs to use e.g. uint32_t instead of long. In general all xcb
      * data types can be used, all Xlib data types can not be used.
+     *
+     * @param defaultValue The default value to return in case of error
+     * @param ok Set to @c false in case of error, @c true in case of success
+     * @return The read value or @p defaultValue in error case
      */
     template<typename T>
-        requires(!std::is_pointer_v<T>)
-    inline std::optional<std::span<T>> array()
+    inline typename std::enable_if<std::is_pointer<T>::value, T>::type value(T defaultValue = nullptr, bool *ok = nullptr)
     {
-        return array<T>(sizeof(typename std::remove_pointer<T>::type) * 8, m_type);
+        return value<T>(sizeof(typename std::remove_pointer<T>::type) * 8, m_type, defaultValue, ok);
     }
     /**
      * @brief Reads the property as an array of T.
@@ -801,49 +807,70 @@ public:
      * This method is an overload for the case that T is a pointer type.
      *
      * Return the property value casted to the pointer type T. In case of @p format
-     * or @p type mismatch, std::nullopt is returned.
+     * or @p type mismatch the @p defaultValue is returned. Also if the value length
+     * is @c 0 the @p defaultValue is returned. The optional argument @p ok is set
+     * to @c false in case of error and to @c true in case of successful reading of
+     * the property. Ok will always be true if the property exists and has been
+     * successfully read, even in the case the property is empty and its length is 0
      *
      * @param format The expected format of the property value, e.g. 32 for XCB_ATOM_CARDINAL
      * @param type The expected type of the property value, e.g. XCB_ATOM_CARDINAL
+     * @param defaultValue The default value to return in case of error
+     * @param ok Set to @c false in case of error, @c true in case of success
+     * @return The read value or @p defaultValue in error case
      */
     template<typename T>
-        requires(!std::is_pointer_v<T>)
-    inline std::optional<std::span<T>> array(uint8_t format, xcb_atom_t type)
+    inline typename std::enable_if<std::is_pointer<T>::value, T>::type value(uint8_t format, xcb_atom_t type, T defaultValue = nullptr, bool *ok = nullptr)
     {
+        if (ok) {
+            *ok = false;
+        }
         const PropertyData::reply_type *reply = data();
         if (!reply) {
-            return std::nullopt;
+            return defaultValue;
         }
         if (reply->type != type) {
-            return std::nullopt;
+            return defaultValue;
         }
         if (reply->format != format) {
-            return std::nullopt;
+            return defaultValue;
         }
-        return std::span(reinterpret_cast<T *>(xcb_get_property_value(reply)), reply->value_len);
+
+        if (ok) {
+            *ok = true;
+        }
+        if (xcb_get_property_value_length(reply) == 0) {
+            return defaultValue;
+        }
+
+        return reinterpret_cast<T>(xcb_get_property_value(reply));
     }
     /**
      * @brief Reads the property as string and returns a QByteArray.
      *
      * In case of error this method returns a null QByteArray.
      */
-    inline std::optional<QByteArray> toByteArray(uint8_t format, xcb_atom_t type)
+    inline QByteArray toByteArray(uint8_t format = 8, xcb_atom_t type = XCB_ATOM_STRING, bool *ok = nullptr)
     {
-        const auto reply = array<const char>(format, type);
-        if (!reply.has_value()) {
-            return std::nullopt;
-        } else if (reply->size() == 0) {
-            return QByteArray("", 0); // valid, not null, but empty data
-        } else {
-            return QByteArray(reply->data(), reply->size());
+        bool valueOk = false;
+        const char *reply = value<const char *>(format, type, nullptr, &valueOk);
+        if (ok) {
+            *ok = valueOk;
         }
+
+        if (valueOk && !reply) {
+            return QByteArray("", 0); // valid, not null, but empty data
+        } else if (!valueOk) {
+            return QByteArray(); // Property not found, data empty and null
+        }
+        return QByteArray(reply, xcb_get_property_value_length(data()));
     }
     /**
      * @brief Overloaded method for convenience.
      */
-    inline std::optional<QByteArray> toByteArray()
+    inline QByteArray toByteArray(bool *ok)
     {
-        return toByteArray(8, m_type);
+        return toByteArray(8, m_type, ok);
     }
     /**
      * @brief Reads the property as a boolean value.
@@ -851,25 +878,36 @@ public:
      * If the property reply length is @c 1 the first element is interpreted as a boolean
      * value returning @c true for any value unequal to @c 0 and @c false otherwise.
      *
+     * In case of error this method returns @c false. Thus it is not possible to distinguish
+     * between error case and a read @c false value. Use the optional argument @p ok to
+     * distinguish the error case.
+     *
      * @param format Expected format. Defaults to 32.
      * @param type Expected type Defaults to XCB_ATOM_CARDINAL.
+     * @param ok Set to @c false in case of error, @c true in case of success
      * @return bool The first element interpreted as a boolean value or @c false in error case
      * @see value
      */
-    inline std::optional<bool> toBool(uint8_t format, xcb_atom_t type)
+    inline bool toBool(uint8_t format = 32, xcb_atom_t type = XCB_ATOM_CARDINAL, bool *ok = nullptr)
     {
-        const auto ret = array<bool>(format, type);
-        if (!ret || ret->size() != 1) {
-            return std::nullopt;
+        bool *reply = value<bool *>(format, type, nullptr, ok);
+        if (!reply) {
+            return false;
         }
-        return (*ret)[0];
+        if (data()->value_len != 1) {
+            if (ok) {
+                *ok = false;
+            }
+            return false;
+        }
+        return reply[0] != 0;
     }
     /**
      * @brief Overloaded method for convenience.
      */
-    inline std::optional<bool> toBool()
+    inline bool toBool(bool *ok)
     {
-        return toBool(32, m_type);
+        return toBool(32, m_type, ok);
     }
 
 private:
@@ -886,7 +924,7 @@ public:
     }
     operator QByteArray()
     {
-        return toByteArray().value_or(QByteArray());
+        return toByteArray();
     }
 };
 
@@ -898,9 +936,20 @@ public:
     {
     }
 
-    inline std::optional<WindowId> getTransientFor()
+    /**
+     * @brief Fill given window pointer with the WM_TRANSIENT_FOR property of a window.
+     * @param prop WM_TRANSIENT_FOR property value.
+     * @returns @c true on success, @c false otherwise
+     */
+    inline bool getTransientFor(WindowId *prop)
     {
-        return value<WindowId>();
+        WindowId *windows = value<WindowId *>();
+        if (!windows) {
+            return false;
+        }
+
+        *prop = *windows;
+        return true;
     }
 };
 
@@ -1060,9 +1109,7 @@ private:
         }
         inline SizeHints *sizeHints()
         {
-            return array<SizeHints>(32, XCB_ATOM_WM_SIZE_HINTS).transform([](std::span<SizeHints> span) {
-                return span.empty() ? nullptr : span.data();
-            }).value_or(nullptr);
+            return value<SizeHints *>(32, XCB_ATOM_WM_SIZE_HINTS, nullptr);
         }
     };
     friend TestXcbSizeHints;
@@ -1100,23 +1147,23 @@ public:
         if (!m_window) {
             return;
         }
-        m_hints.reset();
+        m_hints = nullptr;
         m_prop = Property(0, m_window, m_atom, m_atom, 0, 5);
     }
     void read()
     {
-        m_hints = m_prop.value<MwmHints>(32, m_atom);
+        m_hints = m_prop.value<MwmHints *>(32, m_atom, nullptr);
     }
-    bool hasDecorationsFlag() const
+    bool hasDecoration() const
     {
         if (!m_window || !m_hints) {
             return false;
         }
         return m_hints->flags & uint32_t(Hints::Decorations);
     }
-    bool noDecorations() const
+    bool noBorder() const
     {
-        if (!hasDecorationsFlag()) {
+        if (!hasDecoration()) {
             return false;
         }
         return !m_hints->decorations;
@@ -1181,7 +1228,7 @@ private:
     xcb_window_t m_window = XCB_WINDOW_NONE;
     Property m_prop;
     xcb_atom_t m_atom;
-    std::optional<MwmHints> m_hints;
+    MwmHints *m_hints = nullptr;
 };
 
 namespace RandR
@@ -1217,13 +1264,6 @@ public:
             return nullptr;
         }
         return xcb_randr_get_screen_resources_names(data());
-    }
-    inline xcb_randr_output_t *outputs()
-    {
-        if (isNull()) {
-            return nullptr;
-        }
-        return xcb_randr_get_screen_resources_outputs(data());
     }
 };
 
@@ -1453,6 +1493,11 @@ public:
         return m_randr.present;
     }
     int randrNotifyEvent() const;
+    bool isDamageAvailable() const
+    {
+        return m_damage.present;
+    }
+    int damageNotifyEvent() const;
     bool isCompositeAvailable() const
     {
         return m_composite.version > 0;
@@ -1475,9 +1520,17 @@ public:
     }
     int syncAlarmNotifyEvent() const;
     QList<ExtensionData> extensions() const;
-    bool hasRes() const
+    bool hasGlx() const
     {
-        return m_res.present;
+        return m_glx.present;
+    }
+    int glxEventBase() const
+    {
+        return m_glx.eventBase;
+    }
+    int glxMajorOpcode() const
+    {
+        return m_glx.majorOpcode;
     }
 
     static Extensions *self();
@@ -1491,13 +1544,14 @@ private:
     void initVersion(T cookie, F f, ExtensionData *dataToFill);
     void extensionQueryReply(const xcb_query_extension_reply_t *extension, ExtensionData *dataToFill);
 
-    ExtensionData m_res;
     ExtensionData m_shape;
     ExtensionData m_randr;
+    ExtensionData m_damage;
     ExtensionData m_composite;
     ExtensionData m_render;
     ExtensionData m_fixes;
     ExtensionData m_sync;
+    ExtensionData m_glx;
 
     static Extensions *s_self;
 };
@@ -1882,7 +1936,7 @@ inline void Window::defineCursor(xcb_cursor_t cursor)
 
 inline void Window::focus(uint8_t revertTo, xcb_timestamp_t time)
 {
-    xcb_set_input_focus(connection(), revertTo, m_window, time);
+    setInputFocus(m_window, revertTo, time);
 }
 
 inline void Window::selectInput(uint32_t events)
@@ -1992,25 +2046,26 @@ static inline void defineCursor(xcb_window_t window, xcb_cursor_t cursor)
     xcb_change_window_attributes(connection(), window, XCB_CW_CURSOR, &cursor);
 }
 
+static inline void setInputFocus(xcb_window_t window, uint8_t revertTo, xcb_timestamp_t time)
+{
+    xcb_set_input_focus(connection(), revertTo, window, time);
+}
+
 static inline void setTransientFor(xcb_window_t window, xcb_window_t transient_for_window)
 {
     xcb_change_property(connection(), XCB_PROP_MODE_REPLACE, window, XCB_ATOM_WM_TRANSIENT_FOR,
                         XCB_ATOM_WINDOW, 32, 1, &transient_for_window);
 }
 
-static inline void sync(xcb_connection_t *connection)
+static inline void sync()
 {
-    const auto cookie = xcb_get_input_focus(connection);
+    auto *c = connection();
+    const auto cookie = xcb_get_input_focus(c);
     xcb_generic_error_t *error = nullptr;
-    UniqueCPtr<xcb_get_input_focus_reply_t> sync(xcb_get_input_focus_reply(connection, cookie, &error));
+    UniqueCPtr<xcb_get_input_focus_reply_t> sync(xcb_get_input_focus_reply(c, cookie, &error));
     if (error) {
         free(error);
     }
-}
-
-static inline void sync()
-{
-    sync(connection());
 }
 
 void selectInput(xcb_window_t window, uint32_t events)

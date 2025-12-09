@@ -11,7 +11,7 @@
 "use strict";
 
 var loginEffect = {
-    duration: animationTime(500),
+    duration: animationTime(1000),
     isFadeToBlack: false,
     loadConfig: function () {
         loginEffect.isFadeToBlack = effect.readConfig("FadeToBlack", false);

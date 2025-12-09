@@ -14,8 +14,6 @@
 #include <KConfigGroup>
 #include <KConfigWatcher>
 
-#include <QTimer>
-
 class ca_context;
 
 namespace KWin
@@ -79,8 +77,6 @@ private:
     KConfigGroup m_bellConfig;
 
     static QTimer *s_systemBellRemoveTimer;
-    QTimer m_audioThrottleTimer;
-    QTimer m_visualThrottleTimer;
     static XdgSystemBellV1Interface *s_systemBell;
 };
 

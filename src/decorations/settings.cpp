@@ -6,10 +6,12 @@
 
     SPDX-License-Identifier: GPL-2.0-or-later
 */
+#include "config-kwin.h"
 
-#include "settings.h"
 #include "appmenu.h"
+#include "compositor.h"
 #include "decorationbridge.h"
+#include "settings.h"
 #include "virtualdesktops.h"
 #include "workspace.h"
 
@@ -29,11 +31,17 @@ SettingsImpl::SettingsImpl(KDecoration3::DecorationSettings *parent)
 {
     readSettings();
 
+    auto c = connect(Compositor::self(), &Compositor::compositingToggled,
+                     parent, &KDecoration3::DecorationSettings::alphaChannelSupportedChanged);
     connect(VirtualDesktopManager::self(), &VirtualDesktopManager::countChanged, this, [parent](uint previous, uint current) {
         if (previous != 1 && current != 1) {
             return;
         }
         Q_EMIT parent->onAllDesktopsAvailableChanged(current > 1);
+    });
+    // prevent changes in Decoration due to Compositor being destroyed
+    connect(Compositor::self(), &Compositor::aboutToDestroy, this, [c]() {
+        disconnect(c);
     });
     connect(Workspace::self(), &Workspace::configChanged, this, &SettingsImpl::readSettings);
     connect(Workspace::self()->decorationBridge(), &DecorationBridge::metaDataLoaded, this, &SettingsImpl::readSettings);
@@ -43,7 +51,7 @@ SettingsImpl::~SettingsImpl() = default;
 
 bool SettingsImpl::isAlphaChannelSupported() const
 {
-    return true;
+    return Compositor::self()->compositing();
 }
 
 bool SettingsImpl::isOnAllDesktopsAvailable() const
@@ -71,6 +79,7 @@ static void initButtons()
     s_buttonNames[KDecoration3::DecorationButtonType::Close] = QChar('X');
     s_buttonNames[KDecoration3::DecorationButtonType::KeepAbove] = QChar('F');
     s_buttonNames[KDecoration3::DecorationButtonType::KeepBelow] = QChar('B');
+    s_buttonNames[KDecoration3::DecorationButtonType::Shade] = QChar('L');
     s_buttonNames[KDecoration3::DecorationButtonType::Spacer] = QChar('_');
 }
 

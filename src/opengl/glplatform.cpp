@@ -703,13 +703,14 @@ QByteArray GLPlatform::chipClassToString8(ChipClass chipClass)
     }
 }
 
-GLPlatform::GLPlatform(QByteArrayView openglVersionString, QByteArrayView glslVersionString, QByteArrayView renderer, QByteArrayView vendor)
+GLPlatform::GLPlatform(OpenGLPlatformInterface platformInterface, QByteArrayView openglVersionString, QByteArrayView glslVersionString, QByteArrayView renderer, QByteArrayView vendor)
     : m_openglVersionString(openglVersionString)
     , m_glslVersionString(glslVersionString)
     , m_rendererString(renderer)
     , m_vendorString(vendor)
     , m_openglVersion(Version::parseString(openglVersionString))
     , m_glslVersion(Version::parseString(m_glslVersionString))
+    , m_platformInterface(platformInterface)
 {
     // Parse the Mesa version
     const auto versionTokens = openglVersionString.toByteArray().split(' ');
@@ -953,7 +954,7 @@ GLPlatform::GLPlatform(QByteArrayView openglVersionString, QByteArrayView glslVe
         m_recommendedCompositor = QPainterCompositing;
     }
 
-    if (isMesaDriver()) {
+    if (isMesaDriver() && platformInterface == EglPlatformInterface) {
         // According to the reference implementation in
         // mesa/demos/src/egl/opengles1/texture_from_pixmap
         // the mesa egl implementation does not require a strict binding (so far).
@@ -1126,6 +1127,11 @@ CompositingType GLPlatform::recommendedCompositor() const
 bool GLPlatform::preferBufferSubData() const
 {
     return m_preferBufferSubData;
+}
+
+OpenGLPlatformInterface GLPlatform::platformInterface() const
+{
+    return m_platformInterface;
 }
 
 } // namespace KWin

@@ -12,7 +12,7 @@
 #include "seat_p.h"
 
 // Wayland
-#include <qwayland-server-primary-selection-unstable-v1.h>
+#include <qwayland-server-wp-primary-selection-unstable-v1.h>
 
 namespace KWin
 {
@@ -25,6 +25,7 @@ public:
 
     PrimarySelectionDeviceV1Interface *q;
     SeatInterface *seat;
+    QPointer<PrimarySelectionSourceV1Interface> selection;
 
 private:
     void setSelection(PrimarySelectionSourceV1Interface *dataSource);
@@ -53,7 +54,16 @@ void PrimarySelectionDeviceV1InterfacePrivate::zwp_primary_selection_device_v1_s
         Q_ASSERT(dataSource);
     }
 
-    Q_EMIT q->selectionChanged(dataSource, serial);
+    if (selection == dataSource) {
+        return;
+    }
+    if (selection) {
+        selection->cancel();
+    }
+    selection = dataSource;
+    if (selection) {
+        Q_EMIT q->selectionChanged(selection, serial);
+    }
 }
 
 void PrimarySelectionDeviceV1InterfacePrivate::zwp_primary_selection_device_v1_destroy(QtWaylandServer::zwp_primary_selection_device_v1::Resource *resource)
@@ -101,11 +111,15 @@ SeatInterface *PrimarySelectionDeviceV1Interface::seat() const
     return d->seat;
 }
 
-PrimarySelectionOfferV1Interface *PrimarySelectionDeviceV1Interface::sendSelection(AbstractDataSource *other)
+PrimarySelectionSourceV1Interface *PrimarySelectionDeviceV1Interface::selection() const
+{
+    return d->selection;
+}
+
+void PrimarySelectionDeviceV1Interface::sendSelection(AbstractDataSource *other)
 {
     PrimarySelectionOfferV1Interface *offer = d->createDataOffer(other);
     d->send_selection(offer ? offer->resource() : nullptr);
-    return offer;
 }
 
 wl_client *PrimarySelectionDeviceV1Interface::client() const

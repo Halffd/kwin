@@ -14,20 +14,25 @@
 namespace KWin
 {
 
-class LogicalOutput;
+class Output;
 
 class BrightnessDevice
 {
 public:
-    virtual ~BrightnessDevice() = default;
+    explicit BrightnessDevice();
+    virtual ~BrightnessDevice();
 
+    void setOutput(Output *output);
     virtual void setBrightness(double brightness) = 0;
 
+    Output *output() const;
     virtual std::optional<double> observedBrightness() const = 0;
     virtual bool isInternal() const = 0;
     virtual QByteArray edidBeginning() const = 0;
-    virtual bool usesDdcCi() const = 0;
     virtual int brightnessSteps() const = 0;
+
+private:
+    Output *m_output = nullptr;
 };
 
 }

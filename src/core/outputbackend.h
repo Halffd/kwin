@@ -21,14 +21,25 @@
 namespace KWin
 {
 
-class LogicalOutput;
+class Output;
 class InputBackend;
-class EglBackend;
+class OpenGLBackend;
 class QPainterBackend;
 class OutputConfiguration;
 class EglDisplay;
 class Session;
-class BackendOutput;
+
+class KWIN_EXPORT Outputs : public QList<Output *>
+{
+public:
+    Outputs() { };
+    template<typename T>
+    Outputs(const QList<T> &other)
+    {
+        resize(other.size());
+        std::copy(other.constBegin(), other.constEnd(), begin());
+    }
+};
 
 class KWIN_EXPORT OutputBackend : public QObject
 {
@@ -38,7 +49,7 @@ public:
 
     virtual bool initialize() = 0;
     virtual std::unique_ptr<InputBackend> createInputBackend();
-    virtual std::unique_ptr<EglBackend> createOpenGLBackend();
+    virtual std::unique_ptr<OpenGLBackend> createOpenGLBackend();
     virtual std::unique_ptr<QPainterBackend> createQPainterBackend();
 
     virtual EglDisplay *sceneEglDisplayObject() const = 0;
@@ -63,8 +74,8 @@ public:
      */
     virtual QList<CompositingType> supportedCompositors() const = 0;
 
-    virtual QList<BackendOutput *> outputs() const = 0;
-    BackendOutput *findOutput(const QString &name) const;
+    virtual Outputs outputs() const = 0;
+    Output *findOutput(const QString &name) const;
 
     /**
      * A string of information to include in kwin debug output
@@ -75,8 +86,8 @@ public:
      */
     virtual QString supportInformation() const;
 
-    virtual BackendOutput *createVirtualOutput(const QString &name, const QString &description, const QSize &size, qreal scale);
-    virtual void removeVirtualOutput(BackendOutput *output);
+    virtual Output *createVirtualOutput(const QString &name, const QString &description, const QSize &size, qreal scale);
+    virtual void removeVirtualOutput(Output *output);
 
     /**
      * Applies the output changes. Default implementation only sets values common between platforms
@@ -91,11 +102,11 @@ Q_SIGNALS:
      * This signal is emitted when an output has been connected. The @a output is not ready
      * for compositing yet.
      */
-    void outputAdded(BackendOutput *output);
+    void outputAdded(Output *output);
     /**
      * This signal is emitted when an output has been disconnected.
      */
-    void outputRemoved(BackendOutput *output);
+    void outputRemoved(Output *output);
 
 protected:
     explicit OutputBackend(QObject *parent = nullptr);

@@ -22,12 +22,12 @@ public:
     explicit PopupInputFilter();
     bool pointerButton(PointerButtonEvent *event) override;
     bool keyboardKey(KeyboardKeyEvent *event) override;
-    bool touchDown(TouchDownEvent *event) override;
+    bool touchDown(qint32 id, const QPointF &pos, std::chrono::microseconds time) override;
     bool tabletToolTipEvent(TabletToolTipEvent *event) override;
 
 private:
     void handleWindowAdded(Window *client);
-    void handleWindowFocusChanged();
+
     void focus(Window *popup);
     void cancelPopups();
 

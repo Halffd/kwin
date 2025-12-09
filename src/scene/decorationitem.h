@@ -17,9 +17,8 @@ namespace KWin
 {
 
 class OutlinedBorderItem;
-class GLTexture;
 class Window;
-class LogicalOutput;
+class Output;
 
 namespace Decoration
 {
@@ -71,61 +70,6 @@ private:
     bool m_imageSizesDirty;
 };
 
-class SceneOpenGLDecorationRenderer : public DecorationRenderer
-{
-    Q_OBJECT
-public:
-    enum class DecorationPart : int {
-        Left,
-        Top,
-        Right,
-        Bottom,
-        Count
-    };
-    explicit SceneOpenGLDecorationRenderer(Decoration::DecoratedWindowImpl *client);
-    ~SceneOpenGLDecorationRenderer() override;
-
-    void render(const QRegion &region) override;
-
-    GLTexture *texture()
-    {
-        return m_texture.get();
-    }
-    GLTexture *texture() const
-    {
-        return m_texture.get();
-    }
-
-private:
-    void renderPart(const QRectF &rect, const QRectF &partRect, const QPoint &textureOffset, qreal devicePixelRatio, bool rotated = false);
-    static const QMargins texturePadForPart(const QRectF &rect, const QRectF &partRect);
-    void resizeTexture();
-    int toNativeSize(double size) const;
-    std::unique_ptr<GLTexture> m_texture;
-};
-
-class SceneQPainterDecorationRenderer : public DecorationRenderer
-{
-    Q_OBJECT
-public:
-    enum class DecorationPart : int {
-        Left,
-        Top,
-        Right,
-        Bottom,
-        Count
-    };
-    explicit SceneQPainterDecorationRenderer(Decoration::DecoratedWindowImpl *client);
-
-    void render(const QRegion &region) override;
-
-    QImage image(DecorationPart part) const;
-
-private:
-    void resizeImages();
-    QImage m_images[int(DecorationPart::Count)];
-};
-
 /**
  * The DecorationItem class represents a server-side decoration.
  */
@@ -154,7 +98,7 @@ protected:
 
 private:
     Window *m_window;
-    QPointer<LogicalOutput> m_output;
+    QPointer<Output> m_output;
     QPointer<KDecoration3::Decoration> m_decoration;
     std::unique_ptr<DecorationRenderer> m_renderer;
     std::unique_ptr<OutlinedBorderItem> m_outlineItem;

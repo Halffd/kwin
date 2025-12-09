@@ -6,6 +6,7 @@
 
 #include "renderbackend.h"
 #include "renderloop_p.h"
+#include "scene/surfaceitem.h"
 #include "syncobjtimeline.h"
 
 #include <QCoreApplication>
@@ -59,7 +60,7 @@ OutputFrame::~OutputFrame()
     }
 }
 
-void OutputFrame::addFeedback(std::shared_ptr<PresentationFeedback> &&feedback)
+void OutputFrame::addFeedback(std::unique_ptr<PresentationFeedback> &&feedback)
 {
     m_feedbacks.push_back(std::move(feedback));
 }
@@ -118,6 +119,16 @@ PresentationMode OutputFrame::presentationMode() const
     return m_presentationMode;
 }
 
+void OutputFrame::setDamage(const QRegion &region)
+{
+    m_damage = region;
+}
+
+QRegion OutputFrame::damage() const
+{
+    return m_damage;
+}
+
 void OutputFrame::addRenderTimeQuery(std::unique_ptr<RenderTimeQuery> &&query)
 {
     m_renderTimeQueries.push_back(std::move(query));
@@ -158,6 +169,16 @@ void OutputFrame::setArtificialHdrHeadroom(double edr)
     m_artificialHdrHeadroom = edr;
 }
 
+OutputLayer *RenderBackend::cursorLayer(Output *output)
+{
+    return nullptr;
+}
+
+OverlayWindow *RenderBackend::overlayWindow() const
+{
+    return nullptr;
+}
+
 bool RenderBackend::checkGraphicsReset()
 {
     return false;
@@ -176,6 +197,20 @@ bool RenderBackend::testImportBuffer(GraphicsBuffer *buffer)
 QHash<uint32_t, QList<uint64_t>> RenderBackend::supportedFormats() const
 {
     return QHash<uint32_t, QList<uint64_t>>{{DRM_FORMAT_XRGB8888, QList<uint64_t>{DRM_FORMAT_MOD_LINEAR}}};
+}
+
+std::unique_ptr<SurfaceTexture> RenderBackend::createSurfaceTextureX11(SurfacePixmapX11 *pixmap)
+{
+    return nullptr;
+}
+
+std::unique_ptr<SurfaceTexture> RenderBackend::createSurfaceTextureWayland(SurfacePixmap *pixmap)
+{
+    return nullptr;
+}
+
+void RenderBackend::repairPresentation(Output *output)
+{
 }
 
 } // namespace KWin

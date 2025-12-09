@@ -15,7 +15,6 @@
 
 #include <fcntl.h>
 #include <gbm.h>
-#include <ranges>
 #include <xf86drm.h>
 
 namespace KWin
@@ -23,15 +22,6 @@ namespace KWin
 
 static std::unique_ptr<DrmDevice> findRenderDevice()
 {
-#if !HAVE_LIBDRM_FAUX
-#if defined(Q_OS_LINUX)
-    // Workaround for libdrm being unaware of faux bus.
-    if (qEnvironmentVariableIsSet("CI")) {
-        return DrmDevice::open(QStringLiteral("/dev/dri/card1"));
-    }
-#endif
-#endif
-
     const int deviceCount = drmGetDevices2(0, nullptr, 0);
     if (deviceCount <= 0) {
         return nullptr;
@@ -54,13 +44,6 @@ static std::unique_ptr<DrmDevice> findRenderDevice()
                 nodeType = DRM_NODE_PRIMARY;
             }
         }
-#if HAVE_LIBDRM_FAUX
-        if (device->bustype == DRM_BUS_FAUX) {
-            if (strcmp(device->businfo.faux->name, "vgem") == 0) {
-                nodeType = DRM_NODE_PRIMARY;
-            }
-        }
-#endif
 
         if (device->available_nodes & (1 << nodeType)) {
             if (auto ret = DrmDevice::open(device->nodes[nodeType])) {
@@ -107,30 +90,14 @@ std::unique_ptr<QPainterBackend> VirtualBackend::createQPainterBackend()
     return std::make_unique<VirtualQPainterBackend>(this);
 }
 
-std::unique_ptr<EglBackend> VirtualBackend::createOpenGLBackend()
+std::unique_ptr<OpenGLBackend> VirtualBackend::createOpenGLBackend()
 {
     return std::make_unique<VirtualEglBackend>(this);
 }
 
-BackendOutput *VirtualBackend::createVirtualOutput(const QString &name, const QString &description, const QSize &size, qreal scale)
+Outputs VirtualBackend::outputs() const
 {
-    return addOutput(OutputInfo{
-        .geometry = QRect(QPoint(), size),
-        .scale = scale,
-        .connectorName = QStringLiteral("Virtual-") + name,
-    });
-}
-
-void VirtualBackend::removeVirtualOutput(BackendOutput *output)
-{
-    if (auto virtualOutput = qobject_cast<VirtualOutput *>(output)) {
-        removeOutput(virtualOutput);
-    }
-}
-
-QList<BackendOutput *> VirtualBackend::outputs() const
-{
-    return m_outputs | std::ranges::to<QList<BackendOutput *>>();
+    return m_outputs;
 }
 
 VirtualOutput *VirtualBackend::createOutput(const OutputInfo &info)
@@ -139,23 +106,15 @@ VirtualOutput *VirtualBackend::createOutput(const OutputInfo &info)
     output->init(info.geometry.topLeft(), info.geometry.size() * info.scale, info.scale, info.modes);
     m_outputs.append(output);
     Q_EMIT outputAdded(output);
+    output->updateEnabled(true);
     return output;
 }
 
-BackendOutput *VirtualBackend::addOutput(const OutputInfo &info)
+Output *VirtualBackend::addOutput(const OutputInfo &info)
 {
     VirtualOutput *output = createOutput(info);
     Q_EMIT outputsQueried();
     return output;
-}
-
-void VirtualBackend::removeOutput(VirtualOutput *output)
-{
-    if (m_outputs.removeOne(output)) {
-        Q_EMIT outputRemoved(output);
-        Q_EMIT outputsQueried();
-        output->unref();
-    }
 }
 
 void VirtualBackend::setVirtualOutputs(const QList<OutputInfo> &infos)
@@ -167,6 +126,7 @@ void VirtualBackend::setVirtualOutputs(const QList<OutputInfo> &infos)
     }
 
     for (VirtualOutput *output : removed) {
+        output->updateEnabled(false);
         m_outputs.removeOne(output);
         Q_EMIT outputRemoved(output);
         output->unref();

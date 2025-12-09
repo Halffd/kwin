@@ -39,59 +39,59 @@ void InputEventSpy::keyboardKey(KeyboardKeyEvent *event)
 {
 }
 
-void InputEventSpy::touchDown(TouchDownEvent *event)
+void InputEventSpy::touchDown(qint32 id, const QPointF &point, std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::touchMotion(TouchMotionEvent *event)
+void InputEventSpy::touchMotion(qint32 id, const QPointF &point, std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::touchUp(TouchUpEvent *event)
+void InputEventSpy::touchUp(qint32 id, std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::pinchGestureBegin(PointerPinchGestureBeginEvent *event)
+void InputEventSpy::pinchGestureBegin(int fingerCount, std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::pinchGestureUpdate(PointerPinchGestureUpdateEvent *event)
+void InputEventSpy::pinchGestureUpdate(qreal scale, qreal angleDelta, const QPointF &delta, std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::pinchGestureEnd(PointerPinchGestureEndEvent *event)
+void InputEventSpy::pinchGestureEnd(std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::pinchGestureCancelled(PointerPinchGestureCancelEvent *event)
+void InputEventSpy::pinchGestureCancelled(std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::swipeGestureBegin(PointerSwipeGestureBeginEvent *event)
+void InputEventSpy::swipeGestureBegin(int fingerCount, std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::swipeGestureUpdate(PointerSwipeGestureUpdateEvent *event)
+void InputEventSpy::swipeGestureUpdate(const QPointF &delta, std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::swipeGestureEnd(PointerSwipeGestureEndEvent *event)
+void InputEventSpy::swipeGestureEnd(std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::swipeGestureCancelled(PointerSwipeGestureCancelEvent *event)
+void InputEventSpy::swipeGestureCancelled(std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::holdGestureBegin(PointerHoldGestureBeginEvent *event)
+void InputEventSpy::holdGestureBegin(int fingerCount, std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::holdGestureEnd(PointerHoldGestureEndEvent *event)
+void InputEventSpy::holdGestureEnd(std::chrono::microseconds time)
 {
 }
 
-void InputEventSpy::holdGestureCancelled(PointerHoldGestureCancelEvent *event)
+void InputEventSpy::holdGestureCancelled(std::chrono::microseconds time)
 {
 }
 
@@ -124,10 +124,6 @@ void InputEventSpy::tabletPadStripEvent(TabletPadStripEvent *event)
 }
 
 void InputEventSpy::tabletPadRingEvent(TabletPadRingEvent *event)
-{
-}
-
-void InputEventSpy::tabletPadDialEvent(TabletPadDialEvent *event)
 {
 }
 }

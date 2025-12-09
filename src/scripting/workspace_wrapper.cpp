@@ -41,7 +41,6 @@ WorkspaceWrapper::WorkspaceWrapper(QObject *parent)
     connect(ws, &Workspace::windowActivated, this, &WorkspaceWrapper::windowActivated);
     connect(vds, &VirtualDesktopManager::desktopAdded, this, &WorkspaceWrapper::desktopsChanged);
     connect(vds, &VirtualDesktopManager::desktopRemoved, this, &WorkspaceWrapper::desktopsChanged);
-    connect(vds, &VirtualDesktopManager::desktopMoved, this, &WorkspaceWrapper::desktopsChanged);
     connect(vds, &VirtualDesktopManager::layoutChanged, this, &WorkspaceWrapper::desktopLayoutChanged);
     connect(vds, &VirtualDesktopManager::currentChanged, this, &WorkspaceWrapper::currentDesktopChanged);
 #if KWIN_BUILD_ACTIVITIES
@@ -72,10 +71,6 @@ QList<VirtualDesktop *> WorkspaceWrapper::desktops() const
 
 void WorkspaceWrapper::setCurrentDesktop(VirtualDesktop *desktop)
 {
-    if (!desktop) {
-        qCWarning(KWIN_SCRIPTING) << "Invalid desktop passed to setCurrentDesktop";
-        return;
-    }
     VirtualDesktopManager::self()->setCurrent(desktop);
 }
 
@@ -134,6 +129,7 @@ SLOTWRAPPER(slotWindowMaximize)
 SLOTWRAPPER(slotWindowMaximizeVertical)
 SLOTWRAPPER(slotWindowMaximizeHorizontal)
 SLOTWRAPPER(slotWindowMinimize)
+SLOTWRAPPER(slotWindowShade)
 SLOTWRAPPER(slotWindowRaise)
 SLOTWRAPPER(slotWindowLower)
 SLOTWRAPPER(slotWindowRaiseOrLower)
@@ -159,7 +155,6 @@ SLOTWRAPPER(slotWindowBelow)
 SLOTWRAPPER(slotWindowOnAllDesktops)
 SLOTWRAPPER(slotWindowFullScreen)
 SLOTWRAPPER(slotWindowNoBorder)
-SLOTWRAPPER(slotWindowExcludeFromCapture)
 
 SLOTWRAPPER(slotWindowToNextDesktop)
 SLOTWRAPPER(slotWindowToPreviousDesktop)
@@ -255,7 +250,7 @@ QRectF WorkspaceWrapper::clientArea(ClientAreaOption option, KWin::Window *c) co
     return Workspace::self()->clientArea(static_cast<clientAreaOption>(option), c);
 }
 
-QRectF WorkspaceWrapper::clientArea(ClientAreaOption option, LogicalOutput *output, VirtualDesktop *desktop) const
+QRectF WorkspaceWrapper::clientArea(ClientAreaOption option, Output *output, VirtualDesktop *desktop) const
 {
     if (!output || !desktop) {
         qCWarning(KWIN_SCRIPTING) << "clientArea needs valid output:" << output << "and desktop:" << desktop << "arguments";
@@ -271,20 +266,7 @@ void WorkspaceWrapper::createDesktop(int position, const QString &name) const
 
 void WorkspaceWrapper::removeDesktop(VirtualDesktop *desktop) const
 {
-    if (!desktop) {
-        qCWarning(KWIN_SCRIPTING) << "Invalid desktop passed to removeDesktop";
-        return;
-    }
     VirtualDesktopManager::self()->removeVirtualDesktop(desktop->id());
-}
-
-void WorkspaceWrapper::moveDesktop(VirtualDesktop *desktop, int position)
-{
-    if (!desktop) {
-        qCWarning(KWIN_SCRIPTING) << "Invalid desktop passed to moveDesktop";
-        return;
-    }
-    VirtualDesktopManager::self()->moveVirtualDesktop(desktop, position);
 }
 
 QString WorkspaceWrapper::supportInformation() const
@@ -319,20 +301,10 @@ void WorkspaceWrapper::raiseWindow(KWin::Window *window)
     }
 }
 
-void WorkspaceWrapper::constrain(KWin::Window *below, KWin::Window *above)
-{
-    KWin::Workspace::self()->constrain(below, above);
-}
-
-void WorkspaceWrapper::unconstrain(KWin::Window *below, KWin::Window *above)
-{
-    KWin::Workspace::self()->unconstrain(below, above);
-}
-
 #if KWIN_BUILD_X11
 Window *WorkspaceWrapper::getClient(qulonglong windowId)
 {
-    auto window = Workspace::self()->findClient(windowId);
+    auto window = Workspace::self()->findClient(Predicate::WindowMatch, windowId);
     QJSEngine::setObjectOwnership(window, QJSEngine::CppOwnership);
     return window;
 }
@@ -390,11 +362,6 @@ int WorkspaceWrapper::desktopGridHeight() const
     return desktopGridSize().height();
 }
 
-void WorkspaceWrapper::setDesktopGridHeight(int height)
-{
-    VirtualDesktopManager::self()->setRows(height);
-}
-
 int WorkspaceWrapper::workspaceHeight() const
 {
     return desktopGridHeight() * workspace()->geometry().height();
@@ -405,22 +372,22 @@ int WorkspaceWrapper::workspaceWidth() const
     return desktopGridWidth() * workspace()->geometry().width();
 }
 
-LogicalOutput *WorkspaceWrapper::activeScreen() const
+Output *WorkspaceWrapper::activeScreen() const
 {
     return workspace()->activeOutput();
 }
 
-QList<LogicalOutput *> WorkspaceWrapper::screens() const
+QList<Output *> WorkspaceWrapper::screens() const
 {
     return workspace()->outputs();
 }
 
-QList<LogicalOutput *> WorkspaceWrapper::screenOrder() const
+QList<Output *> WorkspaceWrapper::screenOrder() const
 {
     return workspace()->outputOrder();
 }
 
-LogicalOutput *WorkspaceWrapper::screenAt(const QPointF &pos) const
+Output *WorkspaceWrapper::screenAt(const QPointF &pos) const
 {
     auto output = workspace()->outputAt(pos);
     QJSEngine::setObjectOwnership(output, QJSEngine::CppOwnership);
@@ -437,16 +404,14 @@ QSize WorkspaceWrapper::virtualScreenSize() const
     return workspace()->geometry().size();
 }
 
-void WorkspaceWrapper::sendClientToScreen(Window *client, LogicalOutput *output)
+void WorkspaceWrapper::sendClientToScreen(Window *client, Output *output)
 {
     client->sendToOutput(output);
 }
 
 KWin::TileManager *WorkspaceWrapper::tilingForScreen(const QString &screenName) const
 {
-    qCWarning(KWIN_CORE) << "workspace.tilingForScreen() is deprecated: use workspace.rootTile() instead";
-
-    LogicalOutput *output = workspace()->findOutput(screenName);
+    Output *output = kwinApp()->outputBackend()->findOutput(screenName);
     if (output) {
         auto tileManager = workspace()->tileManager(output);
         QJSEngine::setObjectOwnership(tileManager, QJSEngine::CppOwnership);
@@ -455,18 +420,11 @@ KWin::TileManager *WorkspaceWrapper::tilingForScreen(const QString &screenName) 
     return nullptr;
 }
 
-KWin::TileManager *WorkspaceWrapper::tilingForScreen(LogicalOutput *output) const
+KWin::TileManager *WorkspaceWrapper::tilingForScreen(Output *output) const
 {
-    qCWarning(KWIN_CORE) << "workspace.tilingForScreen() is deprecated: use workspace.rootTile() instead";
-
     auto tileManager = workspace()->tileManager(output);
     QJSEngine::setObjectOwnership(tileManager, QJSEngine::CppOwnership);
     return tileManager;
-}
-
-Tile *WorkspaceWrapper::rootTile(LogicalOutput *output, VirtualDesktop *desktop) const
-{
-    return workspace()->rootTile(output, desktop);
 }
 
 QtScriptWorkspaceWrapper::QtScriptWorkspaceWrapper(QObject *parent)

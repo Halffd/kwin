@@ -10,6 +10,8 @@
 
 #pragma once
 
+#pragma once
+
 #include "dbusutils_p.h"
 #include "plugin.h"
 

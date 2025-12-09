@@ -19,6 +19,8 @@
 
 #include <kwin_export.h>
 
+#define KWIN_QT5_PORTING 0
+
 namespace KWin
 {
 KWIN_EXPORT Q_NAMESPACE
@@ -33,8 +35,15 @@ KWIN_EXPORT Q_NAMESPACE
          * use EffectsHandler::isOpenGLCompositing().
          */
         OpenGLCompositing = 1,
+        /* XRenderCompositing = 1<<1, */
         QPainterCompositing = 1 << 2,
     };
+
+enum OpenGLPlatformInterface {
+    NoOpenGLPlatformInterface = 0,
+    GlxPlatformInterface,
+    EglPlatformInterface,
+};
 
 enum clientAreaOption {
     PlacementArea, // geometry where a window will be initially placed after being mapped
@@ -156,6 +165,21 @@ enum class LED {
 Q_DECLARE_FLAGS(LEDs, LED)
 Q_FLAG_NS(LEDs)
 
+/**
+ * The Gravity enum is used to specify the direction in which geometry changes during resize.
+ */
+enum class Gravity {
+    None,
+    Left,
+    Right,
+    Top,
+    Bottom,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+};
+
 enum Layer {
     UnknownLayer = -1,
     FirstLayer = 0,
@@ -244,21 +268,6 @@ inline KWIN_EXPORT QRect infiniteRegion()
 KWIN_EXPORT inline QRectF scaledRect(const QRectF &rect, qreal scale)
 {
     return QRectF{rect.x() * scale, rect.y() * scale, rect.width() * scale, rect.height() * scale};
-}
-
-/**
- * Scale a region by a scalar.
- */
-KWIN_EXPORT inline QRegion scaleRegionAligned(const QRegion &region, qreal scale)
-{
-    if (region == infiniteRegion()) {
-        return region;
-    }
-    QRegion ret;
-    for (const QRect &rect : region) {
-        ret |= scaledRect(rect, scale).toAlignedRect();
-    }
-    return ret;
 }
 
 /**
@@ -446,7 +455,6 @@ enum class OutputConfigurationError {
     None,
     Unknown,
     TooManyEnabledOutputs,
-    Timeout,
 };
 
 } // namespace

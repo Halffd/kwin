@@ -20,6 +20,12 @@ using namespace std::chrono_literals;
 
 Q_LOGGING_CATEGORY(KWIN_FALLAPART, "kwin_effect_fallapart", QtWarningMsg)
 
+static const QSet<QString> s_blacklist{
+    // Spectacle needs to be blacklisted in order to stay out of its own screenshots.
+    QStringLiteral("spectacle spectacle"), // x11
+    QStringLiteral("spectacle org.kde.spectacle"), // wayland
+};
+
 namespace KWin
 {
 
@@ -50,7 +56,7 @@ void FallApartEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
     effects->prePaintScreen(data, presentTime);
 }
 
-void FallApartEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
+void FallApartEffect::prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
 {
     auto animationIt = windows.find(w);
     if (animationIt != windows.end() && isRealWindow(w)) {
@@ -63,7 +69,7 @@ void FallApartEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPr
         animationIt->progress += time / animationTime(1s);
         data.setTransformed();
     }
-    effects->prePaintWindow(view, w, data, presentTime);
+    effects->prePaintWindow(w, data, presentTime);
 }
 
 void FallApartEffect::apply(EffectWindow *w, int mask, WindowPaintData &data, WindowQuadList &quads)
@@ -180,6 +186,9 @@ void FallApartEffect::slotWindowClosed(EffectWindow *c)
         return;
     }
     if (!c->isVisible()) {
+        return;
+    }
+    if (s_blacklist.contains(c->windowClass())) {
         return;
     }
     const void *e = c->data(WindowClosedGrabRole).value<void *>();

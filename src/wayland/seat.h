@@ -7,7 +7,6 @@
 #pragma once
 
 #include "core/inputdevice.h"
-#include "utils/serial.h"
 
 #include <QMatrix4x4>
 #include <QObject>
@@ -40,16 +39,14 @@ class TouchPoint : public QObject
 {
     Q_OBJECT
 public:
-    TouchPoint(qint32 id, quint32 serial, SurfaceInterface *surface, SeatInterface *seat);
+    TouchPoint(quint32 serial, SurfaceInterface *surface, SeatInterface *seat);
 
     void setSurfacePosition(const QPointF &offset);
 
-    qint32 id;
     quint32 serial = 0;
     QPointer<ClientConnection> client;
     QPointer<SurfaceInterface> surface;
     SeatInterface *seat = nullptr;
-    QPointF position;
     QPointF offset;
     QMatrix4x4 transformation;
 };
@@ -144,19 +141,15 @@ public:
      * @see isDragPointer
      */
     bool isDragTouch() const;
-    bool isDragTablet() const;
     /**
      * @returns The transformation applied to go from global to local coordinates for drag motion events.
      * @see dragSurfaceTransformation
      */
     QMatrix4x4 dragSurfaceTransformation() const;
     /**
-     * Returns the drag implicit grab serial.
-     */
-    std::optional<quint32> dragSerial() const;
-    /**
      * @returns The currently focused Surface for drag motion events.
      * @see dragSurfaceTransformation
+     * @see dragSurfaceChanged
      */
     SurfaceInterface *dragSurface() const;
     /**
@@ -176,15 +169,16 @@ public:
      * The enter position is derived from @p globalPosition and transformed by @p inputTransformation.
      */
     void setDragTarget(AbstractDropHandler *dropTarget, SurfaceInterface *surface, const QPointF &globalPosition, const QMatrix4x4 &inputTransformation);
+    /**
+     * Sets the current drag target to @p surface.
+     *
+     * Sends a drag leave event to the current target and an enter event to @p surface.
+     * The enter position is derived from current global position and transformed by @p inputTransformation.
+     */
+    void setDragTarget(AbstractDropHandler *dropTarget, SurfaceInterface *surface, const QMatrix4x4 &inputTransformation = QMatrix4x4());
     ///@}
 
-    QPointF dragPosition() const;
-
-    void notifyDragMotion(const QPointF &position);
-
     AbstractDropHandler *dropHandlerForSurface(SurfaceInterface *surface) const;
-
-    void endDrag();
 
     /**
      * If there is a current drag in progress, force it to cancel
@@ -524,7 +518,7 @@ public:
     void setFocusedKeyboardSurface(SurfaceInterface *surface, const QList<quint32> &keys = {});
     SurfaceInterface *focusedKeyboardSurface() const;
     KeyboardInterface *keyboard() const;
-    void notifyKeyboardKey(quint32 keyCode, KeyboardKeyState state, uint32_t serial);
+    void notifyKeyboardKey(quint32 keyCode, KeyboardKeyState state);
     void notifyKeyboardModifiers(quint32 depressed, quint32 latched, quint32 locked, quint32 group);
     ///@}
 
@@ -533,12 +527,14 @@ public:
      */
     ///@{
     TouchInterface *touch() const;
+    bool isSurfaceTouched(SurfaceInterface *surface) const;
     TouchPoint *notifyTouchDown(SurfaceInterface *surface, const QPointF &surfacePosition, qint32 id, const QPointF &globalPosition);
     void notifyTouchUp(qint32 id);
     void notifyTouchMotion(qint32 id, const QPointF &globalPosition);
     void notifyTouchFrame();
     void notifyTouchCancel();
     bool isTouchSequence() const;
+    QPointF firstTouchPointPosition(SurfaceInterface *surface) const;
     TouchPoint *touchPointByImplicitGrabSerial(quint32 serial) const;
     /**
      * @returns true if there is a touch sequence going on associated with a touch
@@ -613,25 +609,12 @@ public:
      * @see selection
      * @see selectionChanged
      */
-    void setSelection(AbstractDataSource *selection, UInt32Serial serial);
+    void setSelection(AbstractDataSource *selection, quint32 serial);
 
     AbstractDataSource *primarySelection() const;
-    void setPrimarySelection(AbstractDataSource *selection, UInt32Serial serial);
+    void setPrimarySelection(AbstractDataSource *selection, quint32 serial);
 
-    void setFocusedDataDeviceSurface(SurfaceInterface *surface);
-
-    /**
-     * Attempts to start a drag-and-drop operation. The @a source specifies the source data source,
-     * it may be @c null. The @a sourceSurface specifies the surface where the dnd operation origantes.
-     * The @a inputTransformation is a matrix that transforms global coordinates to the surface
-     * local coordinates. @a dragSerial specifies the implicit grab serial. @a dragIcon is an
-     * optional icon that can be attached to the cursor while the dnd operation is active.
-     *
-     * Returns @c true if the drag has been started successfully; otherwise returns @c false.
-     */
-    bool startPointerDrag(AbstractDataSource *source, SurfaceInterface *sourceSurface, const QPointF &position, const QMatrix4x4 &inputTransformation, quint32 dragSerial, DragAndDropIcon *dragIcon = nullptr);
-    bool startTouchDrag(AbstractDataSource *source, SurfaceInterface *sourceSurface, const QPointF &position, const QMatrix4x4 &inputTransformation, quint32 dragSerial, DragAndDropIcon *dragIcon = nullptr);
-    bool startTabletDrag(AbstractDataSource *source, SurfaceInterface *sourceSurface, const QPointF &position, const QMatrix4x4 &inputTransformation, quint32 dragSerial, DragAndDropIcon *dragIcon = nullptr);
+    void startDrag(AbstractDataSource *source, SurfaceInterface *sourceSurface, int dragSerial = -1, DragAndDropIcon *dragIcon = nullptr);
 
     /**
      * Returns the additional icon attached to the cursor during a drag-and-drop operation.
@@ -662,10 +645,6 @@ Q_SIGNALS:
     void primarySelectionChanged(KWin::AbstractDataSource *);
 
     /**
-     * Emitted when a drag'n'drop operation is requested by a client.
-     */
-    void dragRequested(AbstractDataSource *source, SurfaceInterface *origin, quint32 serial, DragAndDropIcon *dragIcon);
-    /**
      * Emitted when a drag'n'drop operation is started
      * @see dragEnded
      */
@@ -675,11 +654,16 @@ Q_SIGNALS:
      * @see dragStarted
      */
     void dragEnded();
-    /** Emitted when a drop occurs in a drag'n'drop operation. This is emitted
+    /**
+     * Emitted whenever the drag surface for motion events changed.
+     * @see dragSurface
+     */
+    void dragSurfaceChanged();
+
+    /** Emitted when a drop ocurrs in a drag'n'drop operation. This is emitted
      * before dragEnded
      */
     void dragDropped();
-    void dragMoved(const QPointF &position);
     /**
      * Emitted whenever the focused text input changed.
      * @see focusedTextInput

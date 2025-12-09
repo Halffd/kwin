@@ -2,6 +2,12 @@
 "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <node>
   <interface name="org.kde.KWin">
+    <method name="cascadeDesktop">
+      <annotation name="org.freedesktop.DBus.Method.NoReply" value="true"/>
+    </method>
+    <method name="unclutterDesktop">
+      <annotation name="org.freedesktop.DBus.Method.NoReply" value="true"/>
+    </method>
     <method name="reconfigure">
       <annotation name="org.freedesktop.DBus.Method.NoReply" value="true"/>
     </method>
@@ -18,6 +24,14 @@
     <method name="nextDesktop"/>
     <method name="previousDesktop"/>
     <signal name="reloadConfig"/>
+    <method name="stopActivity">
+      <arg type="s" direction="in"/>
+      <arg type="b" direction="out"/>
+    </method>
+    <method name="startActivity">
+      <arg type="s" direction="in"/>
+      <arg type="b" direction="out"/>
+    </method>
     <method name="supportInformation">
         <arg type="s" direction="out"/>
     </method>

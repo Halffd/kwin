@@ -2,13 +2,6 @@ add_definitions(-DKWIN_UNIT_TEST)
 remove_definitions(-DQT_USE_QSTRINGBUILDER)
 add_subdirectory(effect)
 add_subdirectory(integration)
-add_subdirectory(libinput)
-add_subdirectory(wayland)
-# drm autotests are broken on FreeBSD for yet unknown reasons
-# As the test isn't doing anything platform specific, only run it on Linux
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-    add_subdirectory(drm)
-endif()
 
 ########################################################
 # Test WindowPaintData
@@ -122,6 +115,19 @@ if(KWIN_BUILD_X11)
     )
     add_test(NAME kwin-testXcbWindow COMMAND testXcbWindow)
     ecm_mark_as_test(testXcbWindow)
+
+    ########################################################
+    # Test X11 TimestampUpdate
+    ########################################################
+    add_executable(testX11TimestampUpdate test_x11_timestamp_update.cpp)
+    target_link_libraries(testX11TimestampUpdate
+        KF6::CoreAddons
+        Qt::Test
+        Qt::GuiPrivate
+        kwin
+    )
+    add_test(NAME kwin-testX11TimestampUpdate COMMAND testX11TimestampUpdate)
+    ecm_mark_as_test(testX11TimestampUpdate)
 endif()
 
 ########################################################
@@ -169,6 +175,9 @@ set(testOpenGLContextAttributeBuilder_SRCS
     opengl_context_attribute_builder_test.cpp
 )
 
+if (HAVE_GLX)
+    set(testOpenGLContextAttributeBuilder_SRCS ${testOpenGLContextAttributeBuilder_SRCS} ../src/backends/x11/standalone/x11_standalone_glx_context_attribute_builder.cpp)
+endif()
 add_executable(testOpenGLContextAttributeBuilder ${testOpenGLContextAttributeBuilder_SRCS})
 target_link_libraries(testOpenGLContextAttributeBuilder epoxy::epoxy Qt::Test)
 add_test(NAME kwin-testOpenGLContextAttributeBuilder COMMAND testOpenGLContextAttributeBuilder)
@@ -240,36 +249,3 @@ target_link_libraries(testColorspaces
 )
 add_test(NAME kwin-testColorspaces COMMAND testColorspaces)
 ecm_mark_as_test(testColorspaces)
-
-########################################################
-# Test UInt32Serial
-########################################################
-add_executable(testSerial serial_test.cpp)
-target_link_libraries(testSerial
-    Qt::Test
-    kwin
-)
-add_test(NAME kwin-testSerial COMMAND testSerial)
-ecm_mark_as_test(testSerial)
-
-########################################################
-# Test Box
-########################################################
-add_executable(testRect test_rect.cpp)
-target_link_libraries(testRect
-    Qt::Test
-    kwin
-)
-add_test(NAME kwin-testRect COMMAND testRect)
-ecm_mark_as_test(testRect)
-
-########################################################
-# Test BoxF
-########################################################
-add_executable(testRectF test_rectf.cpp)
-target_link_libraries(testRectF
-    Qt::Test
-    kwin
-)
-add_test(NAME kwin-testRectF COMMAND testRectF)
-ecm_mark_as_test(testRectF)

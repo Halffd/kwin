@@ -9,9 +9,7 @@
 #pragma once
 
 #include "core/outputlayer.h"
-#include "opengl/eglbackend.h"
-#include "utils/damagejournal.h"
-
+#include "platformsupport/scenes/opengl/abstract_egl_backend.h"
 #include <chrono>
 #include <memory>
 
@@ -27,41 +25,39 @@ class GLTexture;
 class VirtualEglBackend;
 class GLRenderTimeQuery;
 
-class KWIN_EXPORT VirtualEglLayer : public OutputLayer
+class VirtualEglLayer : public OutputLayer
 {
 public:
-    VirtualEglLayer(BackendOutput *output, VirtualEglBackend *backend);
-    ~VirtualEglLayer() override;
+    VirtualEglLayer(Output *output, VirtualEglBackend *backend);
 
     std::optional<OutputLayerBeginFrameInfo> doBeginFrame() override;
-    bool doEndFrame(const QRegion &renderedDeviceRegion, const QRegion &damagedDeviceRegion, OutputFrame *frame) override;
+    bool doEndFrame(const QRegion &renderedRegion, const QRegion &damagedRegion, OutputFrame *frame) override;
 
+    std::shared_ptr<GLTexture> texture() const;
     DrmDevice *scanoutDevice() const override;
     QHash<uint32_t, QList<uint64_t>> supportedDrmFormats() const override;
-    void releaseBuffers() override;
-
-    GLTexture *texture() const;
 
 private:
     VirtualEglBackend *const m_backend;
     std::shared_ptr<EglSwapchain> m_swapchain;
     std::shared_ptr<EglSwapchainSlot> m_current;
     std::unique_ptr<GLRenderTimeQuery> m_query;
-    DamageJournal m_damageJournal;
 };
 
 /**
  * @brief OpenGL Backend using Egl on a GBM surface.
  */
-class VirtualEglBackend : public EglBackend
+class VirtualEglBackend : public AbstractEglBackend
 {
     Q_OBJECT
 
 public:
     VirtualEglBackend(VirtualBackend *b);
     ~VirtualEglBackend() override;
-
-    QList<OutputLayer *> compatibleOutputLayers(BackendOutput *output) override;
+    std::unique_ptr<SurfaceTexture> createSurfaceTextureWayland(SurfacePixmap *pixmap) override;
+    std::pair<std::shared_ptr<KWin::GLTexture>, ColorDescription> textureForOutput(Output *output) const override;
+    OutputLayer *primaryLayer(Output *output) override;
+    bool present(Output *output, const std::shared_ptr<OutputFrame> &frame) override;
     void init() override;
 
     VirtualBackend *backend() const;
@@ -71,9 +67,11 @@ private:
     bool initializeEgl();
     bool initRenderingContext();
 
-    void addOutput(BackendOutput *output);
+    void addOutput(Output *output);
+    void removeOutput(Output *output);
 
     VirtualBackend *m_backend;
+    std::map<Output *, std::unique_ptr<VirtualEglLayer>> m_outputs;
 };
 
 } // namespace KWin

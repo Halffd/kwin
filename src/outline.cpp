@@ -104,7 +104,7 @@ void Outline::createHelper()
     if (m_visual) {
         return;
     }
-    m_visual = std::make_unique<OutlineVisual>(this);
+    m_visual = kwinApp()->createOutline(this);
 }
 
 void Outline::compositingChanged()
@@ -129,11 +129,9 @@ bool Outline::isActive() const
 {
     return m_active;
 }
+
 OutlineVisual::OutlineVisual(Outline *outline)
     : m_outline(outline)
-    , m_qmlContext()
-    , m_qmlComponent()
-    , m_mainItem()
 {
 }
 
@@ -141,7 +139,19 @@ OutlineVisual::~OutlineVisual()
 {
 }
 
-void OutlineVisual::hide()
+CompositedOutlineVisual::CompositedOutlineVisual(Outline *outline)
+    : OutlineVisual(outline)
+    , m_qmlContext()
+    , m_qmlComponent()
+    , m_mainItem()
+{
+}
+
+CompositedOutlineVisual::~CompositedOutlineVisual()
+{
+}
+
+void CompositedOutlineVisual::hide()
 {
     if (QQuickWindow *w = qobject_cast<QQuickWindow *>(m_mainItem.get())) {
         w->hide();
@@ -149,7 +159,7 @@ void OutlineVisual::hide()
     }
 }
 
-void OutlineVisual::show()
+void CompositedOutlineVisual::show()
 {
     if (!m_qmlContext) {
         m_qmlContext = std::make_unique<QQmlContext>(Scripting::self()->qmlEngine());
@@ -158,7 +168,7 @@ void OutlineVisual::show()
     if (!m_qmlComponent) {
         m_qmlComponent = std::make_unique<QQmlComponent>(Scripting::self()->qmlEngine());
         const QString fileName = QStandardPaths::locate(QStandardPaths::GenericDataLocation,
-                                                        kwinApp()->config()->group(QStringLiteral("Outline")).readEntry("QmlPath", QStringLiteral("kwin-wayland/outline/plasma/outline.qml")));
+                                                        kwinApp()->config()->group(QStringLiteral("Outline")).readEntry("QmlPath", QString(KWIN_DATADIR + QStringLiteral("/outline/plasma/outline.qml"))));
         if (fileName.isEmpty()) {
             qCDebug(KWIN_CORE) << "Could not locate outline.qml";
             return;

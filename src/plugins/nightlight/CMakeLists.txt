@@ -1,4 +1,4 @@
-kcoreaddons_add_plugin(nightlight INSTALL_NAMESPACE "kwin/plugins")
+kcoreaddons_add_plugin(nightlight INSTALL_NAMESPACE "${KWIN_PLUGINDIR}/plugins")
 target_sources(nightlight PRIVATE
     nightlightdbusinterface.cpp
     nightlightmanager.cpp
@@ -32,5 +32,4 @@ target_link_libraries(nightlight
     KF6::I18n
 )
 
-install(FILES nightlightsettings.kcfg DESTINATION ${KDE_INSTALL_KCFGDIR})
-install(FILES org.kde.KWin.NightLight.xml DESTINATION ${KDE_INSTALL_DBUSINTERFACEDIR})
+install(FILES org.kde.KWin.NightLight.xml DESTINATION ${KDE_INSTALL_DBUSINTERFACEDIR} RENAME "kwin_x11_org.kde.KWin.NightLight.xml")

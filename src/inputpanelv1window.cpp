@@ -37,14 +37,12 @@ InputPanelV1Window::InputPanelV1Window(InputPanelSurfaceV1Interface *panelSurfac
     connect(surface(), &SurfaceInterface::sizeChanged, this, &InputPanelV1Window::reposition);
     connect(surface(), &SurfaceInterface::inputChanged, this, &InputPanelV1Window::reposition);
     connect(surface(), &SurfaceInterface::mapped, this, &InputPanelV1Window::handleMapped);
-    connect(surface(), &SurfaceInterface::unmapped, this, &InputPanelV1Window::handleUnmapped);
 
     connect(panelSurface, &InputPanelSurfaceV1Interface::topLevel, this, &InputPanelV1Window::showTopLevel);
     connect(panelSurface, &InputPanelSurfaceV1Interface::overlayPanel, this, &InputPanelV1Window::showOverlayPanel);
     connect(panelSurface, &InputPanelSurfaceV1Interface::aboutToBeDestroyed, this, &InputPanelV1Window::destroyWindow);
 
     connect(workspace(), &Workspace::outputsChanged, this, &InputPanelV1Window::reposition);
-    connect(kwinApp()->inputMethod(), &InputMethod::cursorRectangleChanged, this, &InputPanelV1Window::reposition);
 
     m_rescalingTimer.setSingleShot(true);
     m_rescalingTimer.setInterval(0);
@@ -76,13 +74,13 @@ void InputPanelV1Window::allow()
 
 void InputPanelV1Window::show()
 {
-    m_requestedToBeShown = true;
+    m_virtualKeyboardShouldBeShown = true;
     maybeShow();
 }
 
 void InputPanelV1Window::hide()
 {
-    m_requestedToBeShown = false;
+    m_virtualKeyboardShouldBeShown = false;
     if (readyForPainting() && m_mode != Mode::Overlay) {
         setHidden(true);
     }
@@ -100,20 +98,20 @@ void InputPanelV1Window::resetPosition()
         m_windowGeometry = surface()->input().boundingRect();
 
         const auto activeOutput = workspace()->activeOutput();
-        RectF availableArea;
+        QRectF availableArea;
         if (waylandServer()->isScreenLocked()) {
             availableArea = workspace()->clientArea(FullScreenArea, this, activeOutput);
         } else {
             availableArea = workspace()->clientArea(MaximizeArea, this, activeOutput);
         }
 
-        RectF geo = m_windowGeometry;
+        QRectF geo = m_windowGeometry;
 
         // if it fits, align within available area
         if (geo.width() < availableArea.width()) {
             geo.moveLeft(availableArea.left() + (availableArea.width() - geo.width()) / 2);
         } else { // otherwise align to be centred within the screen
-            const RectF outputArea = activeOutput->geometry();
+            const QRectF outputArea = activeOutput->geometry();
             geo.moveLeft(outputArea.left() + (outputArea.width() - geo.width()) / 2);
         }
 
@@ -122,41 +120,57 @@ void InputPanelV1Window::resetPosition()
         moveResize(snapToPixels(geo, targetScale()));
     } break;
     case Mode::Overlay: {
-        QRect cursorRectangle = kwinApp()->inputMethod()->cursorRectangle();
-        const RectF screen = Workspace::self()->clientArea(PlacementArea, this, cursorRectangle.bottomLeft());
-
-        m_windowGeometry = RectF(QPointF(0, 0), surface()->size());
-
-        RectF popupRect(cursorRectangle.left(),
-                        cursorRectangle.top() + cursorRectangle.height(),
-                        m_windowGeometry.width(),
-                        m_windowGeometry.height());
-        if (popupRect.left() < screen.left()) {
-            popupRect.moveLeft(screen.left());
+        auto textInputSurface = waylandServer()->seat()->focusedTextInputSurface();
+        auto textWindow = waylandServer()->findWindow(textInputSurface);
+        QRect cursorRectangle;
+        auto textInputV1 = waylandServer()->seat()->textInputV1();
+        if (textInputV1 && textInputV1->isEnabled() && textInputV1->surface() == textInputSurface) {
+            cursorRectangle = textInputV1->cursorRectangle();
         }
-        if (popupRect.right() > screen.right()) {
-            popupRect.moveRight(screen.right());
+        auto textInputV2 = waylandServer()->seat()->textInputV2();
+        if (textInputV2 && textInputV2->isEnabled() && textInputV2->surface() == textInputSurface) {
+            cursorRectangle = textInputV2->cursorRectangle();
         }
-        if (popupRect.top() < screen.top() || popupRect.bottom() > screen.bottom()) {
-            const RectF flippedPopupRect(cursorRectangle.left(),
-                                         cursorRectangle.top() - m_windowGeometry.height(),
-                                         m_windowGeometry.width(),
-                                         m_windowGeometry.height());
+        auto textInputV3 = waylandServer()->seat()->textInputV3();
+        if (textInputV3 && textInputV3->isEnabled() && textInputV3->surface() == textInputSurface) {
+            cursorRectangle = textInputV3->cursorRectangle();
+        }
+        if (textWindow) {
+            cursorRectangle.translate(textWindow->bufferGeometry().topLeft().toPoint());
+            const QRectF screen = Workspace::self()->clientArea(PlacementArea, this, cursorRectangle.bottomLeft());
 
-            // if it still doesn't fit we should continue with the unflipped version
-            if (flippedPopupRect.top() >= screen.top() && flippedPopupRect.bottom() <= screen.bottom()) {
-                popupRect.moveTop(flippedPopupRect.top());
+            m_windowGeometry = QRectF(QPointF(0, 0), surface()->size());
+
+            QRectF popupRect(cursorRectangle.left(),
+                             cursorRectangle.top() + cursorRectangle.height(),
+                             m_windowGeometry.width(),
+                             m_windowGeometry.height());
+            if (popupRect.left() < screen.left()) {
+                popupRect.moveLeft(screen.left());
             }
-        }
-        if (popupRect.top() < screen.top()) {
-            popupRect.moveTop(screen.top());
-        }
-        if (popupRect.bottom() > screen.bottom()) {
-            popupRect.moveBottom(screen.bottom());
-        }
+            if (popupRect.right() > screen.right()) {
+                popupRect.moveRight(screen.right());
+            }
+            if (popupRect.top() < screen.top() || popupRect.bottom() > screen.bottom()) {
+                const QRectF flippedPopupRect(cursorRectangle.left(),
+                                              cursorRectangle.top() - m_windowGeometry.height(),
+                                              m_windowGeometry.width(),
+                                              m_windowGeometry.height());
 
-        moveResize(snapToPixels(popupRect, targetScale()));
+                // if it still doesn't fit we should continue with the unflipped version
+                if (flippedPopupRect.top() >= screen.top() && flippedPopupRect.bottom() <= screen.bottom()) {
+                    popupRect.moveTop(flippedPopupRect.top());
+                }
+            }
+            if (popupRect.top() < screen.top()) {
+                popupRect.moveTop(screen.top());
+            }
+            if (popupRect.bottom() > screen.bottom()) {
+                popupRect.moveBottom(screen.bottom());
+            }
 
+            moveResize(snapToPixels(popupRect, targetScale()));
+        }
     } break;
     }
 }
@@ -175,7 +189,6 @@ void InputPanelV1Window::destroyWindow()
     m_panelSurface->disconnect(this);
     m_panelSurface->surface()->disconnect(this);
     disconnect(workspace(), &Workspace::outputsChanged, this, &InputPanelV1Window::reposition);
-    disconnect(kwinApp()->inputMethod(), &InputMethod::cursorRectangleChanged, this, &InputPanelV1Window::reposition);
 
     markAsDeleted();
     Q_EMIT closed();
@@ -192,12 +205,12 @@ WindowType InputPanelV1Window::windowType() const
     return WindowType::Utility;
 }
 
-RectF InputPanelV1Window::frameRectToBufferRect(const RectF &rect) const
+QRectF InputPanelV1Window::frameRectToBufferRect(const QRectF &rect) const
 {
-    return RectF(rect.topLeft() - m_windowGeometry.topLeft(), surface()->size());
+    return QRectF(rect.topLeft() - m_windowGeometry.topLeft(), surface()->size());
 }
 
-void InputPanelV1Window::moveResizeInternal(const RectF &rect, MoveResizeMode mode)
+void InputPanelV1Window::moveResizeInternal(const QRectF &rect, MoveResizeMode mode)
 {
     updateGeometry(rect);
 }
@@ -230,23 +243,12 @@ void InputPanelV1Window::doSetPreferredColorDescription()
 
 void InputPanelV1Window::handleMapped()
 {
-    m_wasEverMapped = true;
     maybeShow();
-}
-
-void InputPanelV1Window::handleUnmapped()
-{
-    setHidden(true);
-}
-
-bool InputPanelV1Window::wasUnmapped() const
-{
-    return m_wasEverMapped && !surface()->isMapped();
 }
 
 void InputPanelV1Window::maybeShow()
 {
-    const bool shouldShow = m_mode == Mode::Overlay || (m_mode == Mode::VirtualKeyboard && m_allowed && m_requestedToBeShown);
+    const bool shouldShow = m_mode == Mode::Overlay || (m_mode == Mode::VirtualKeyboard && m_allowed && m_virtualKeyboardShouldBeShown);
     if (shouldShow && !isDeleted() && surface()->isMapped()) {
         resetPosition();
         markAsMapped();

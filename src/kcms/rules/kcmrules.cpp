@@ -316,7 +316,6 @@ QModelIndex KCMKWinRules::findRuleWithProperties(const QVariantMap &info, bool w
     const QString title = info.value("caption").toString();
     const QString machine = info.value("clientMachine").toString();
     const bool isLocalHost = info.value("localhost").toBool();
-    const QString tag = info.value("tag").toString();
 
     int bestMatchRow = -1;
     int bestMatchScore = 0;
@@ -357,10 +356,6 @@ QModelIndex KCMKWinRules::findRuleWithProperties(const QVariantMap &info, bool w
             }
             if (settings->titlematch() != Rules::UnimportantMatch) {
                 score += settings->titlematch() == Rules::ExactMatch ? 3 : 1;
-                generic = false;
-            }
-            if (settings->tagmatch() != Rules::UnimportantMatch) {
-                score += settings->tagmatch() == Rules::ExactMatch ? 3 : 1;
                 generic = false;
             }
             if (settings->types() != NET::AllTypesMask) {
@@ -405,7 +400,6 @@ void KCMKWinRules::fillSettingsFromProperties(RuleSettings *settings, const QVar
     const NET::WindowType type = static_cast<NET::WindowType>(info.value("type").toInt());
     const QString title = info.value("caption").toString();
     const QString machine = info.value("clientMachine").toString();
-    const QString tag = info.value("tag").toString();
 
     settings->setDefaults();
 
@@ -478,15 +472,9 @@ void KCMKWinRules::fillSettingsFromProperties(RuleSettings *settings, const QVar
             settings->setWmclassmatch(Rules::ExactMatch);
         }
     }
-    settings->setTag(tag);
-    if (tag.isEmpty()) {
-        settings->setTagmatch(Rules::UnimportantMatch);
-    } else {
-        settings->setTagmatch(Rules::ExactMatch);
-    }
 }
 
-K_PLUGIN_CLASS_WITH_JSON(KCMKWinRules, "kcm_kwinrules.json");
+K_PLUGIN_CLASS_WITH_JSON(KCMKWinRules, "kcm_kwinrules_x11.json");
 
 } // namespace
 

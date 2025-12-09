@@ -121,7 +121,7 @@ private:
     SubSurfaceInterface(SurfaceInterface *surface, SurfaceInterface *parent, wl_resource *resource);
 
     void parentDesynchronized();
-    void parentApplyState();
+    void parentApplyState(quint32 serial);
 
     std::unique_ptr<SubSurfaceInterfacePrivate> d;
     friend class SurfaceInterfacePrivate;

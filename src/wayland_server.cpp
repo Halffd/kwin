@@ -10,9 +10,8 @@
 
 #include "config-kwin.h"
 
-#include "backends/drm/drm_backend.h"
-#include "core/backendoutput.h"
 #include "core/drmdevice.h"
+#include "core/output.h"
 #include "core/outputbackend.h"
 #include "core/session.h"
 #include "idle_inhibition.h"
@@ -21,7 +20,6 @@
 #include "layershellv1window.h"
 #include "main.h"
 #include "options.h"
-#include "utils/envvar.h"
 #include "utils/kernel.h"
 #include "utils/serviceutils.h"
 #include "virtualdesktops.h"
@@ -29,7 +27,6 @@
 #include "wayland/appmenu.h"
 #include "wayland/clientconnection.h"
 #include "wayland/colormanagement_v1.h"
-#include "wayland/colorrepresentation_v1.h"
 #include "wayland/compositor.h"
 #include "wayland/contenttype_v1.h"
 #include "wayland/cursorshape_v1.h"
@@ -38,9 +35,7 @@
 #include "wayland/display.h"
 #include "wayland/dpms.h"
 #include "wayland/drmclientbuffer.h"
-#include "wayland/drmlease_v1.h"
 #include "wayland/externalbrightness_v1.h"
-#include "wayland/fifo_v1.h"
 #include "wayland/filtered_display.h"
 #include "wayland/fixes.h"
 #include "wayland/fractionalscale_v1.h"
@@ -63,7 +58,6 @@
 #include "wayland/plasmawindowmanagement.h"
 #include "wayland/pointerconstraints_v1.h"
 #include "wayland/pointergestures_v1.h"
-#include "wayland/pointerwarp_v1.h"
 #include "wayland/presentationtime.h"
 #include "wayland/primaryselectiondevicemanager_v1.h"
 #include "wayland/relativepointer_v1.h"
@@ -73,7 +67,6 @@
 #include "wayland/server_decoration.h"
 #include "wayland/server_decoration_palette.h"
 #include "wayland/shadow.h"
-#include "wayland/singlepixelbuffer.h"
 #include "wayland/subcompositor.h"
 #include "wayland/tablet_v2.h"
 #include "wayland/tearingcontrol_v1.h"
@@ -83,16 +76,13 @@
 #include "wayland/xdgdialog_v1.h"
 #include "wayland/xdgforeign_v2.h"
 #include "wayland/xdgoutput_v1.h"
-#include "wayland/xdgsession_v1.h"
 #include "wayland/xdgshell.h"
 #include "wayland/xdgtopleveldrag_v1.h"
 #include "wayland/xdgtoplevelicon_v1.h"
-#include "wayland/xdgtopleveltag_v1.h"
 #include "workspace.h"
 #include "xdgactivationv1.h"
 #include "xdgshellintegration.h"
 #include "xdgshellwindow.h"
-#include "xxpipv1integration.h"
 #if KWIN_BUILD_X11
 #include "wayland/xwaylandkeyboardgrab_v1.h"
 #include "wayland/xwaylandshell_v1.h"
@@ -236,11 +226,6 @@ ClientConnection *WaylandServer::inputMethodConnection() const
     return m_inputMethodServerConnection;
 }
 
-ClientConnection *WaylandServer::screenLockerClientConnection() const
-{
-    return m_screenLockerClientConnection;
-}
-
 void WaylandServer::registerWindow(Window *window)
 {
     if (window->readyForPainting()) {
@@ -301,23 +286,23 @@ void WaylandServer::registerXdgGenericWindow(Window *window)
     qCDebug(KWIN_CORE) << "Received invalid xdg shell window:" << window->surface();
 }
 
-void WaylandServer::handleOutputAdded(BackendOutput *output)
+void WaylandServer::handleOutputAdded(Output *output)
 {
     if (!output->isPlaceholder() && !output->isNonDesktop()) {
         m_waylandOutputDevices.insert(output, new OutputDeviceV2Interface(m_display, output));
     }
 }
 
-void WaylandServer::handleOutputRemoved(BackendOutput *output)
+void WaylandServer::handleOutputRemoved(Output *output)
 {
     if (auto outputDevice = m_waylandOutputDevices.take(output)) {
         outputDevice->remove();
     }
 }
 
-void WaylandServer::handleOutputEnabled(LogicalOutput *output)
+void WaylandServer::handleOutputEnabled(Output *output)
 {
-    if (!output->isPlaceholder()) {
+    if (!output->isPlaceholder() && !output->isNonDesktop()) {
         auto waylandOutput = new OutputInterface(waylandServer()->display(), output);
         m_xdgOutputManagerV1->offer(waylandOutput);
 
@@ -325,7 +310,7 @@ void WaylandServer::handleOutputEnabled(LogicalOutput *output)
     }
 }
 
-void WaylandServer::handleOutputDisabled(LogicalOutput *output)
+void WaylandServer::handleOutputDisabled(Output *output)
 {
     if (auto waylandOutput = m_waylandOutputs.take(output)) {
         waylandOutput->remove();
@@ -363,7 +348,7 @@ bool WaylandServer::init()
             return window->surfaceSerial() == surface->serial();
         });
         if (window) {
-            window->associate(surface);
+            window->setSurface(surface->surface());
             return;
         }
 
@@ -371,7 +356,7 @@ bool WaylandServer::init()
             return window->surfaceSerial() == surface->serial();
         });
         if (unmanaged) {
-            unmanaged->associate(surface);
+            unmanaged->setSurface(surface->surface());
             return;
         }
     });
@@ -379,14 +364,6 @@ bool WaylandServer::init()
 
     m_tabletManagerV2 = new TabletManagerV2Interface(m_display, m_display);
     m_keyboardShortcutsInhibitManager = new KeyboardShortcutsInhibitManagerV1Interface(m_display, m_display);
-
-    if (qEnvironmentVariableIntValue("KWIN_WAYLAND_SUPPORT_XX_SESSION_MANAGER") == 1) {
-        const int defaultStoreSizeInBytes = 5 * 1024 * 1024;
-        const int expectedSessionSizeInBytes = 512;
-        auto storage = std::make_unique<XdgSessionStorageV1>(QStringLiteral("kwinsession"), defaultStoreSizeInBytes, expectedSessionSizeInBytes);
-
-        new XdgSessionManagerV1Interface(m_display, std::move(storage), m_display);
-    }
 
     m_xdgDecorationManagerV1 = new XdgDecorationManagerV1Interface(m_display, m_display);
     connect(m_xdgDecorationManagerV1, &XdgDecorationManagerV1Interface::decorationCreated, this, [this](XdgToplevelDecorationV1Interface *decoration) {
@@ -528,20 +505,15 @@ bool WaylandServer::init()
 
     m_externalBrightness = new ExternalBrightnessV1(m_display, m_display);
     m_alphaModifierManager = new AlphaModifierManagerV1(m_display, m_display);
+#if HAVE_WL_FIXES
     new FixesInterface(m_display, m_display);
-    m_fifoManager = new FifoManagerV1(m_display, m_display);
-    m_singlePixelBuffer = new SinglePixelBufferManagerV1(m_display, m_display);
-    m_toplevelTag = new XdgToplevelTagManagerV1(m_display, m_display);
-    m_colorRepresentation = new ColorRepresentationManagerV1(m_display, m_display);
-    m_pointerWarp = new PointerWarpV1(m_display, m_display);
+#endif
     return true;
 }
 
-static const bool s_reenableWlDrm = environmentVariableBoolValue("KWIN_WAYLAND_REENABLE_WL_DRM").value_or(false);
-
 DrmClientBufferIntegration *WaylandServer::drm()
 {
-    if (!m_drm && s_reenableWlDrm) {
+    if (!m_drm) {
         m_drm = new DrmClientBufferIntegration(m_display);
     }
     return m_drm;
@@ -585,12 +557,6 @@ void WaylandServer::initWorkspace()
     connect(layerShellV1Integration, &LayerShellV1Integration::windowCreated,
             this, &WaylandServer::registerWindow);
 
-    if (qEnvironmentVariableIntValue("KWIN_WAYLAND_SUPPORT_XX_PIP_V1") == 1) {
-        auto pipV1Integration = new XXPipV1Integration(this);
-        connect(pipV1Integration, &XXPipV1Integration::windowCreated,
-                this, &WaylandServer::registerWindow);
-    }
-
     new KeyStateInterface(m_display, m_display);
 
     VirtualDesktopManager::self()->setVirtualDesktopManagement(m_virtualDesktopManagement);
@@ -619,14 +585,14 @@ void WaylandServer::initWorkspace()
     }
 
     const auto availableOutputs = kwinApp()->outputBackend()->outputs();
-    for (BackendOutput *output : availableOutputs) {
+    for (Output *output : availableOutputs) {
         handleOutputAdded(output);
     }
     connect(kwinApp()->outputBackend(), &OutputBackend::outputAdded, this, &WaylandServer::handleOutputAdded);
     connect(kwinApp()->outputBackend(), &OutputBackend::outputRemoved, this, &WaylandServer::handleOutputRemoved);
 
     const auto outputs = workspace()->outputs();
-    for (LogicalOutput *output : outputs) {
+    for (Output *output : outputs) {
         handleOutputEnabled(output);
     }
     connect(workspace(), &Workspace::outputAdded, this, &WaylandServer::handleOutputEnabled);
@@ -634,10 +600,6 @@ void WaylandServer::initWorkspace()
 
     if (kwinApp()->supportsLockScreen()) {
         initScreenLocker();
-    }
-
-    if (auto backend = qobject_cast<DrmBackend *>(kwinApp()->outputBackend())) {
-        m_leaseManager = new DrmLeaseManagerV1(backend, m_display, m_display);
     }
 
     m_outputOrder = new OutputOrderV1Interface(m_display, m_display);
@@ -713,6 +675,9 @@ int WaylandServer::createScreenLockerConnection()
         return -1;
     }
     m_screenLockerClientConnection = socket.connection;
+    connect(m_screenLockerClientConnection, &ClientConnection::disconnected, this, [this]() {
+        m_screenLockerClientConnection = nullptr;
+    });
     return socket.fd;
 }
 
@@ -850,11 +815,6 @@ ExternalBrightnessV1 *WaylandServer::externalBrightness() const
     return m_externalBrightness;
 }
 
-PointerWarpV1 *WaylandServer::pointerWarp() const
-{
-    return m_pointerWarp;
-}
-
 void WaylandServer::setRenderBackend(RenderBackend *backend)
 {
     if (backend->drmDevice()->supportsSyncObjTimelines()) {
@@ -885,7 +845,7 @@ WaylandServer::LockScreenPresentationWatcher::LockScreenPresentationWatcher(Wayl
     connect(server, &WaylandServer::windowAdded, this, [this](Window *window) {
         if (window->isLockScreen()) {
             // only signal lockScreenShown once all outputs have been presented at least once
-            connect(window->output()->backendOutput()->renderLoop(), &RenderLoop::framePresented, this, [this, windowGuard = QPointer(window)]() {
+            connect(window->output()->renderLoop(), &RenderLoop::framePresented, this, [this, windowGuard = QPointer(window)]() {
                 // window might be destroyed before a frame is presented, so it's wrapped in QPointer
                 if (windowGuard) {
                     m_signaledOutputs << windowGuard->output();

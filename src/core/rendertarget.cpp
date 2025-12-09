@@ -10,27 +10,17 @@
 namespace KWin
 {
 
-RenderTarget::RenderTarget(GLFramebuffer *fbo, const std::shared_ptr<ColorDescription> &colorDescription)
+RenderTarget::RenderTarget(GLFramebuffer *fbo, const ColorDescription &colorDescription)
     : m_framebuffer(fbo)
     , m_transform(fbo->colorAttachment() ? fbo->colorAttachment()->contentTransform() : OutputTransform())
     , m_colorDescription(colorDescription)
 {
 }
 
-RenderTarget::RenderTarget(QImage *image, const std::shared_ptr<ColorDescription> &colorDescription)
+RenderTarget::RenderTarget(QImage *image, const ColorDescription &colorDescription)
     : m_image(image)
     , m_colorDescription(colorDescription)
 {
-}
-
-QSize RenderTarget::transformedSize() const
-{
-    return m_transform.map(size());
-}
-
-QRect RenderTarget::transformedRect() const
-{
-    return QRect(QPoint(0, 0), transformedSize());
 }
 
 QSize RenderTarget::size() const
@@ -64,7 +54,7 @@ QImage *RenderTarget::image() const
     return m_image;
 }
 
-const std::shared_ptr<ColorDescription> &RenderTarget::colorDescription() const
+const ColorDescription &RenderTarget::colorDescription() const
 {
     return m_colorDescription;
 }

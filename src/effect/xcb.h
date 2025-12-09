@@ -31,8 +31,15 @@ inline KWIN_EXPORT xcb_window_t rootWindow()
     return qApp->property("x11RootWindow").value<quint32>();
 }
 
+inline KWIN_EXPORT xcb_timestamp_t xTime()
+{
+    return qApp->property("x11Time").value<xcb_timestamp_t>();
+}
+
 void KWIN_EXPORT grabXServer();
 void KWIN_EXPORT ungrabXServer();
+bool KWIN_EXPORT grabXKeyboard(xcb_window_t w = XCB_WINDOW_NONE);
+void KWIN_EXPORT ungrabXKeyboard();
 
 /**
  * Small helper class which performs grabXServer in the ctor and

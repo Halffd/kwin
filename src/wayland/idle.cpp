@@ -45,7 +45,7 @@ IdleInterface::~IdleInterface() = default;
 IdleTimeoutInterface::IdleTimeoutInterface(std::chrono::milliseconds timeout, wl_resource *resource)
     : QtWaylandServer::org_kde_kwin_idle_timeout(resource)
 {
-    auto detector = new IdleDetector(timeout, IdleDetector::OperatingMode::FollowsInhibitors, this);
+    auto detector = new IdleDetector(timeout, this);
     connect(detector, &IdleDetector::idle, this, [this]() {
         send_idle();
     });

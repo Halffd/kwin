@@ -5,14 +5,16 @@
 */
 
 #include "colordevice.h"
-#include "core/backendoutput.h"
 #include "core/colorpipelinestage.h"
 #include "core/colortransformation.h"
+#include "core/output.h"
 #include "utils/common.h"
 
 #include "3rdparty/colortemperature.h"
 
 #include <QTimer>
+
+#include <lcms2.h>
 
 namespace KWin
 {
@@ -22,7 +24,7 @@ class ColorDevicePrivate
 public:
     void recalculateFactors();
 
-    BackendOutput *output;
+    Output *output;
     QTimer *updateTimer;
     uint temperature = 6500;
 
@@ -57,7 +59,7 @@ void ColorDevicePrivate::recalculateFactors()
     }
 }
 
-ColorDevice::ColorDevice(BackendOutput *output, QObject *parent)
+ColorDevice::ColorDevice(Output *output, QObject *parent)
     : QObject(parent)
     , d(new ColorDevicePrivate)
 {
@@ -73,7 +75,7 @@ ColorDevice::~ColorDevice()
 {
 }
 
-BackendOutput *ColorDevice::output() const
+Output *ColorDevice::output() const
 {
     return d->output;
 }

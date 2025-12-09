@@ -20,10 +20,9 @@
 namespace KWin
 {
 // forward declarations
-class Tile;
 class TileManager;
 class Window;
-class LogicalOutput;
+class Output;
 class VirtualDesktop;
 
 class WorkspaceWrapper : public QObject
@@ -35,13 +34,13 @@ class WorkspaceWrapper : public QObject
     // TODO: write and notify?
     Q_PROPERTY(QSize desktopGridSize READ desktopGridSize NOTIFY desktopLayoutChanged)
     Q_PROPERTY(int desktopGridWidth READ desktopGridWidth NOTIFY desktopLayoutChanged)
-    Q_PROPERTY(int desktopGridHeight READ desktopGridHeight WRITE setDesktopGridHeight NOTIFY desktopLayoutChanged)
+    Q_PROPERTY(int desktopGridHeight READ desktopGridHeight NOTIFY desktopLayoutChanged)
     Q_PROPERTY(int workspaceWidth READ workspaceWidth)
     Q_PROPERTY(int workspaceHeight READ workspaceHeight)
     Q_PROPERTY(QSize workspaceSize READ workspaceSize)
-    Q_PROPERTY(KWin::LogicalOutput *activeScreen READ activeScreen)
-    Q_PROPERTY(QList<KWin::LogicalOutput *> screens READ screens NOTIFY screensChanged)
-    Q_PROPERTY(QList<KWin::LogicalOutput *> screenOrder READ screenOrder NOTIFY screenOrderChanged)
+    Q_PROPERTY(KWin::Output *activeScreen READ activeScreen)
+    Q_PROPERTY(QList<KWin::Output *> screens READ screens NOTIFY screensChanged)
+    Q_PROPERTY(QList<KWin::Output *> screenOrder READ screenOrder NOTIFY screenOrderChanged)
     Q_PROPERTY(QString currentActivity READ currentActivity WRITE setCurrentActivity NOTIFY currentActivityChanged)
     Q_PROPERTY(QStringList activities READ activityList NOTIFY activitiesChanged)
 
@@ -60,7 +59,7 @@ class WorkspaceWrapper : public QObject
     Q_PROPERTY(QRect virtualScreenGeometry READ virtualScreenGeometry NOTIFY virtualScreenGeometryChanged)
 
     /**
-     * List of Clients currently managed by KWin, ordered by
+     * List of Clients currently managed by KWin, orderd by
      * their visibility (later ones cover earlier ones).
      */
     Q_PROPERTY(QList<KWin::Window *> stackingOrder READ stackingOrder)
@@ -199,16 +198,13 @@ public:
 
     QSize desktopGridSize() const;
     int desktopGridWidth() const;
-
     int desktopGridHeight() const;
-    void setDesktopGridHeight(int height);
-
     int workspaceWidth() const;
     int workspaceHeight() const;
     QSize workspaceSize() const;
-    KWin::LogicalOutput *activeScreen() const;
-    QList<KWin::LogicalOutput *> screens() const;
-    QList<KWin::LogicalOutput *> screenOrder() const;
+    KWin::Output *activeScreen() const;
+    QList<KWin::Output *> screens() const;
+    QList<KWin::Output *> screenOrder() const;
     QStringList activityList() const;
     QSize virtualScreenSize() const;
     QRect virtualScreenGeometry() const;
@@ -218,22 +214,10 @@ public:
     VirtualDesktop *currentDesktop() const;
     void setCurrentDesktop(VirtualDesktop *desktop);
 
-    Q_INVOKABLE KWin::LogicalOutput *screenAt(const QPointF &pos) const;
+    Q_INVOKABLE KWin::Output *screenAt(const QPointF &pos) const;
 
-    /**
-     * @deprecated since 6.3, use rootTile()
-     */
     Q_INVOKABLE KWin::TileManager *tilingForScreen(const QString &screenName) const;
-
-    /**
-     * @deprecated since 6.3, use rootTile()
-     */
-    Q_INVOKABLE KWin::TileManager *tilingForScreen(KWin::LogicalOutput *output) const;
-
-    /**
-     * Returns the root tile for the given @a output and @a desktop.
-     */
-    Q_INVOKABLE KWin::Tile *rootTile(KWin::LogicalOutput *output, KWin::VirtualDesktop *desktop) const;
+    Q_INVOKABLE KWin::TileManager *tilingForScreen(KWin::Output *output) const;
 
     /**
      * Returns the geometry a Client can use with the specified option.
@@ -245,7 +229,7 @@ public:
      * @param desktop The desktop for which the area should be considered, in general there should not be a difference
      * @returns The specified screen geometry
      */
-    Q_SCRIPTABLE QRectF clientArea(ClientAreaOption option, KWin::LogicalOutput *output, KWin::VirtualDesktop *desktop) const;
+    Q_SCRIPTABLE QRectF clientArea(ClientAreaOption option, KWin::Output *output, KWin::VirtualDesktop *desktop) const;
 
     /**
      * Overloaded method for convenience.
@@ -268,17 +252,12 @@ public:
     Q_SCRIPTABLE void removeDesktop(KWin::VirtualDesktop *desktop) const;
 
     /**
-     * Moves the @a desktop to the specified @a position.
-     */
-    Q_SCRIPTABLE void moveDesktop(KWin::VirtualDesktop *desktop, int position);
-
-    /**
      * Provides support information about the currently running KWin instance.
      */
     Q_SCRIPTABLE QString supportInformation() const;
 
     /**
-     * List of Clients currently managed by KWin, ordered by
+     * List of Clients currently managed by KWin, orderd by
      * their visibility (later ones cover earlier ones).
      */
     QList<KWin::Window *> stackingOrder() const;
@@ -316,26 +295,6 @@ public:
      */
     Q_INVOKABLE bool isEffectActive(const QString &pluginId) const;
 
-    /**
-     * Defines that a window needs to remain under another
-     *
-     * @param below the window that will be underneath
-     * @param above the window that will be over
-     *
-     * @since 6.5
-     */
-    Q_INVOKABLE void constrain(KWin::Window *below, KWin::Window *above);
-
-    /**
-     * Breaks the constraint where a window is to remain under another
-     *
-     * @param below the window that was set to be underneath
-     * @param above the window that was set to be over
-     *
-     * @since 6.5
-     */
-    Q_INVOKABLE void unconstrain(KWin::Window *below, KWin::Window *above);
-
 public Q_SLOTS:
     // all the available key bindings
     void slotSwitchDesktopNext();
@@ -364,6 +323,7 @@ public Q_SLOTS:
     void slotWindowMaximizeVertical();
     void slotWindowMaximizeHorizontal();
     void slotWindowMinimize();
+    void slotWindowShade();
     void slotWindowRaise();
     void slotWindowLower();
     void slotWindowRaiseOrLower();
@@ -403,7 +363,6 @@ public Q_SLOTS:
     void slotWindowOnAllDesktops();
     void slotWindowFullScreen();
     void slotWindowNoBorder();
-    void slotWindowExcludeFromCapture();
 
     void slotWindowToNextDesktop();
     void slotWindowToPreviousDesktop();
@@ -415,7 +374,7 @@ public Q_SLOTS:
     /**
      * Sends the Window to the given @p output.
      */
-    void sendClientToScreen(KWin::Window *client, KWin::LogicalOutput *output);
+    void sendClientToScreen(KWin::Window *client, KWin::Output *output);
 
     /**
      * Shows an outline at the specified @p geometry.

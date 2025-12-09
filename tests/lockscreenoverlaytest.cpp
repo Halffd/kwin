@@ -5,7 +5,6 @@
 */
 
 #include "qwayland-kde-lockscreen-overlay-v1.h"
-#include <KWaylandExtras>
 #include <KWindowSystem>
 #include <QWaylandClientExtensionTemplate>
 #include <QtWidgets>
@@ -17,7 +16,7 @@ public:
     WaylandAboveLockscreen()
         : QWaylandClientExtensionTemplate<WaylandAboveLockscreen>(1)
     {
-        initialize();
+        QMetaObject::invokeMethod(this, "addRegistryListener");
     }
 
     void allowWindow(QWindow *window)
@@ -71,12 +70,12 @@ int main(int argc, char *argv[])
 
     new WidgetAllower(&window2);
     auto raiseWindow2 = [&] {
-        auto tokenFuture = KWaylandExtras::xdgActivationToken(window2.windowHandle(), "lockscreenoverlaytest.desktop");
-        tokenFuture.then(&window2, [&window2](const QString &token) {
-            KWindowSystem::setCurrentXdgActivationToken(token);
-            KWindowSystem::activateWindow(window2.windowHandle());
-        });
+        KWindowSystem::requestXdgActivationToken(window2.windowHandle(), 0, "lockscreenoverlaytest.desktop");
     };
+    QObject::connect(KWindowSystem::self(), &KWindowSystem::xdgActivationTokenArrived, &window2, [&window2](int, const QString &token) {
+        KWindowSystem::setCurrentXdgActivationToken(token);
+        KWindowSystem::activateWindow(window2.windowHandle());
+    });
 
     QObject::connect(&p, &QPushButton::clicked, &app, [&] {
         QProcess::execute("loginctl", {"lock-session"});

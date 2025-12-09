@@ -31,6 +31,11 @@ InternalWindow::InternalWindow(QWindow *handle)
     : m_handle(handle)
     , m_internalWindowFlags(handle->flags())
 {
+    // TODO: The geometry data flow is error-prone. Consider adopting the configure event design from xdg-shell.
+    connect(m_handle, &QWindow::xChanged, this, &InternalWindow::updateInternalWindowGeometry);
+    connect(m_handle, &QWindow::yChanged, this, &InternalWindow::updateInternalWindowGeometry);
+    connect(m_handle, &QWindow::widthChanged, this, &InternalWindow::updateInternalWindowGeometry);
+    connect(m_handle, &QWindow::heightChanged, this, &InternalWindow::updateInternalWindowGeometry);
     connect(m_handle, &QWindow::windowTitleChanged, this, &InternalWindow::setCaption);
     connect(m_handle, &QWindow::opacityChanged, this, &InternalWindow::setOpacity);
     connect(m_handle, &QWindow::destroyed, this, &InternalWindow::destroyWindow);
@@ -38,7 +43,7 @@ InternalWindow::InternalWindow(QWindow *handle)
     setOutput(workspace()->activeOutput());
     setMoveResizeOutput(workspace()->activeOutput());
     setCaption(m_handle->title());
-    setIcon(QIcon::fromTheme(QStringLiteral("kwin")));
+    setIcon(QIcon::fromTheme(QStringLiteral("kwin-x11")));
     setOnAllDesktops(true);
     setOpacity(m_handle->opacity());
     setSkipCloseAnimation(m_handle->property(s_skipClosePropertyName).toBool());
@@ -124,11 +129,6 @@ qreal InternalWindow::bufferScale() const
     return 1;
 }
 
-void InternalWindow::doSetNextTargetScale()
-{
-    setTargetScale(nextTargetScale());
-}
-
 QString InternalWindow::captionNormal() const
 {
     return m_captionNormal;
@@ -207,6 +207,16 @@ bool InternalWindow::isPlaceable() const
     return !m_internalWindowFlags.testFlag(Qt::BypassWindowManagerHint) && !m_internalWindowFlags.testFlag(Qt::Popup);
 }
 
+bool InternalWindow::noBorder() const
+{
+    return m_userNoBorder || m_internalWindowFlags.testFlag(Qt::FramelessWindowHint) || m_internalWindowFlags.testFlag(Qt::Popup);
+}
+
+bool InternalWindow::userCanSetNoBorder() const
+{
+    return !m_internalWindowFlags.testFlag(Qt::FramelessWindowHint) || m_internalWindowFlags.testFlag(Qt::Popup);
+}
+
 bool InternalWindow::wantsInput() const
 {
     return false;
@@ -233,49 +243,44 @@ bool InternalWindow::isOutline() const
     return false;
 }
 
-RectF InternalWindow::resizeWithChecks(const RectF &geometry, const QSizeF &size) const
+QRectF InternalWindow::resizeWithChecks(const QRectF &geometry, const QSizeF &size)
 {
     if (!m_handle) {
         return geometry;
     }
-    const RectF area = workspace()->clientArea(WorkArea, this, geometry.center());
-    return RectF(moveResizeGeometry().topLeft(), size.boundedTo(area.size()));
+    const QRectF area = workspace()->clientArea(WorkArea, this, geometry.center());
+    return QRectF(moveResizeGeometry().topLeft(), size.boundedTo(area.size()));
 }
 
-void InternalWindow::moveResizeInternal(const RectF &rect, MoveResizeMode mode)
+void InternalWindow::moveResizeInternal(const QRectF &rect, MoveResizeMode mode)
 {
-    const QSize requestedSize = nextFrameSizeToClientSize(rect.size()).toSize();
-    if (clientSize().toSize() == requestedSize) {
+    const QSize requestedClientSize = nextFrameSizeToClientSize(rect.size()).toSize();
+    if (clientSize() == requestedClientSize) {
         commitGeometry(rect);
-    }
-
-    const QRect nativeRect = nextFrameRectToClientRect(rect).toRect();
-    if (m_handle->geometry() != nativeRect) {
-        const QRect oldNativeRect = m_handle->geometry();
-
-        QWindowSystemInterface::handleGeometryChange(m_handle, nativeRect);
-        if (m_handle->isExposed() && oldNativeRect.size() != nativeRect.size()) {
-            QWindowSystemInterface::handleExposeEvent(m_handle, QRect(QPoint(), nativeRect.size()));
-        }
+    } else {
+        requestGeometry(rect);
     }
 }
 
-DecorationPolicy InternalWindow::decorationPolicy() const
+bool InternalWindow::takeFocus()
 {
-    return m_decorationPolicy;
+    return false;
 }
 
-void InternalWindow::setDecorationPolicy(DecorationPolicy policy)
+void InternalWindow::setNoBorder(bool set)
 {
-    if (m_decorationPolicy == policy) {
+    if (!userCanSetNoBorder()) {
         return;
     }
-    m_decorationPolicy = policy;
+    if (m_userNoBorder == set) {
+        return;
+    }
+    m_userNoBorder = set;
     updateDecoration(true);
-    Q_EMIT decorationPolicyChanged();
+    Q_EMIT noBorderChanged();
 }
 
-void InternalWindow::createDecoration(const RectF &oldGeometry)
+void InternalWindow::createDecoration(const QRectF &oldGeometry)
 {
     std::shared_ptr<KDecoration3::Decoration> decoration(Workspace::self()->decorationBridge()->createDecoration(this));
     if (decoration) {
@@ -288,7 +293,7 @@ void InternalWindow::createDecoration(const RectF &oldGeometry)
     }
 
     setDecoration(decoration);
-    moveResize(RectF(oldGeometry.topLeft(), nextClientSizeToFrameSize(clientSize())));
+    moveResize(QRectF(oldGeometry.topLeft(), nextClientSizeToFrameSize(clientSize())));
 }
 
 void InternalWindow::destroyDecoration()
@@ -298,43 +303,18 @@ void InternalWindow::destroyDecoration()
     resize(clientSize);
 }
 
-DecorationMode InternalWindow::preferredDecorationMode() const
-{
-    if (!Decoration::DecorationBridge::hasPlugin()) {
-        return DecorationMode::Client;
-    } else if (isRequestedFullScreen()) {
-        return DecorationMode::None;
-    }
-
-    switch (m_decorationPolicy) {
-    case DecorationPolicy::None:
-        return DecorationMode::None;
-    case DecorationPolicy::Server:
-        return DecorationMode::Server;
-    case DecorationPolicy::PreferredByClient:
-        if (m_internalWindowFlags.testFlag(Qt::FramelessWindowHint) || m_internalWindowFlags.testFlag(Qt::Popup)) {
-            return DecorationMode::Client;
-        } else {
-            return DecorationMode::Server;
-        }
-    }
-
-    return DecorationMode::Client;
-}
-
 void InternalWindow::updateDecoration(bool check_workspace_pos, bool force)
 {
-    const bool wantsDecoration = preferredDecorationMode() == DecorationMode::Server;
-    if (!force && isDecorated() == wantsDecoration) {
+    if (!force && isDecorated() == !noBorder()) {
         return;
     }
 
-    const RectF oldFrameGeometry = frameGeometry();
+    const QRectF oldFrameGeometry = frameGeometry();
     if (force) {
         destroyDecoration();
     }
 
-    if (wantsDecoration) {
+    if (!noBorder()) {
         createDecoration(oldFrameGeometry);
     } else {
         destroyDecoration();
@@ -366,6 +346,7 @@ void InternalWindow::destroyWindow()
 
     Q_EMIT closed();
 
+    commitTile(nullptr);
     workspace()->removeInternalWindow(this);
     m_handle = nullptr;
 
@@ -394,9 +375,10 @@ OutputTransform InternalWindow::bufferTransform() const
 
 void InternalWindow::present(const InternalWindowFrame &frame)
 {
-    RectF geometry(clientRectToFrameRect(m_handle->geometry()));
+    const QSize bufferSize = frame.buffer->size() / bufferScale();
+    QRectF geometry(pos(), clientSizeToFrameSize(bufferSize));
     if (isInteractiveResize()) {
-        geometry = interactiveMoveResizeGravity().apply(geometry, moveResizeGeometry());
+        geometry = gravitateGeometry(geometry, moveResizeGeometry(), interactiveMoveResizeGravity());
     }
 
     commitGeometry(geometry);
@@ -431,6 +413,11 @@ bool InternalWindow::belongsToSameApplication(const Window *other, SameApplicati
     return otherInternal->handle()->isAncestorOf(handle()) || handle()->isAncestorOf(otherInternal->handle());
 }
 
+void InternalWindow::doInteractiveResizeSync(const QRectF &rect)
+{
+    moveResize(rect);
+}
+
 void InternalWindow::updateCaption()
 {
     const QString suffix = shortcutCaptionSuffix();
@@ -440,12 +427,19 @@ void InternalWindow::updateCaption()
     }
 }
 
-void InternalWindow::commitGeometry(const RectF &rect)
+void InternalWindow::requestGeometry(const QRectF &rect)
+{
+    if (m_handle) {
+        m_handle->setGeometry(nextFrameRectToClientRect(rect).toRect());
+    }
+}
+
+void InternalWindow::commitGeometry(const QRectF &rect)
 {
     // The client geometry and the buffer geometry are the same.
-    const RectF oldClientGeometry = m_clientGeometry;
-    const RectF oldFrameGeometry = m_frameGeometry;
-    const LogicalOutput *oldOutput = m_output;
+    const QRectF oldClientGeometry = m_clientGeometry;
+    const QRectF oldFrameGeometry = m_frameGeometry;
+    const Output *oldOutput = m_output;
 
     Q_EMIT frameGeometryAboutToChange();
 
@@ -458,6 +452,7 @@ void InternalWindow::commitGeometry(const RectF &rect)
     }
 
     m_output = workspace()->outputAt(rect.center());
+    syncGeometryToInternalWindow();
 
     if (oldClientGeometry != m_clientGeometry) {
         Q_EMIT bufferGeometryChanged(oldClientGeometry);
@@ -491,6 +486,25 @@ void InternalWindow::markAsMapped()
     }
 }
 
+void InternalWindow::syncGeometryToInternalWindow()
+{
+    if (m_handle->geometry() == frameRectToClientRect(frameGeometry()).toRect()) {
+        return;
+    }
+
+    QTimer::singleShot(0, this, [this] {
+        requestGeometry(frameGeometry());
+    });
+}
+
+void InternalWindow::updateInternalWindowGeometry()
+{
+    if (!isInteractiveMoveResize()) {
+        const QRectF rect = clientRectToFrameRect(m_handle->geometry());
+        setMoveResizeGeometry(rect);
+        commitGeometry(rect);
+    }
+}
 }
 
 #include "moc_internalwindow.cpp"

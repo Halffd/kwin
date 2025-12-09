@@ -19,6 +19,7 @@ class Window;
 
 namespace Xwl
 {
+enum class DragEventReply;
 
 /**
  * An ongoing drag operation.
@@ -34,7 +35,7 @@ public:
     static void sendClientMessage(xcb_window_t target, xcb_atom_t type, xcb_client_message_data_t *data);
 
     virtual bool handleClientMessage(xcb_client_message_event_t *event) = 0;
-    virtual bool moveFilter(Window *target, const QPointF &position) = 0;
+    virtual DragEventReply moveFilter(Window *target) = 0;
 
 Q_SIGNALS:
     void finish(Drag *self);

@@ -13,6 +13,7 @@
 #include "wayland/seat.h"
 #include "wayland_server.h"
 #include "workspace.h"
+#include "x11window.h"
 
 #include <KWayland/Client/compositor.h>
 #include <KWayland/Client/plasmawindowmanagement.h>
@@ -25,12 +26,8 @@
 #include <QPainter>
 #include <QRasterWindow>
 
-#if KWIN_BUILD_X11
-#include "x11window.h"
-
 #include <netwm.h>
 #include <xcb/xcb_icccm.h>
-#endif
 
 namespace KWin
 {
@@ -59,11 +56,12 @@ void PlasmaWindowTest::initTestCase()
 {
     qRegisterMetaType<KWin::Window *>();
     QVERIFY(waylandServer()->init(s_socketName));
-    kwinApp()->start();
     Test::setOutputConfig({
         QRect(0, 0, 1280, 1024),
         QRect(1280, 0, 1280, 1024),
     });
+
+    kwinApp()->start();
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 2);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -89,7 +87,6 @@ void PlasmaWindowTest::cleanup()
 
 void PlasmaWindowTest::testCreateDestroyX11PlasmaWindow()
 {
-#if KWIN_BUILD_X11
     // this test verifies that a PlasmaWindow gets unmapped on Client side when an X11 window is destroyed
     QSignalSpy plasmaWindowCreatedSpy(m_windowManagement, &KWayland::Client::PlasmaWindowManagement::windowCreated);
 
@@ -104,7 +101,8 @@ void PlasmaWindowTest::testCreateDestroyX11PlasmaWindow()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints{};
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
@@ -132,11 +130,27 @@ void PlasmaWindowTest::testCreateDestroyX11PlasmaWindow()
     QCOMPARE(plasmaWindowCreatedSpy.count(), 1);
     QCOMPARE(m_windowManagement->windows().count(), 1);
     auto pw = m_windowManagement->windows().first();
-    QCOMPARE(pw->geometry(), QRect(window->frameGeometry().toRect()));
+    QCOMPARE(pw->geometry(), window->frameGeometry());
     QSignalSpy geometryChangedSpy(pw, &KWayland::Client::PlasmaWindow::geometryChanged);
 
     QSignalSpy unmappedSpy(m_windowManagement->windows().first(), &KWayland::Client::PlasmaWindow::unmapped);
     QSignalSpy destroyedSpy(m_windowManagement->windows().first(), &QObject::destroyed);
+
+    // now shade the window
+    const QRectF geoBeforeShade = window->frameGeometry();
+    QVERIFY(geoBeforeShade.isValid());
+    QVERIFY(!geoBeforeShade.isEmpty());
+    workspace()->slotWindowShade();
+    QVERIFY(window->isShade());
+    QVERIFY(window->frameGeometry() != geoBeforeShade);
+    QVERIFY(geometryChangedSpy.wait());
+    QCOMPARE(pw->geometry(), window->frameGeometry());
+    // and unshade again
+    workspace()->slotWindowShade();
+    QVERIFY(!window->isShade());
+    QCOMPARE(window->frameGeometry(), geoBeforeShade);
+    QVERIFY(geometryChangedSpy.wait());
+    QCOMPARE(pw->geometry(), geoBeforeShade);
 
     // and destroy the window again
     xcb_unmap_window(c.get(), windowId);
@@ -151,7 +165,6 @@ void PlasmaWindowTest::testCreateDestroyX11PlasmaWindow()
     QCOMPARE(unmappedSpy.count(), 1);
 
     QVERIFY(destroyedSpy.wait());
-#endif
 }
 
 class HelperWindow : public QRasterWindow

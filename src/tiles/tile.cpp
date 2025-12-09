@@ -9,7 +9,6 @@
 
 #include "tile.h"
 #include "core/output.h"
-#include "effect/globals.h"
 #include "tilemanager.h"
 #include "virtualdesktops.h"
 #include "window.h"
@@ -20,6 +19,8 @@
 namespace KWin
 {
 
+QSizeF Tile::s_minimumSize = QSizeF(0.15, 0.15);
+
 Tile::Tile(TileManager *tiling, Tile *parent)
     : QObject(parent)
     , m_parentTile(parent)
@@ -27,11 +28,8 @@ Tile::Tile(TileManager *tiling, Tile *parent)
 {
     if (m_parentTile) {
         m_padding = m_parentTile->padding();
-        m_minimumSize = m_parentTile->m_minimumSize;
-        m_desktop = m_parentTile->desktop();
     }
     connect(Workspace::self(), &Workspace::configChanged, this, &Tile::windowGeometryChanged);
-    connect(Workspace::self(), &Workspace::windowRemoved, this, &Tile::unmanage);
 }
 
 Tile::~Tile()
@@ -47,33 +45,10 @@ Tile::~Tile()
     if (m_tiling->tearingDown()) {
         return;
     }
-
-    // TODO: Look for alternative designs to evacuate windows from removed tiles.
-    auto windows = m_windows;
-    for (auto *w : windows) {
-        if (m_quickTileMode != QuickTileFlag::Custom) {
-            unmanage(w);
-        } else {
-            Tile *tile = nullptr;
-            if (RootTile *root = m_tiling->rootTile(m_desktop)) {
-                tile = root->pick(w->moveResizeGeometry().center());
-            }
-            unmanage(w);
-            if (tile) {
-                tile->manage(w);
-            }
-        }
+    for (auto *w : std::as_const(m_windows)) {
+        Tile *tile = m_tiling->bestTileForPosition(w->moveResizeGeometry().center());
+        w->requestTile(tile);
     }
-}
-
-VirtualDesktop *Tile::desktop() const
-{
-    return m_desktop;
-}
-
-bool Tile::isActive() const
-{
-    return m_desktop == VirtualDesktopManager::self()->currentDesktop();
 }
 
 bool Tile::supportsResizeGravity(Gravity gravity)
@@ -124,8 +99,8 @@ void Tile::setGeometryFromAbsolute(const QRectF &geom)
 void Tile::setRelativeGeometry(const QRectF &geom)
 {
     QRectF constrainedGeom = geom;
-    constrainedGeom.setWidth(std::max(constrainedGeom.width(), m_minimumSize.width()));
-    constrainedGeom.setHeight(std::max(constrainedGeom.height(), m_minimumSize.height()));
+    constrainedGeom.setWidth(std::max(constrainedGeom.width(), s_minimumSize.width()));
+    constrainedGeom.setHeight(std::max(constrainedGeom.height(), s_minimumSize.height()));
 
     if (m_relativeGeometry == constrainedGeom) {
         return;
@@ -137,11 +112,8 @@ void Tile::setRelativeGeometry(const QRectF &geom)
     Q_EMIT absoluteGeometryChanged();
     Q_EMIT windowGeometryChanged();
 
-    if (isActive()) {
-        for (auto *w : std::as_const(m_windows)) {
-            // Resize only if we are the currently managing tile for that window
-            w->moveResize(windowGeometry());
-        }
+    for (auto *w : std::as_const(m_windows)) {
+        w->moveResize(windowGeometry());
     }
 }
 
@@ -178,13 +150,13 @@ QRectF Tile::windowGeometry() const
     effectiveMargins.setBottom(m_relativeGeometry.bottom() < 1.0 ? m_padding / 2.0 : m_padding);
 
     const auto geom = absoluteGeometry();
-    return geom.intersected(workspace()->clientArea(MaximizeArea, m_tiling->output(), m_desktop)) - effectiveMargins;
+    return geom.intersected(workspace()->clientArea(MaximizeArea, m_tiling->output(), VirtualDesktopManager::self()->currentDesktop())) - effectiveMargins;
 }
 
 QRectF Tile::maximizedWindowGeometry() const
 {
     const auto geom = absoluteGeometry();
-    return geom.intersected(workspace()->clientArea(MaximizeArea, m_tiling->output(), m_desktop));
+    return geom.intersected(workspace()->clientArea(MaximizeArea, m_tiling->output(), VirtualDesktopManager::self()->currentDesktop()));
 }
 
 Qt::Edges Tile::anchors() const
@@ -207,11 +179,6 @@ Qt::Edges Tile::anchors() const
         anchors &= ~Qt::BottomEdge;
     }
     return anchors;
-}
-
-bool Tile::isRoot() const
-{
-    return !m_parentTile;
 }
 
 bool Tile::isLayout() const
@@ -243,36 +210,12 @@ void Tile::setPadding(qreal padding)
     for (auto *t : std::as_const(m_children)) {
         t->setPadding(padding);
     }
-    if (isActive()) {
-        for (auto *w : std::as_const(m_windows)) {
-            // Resize only if we are the currently managing tile for that window
-            w->moveResize(windowGeometry());
-        }
+    for (auto *w : std::as_const(m_windows)) {
+        w->moveResize(windowGeometry());
     }
 
     Q_EMIT paddingChanged(padding);
     Q_EMIT windowGeometryChanged();
-}
-
-QSizeF Tile::minimumSize() const
-{
-    return m_minimumSize;
-}
-
-void Tile::setMinimumSize(const QSizeF &size)
-{
-    QSizeF clampedSize = size;
-    clampedSize.setWidth(std::clamp(size.width(), 0.0, 1.0));
-    clampedSize.setHeight(std::clamp(size.height(), 0.0, 1.0));
-
-    if (m_minimumSize == clampedSize) {
-        return;
-    }
-
-    m_minimumSize = clampedSize;
-
-    setRelativeGeometry(m_relativeGeometry);
-    Q_EMIT minimumSizeChanged(clampedSize);
 }
 
 QuickTileMode Tile::quickTileMode() const
@@ -283,18 +226,6 @@ QuickTileMode Tile::quickTileMode() const
 void Tile::setQuickTileMode(QuickTileMode mode)
 {
     m_quickTileMode = mode;
-}
-
-Tile *Tile::rootTile() const
-{
-    if (!m_parentTile) {
-        return const_cast<Tile *>(this);
-    }
-    Tile *candidate = m_parentTile;
-    while (candidate->parentTile()) {
-        candidate = candidate->parentTile();
-    }
-    return candidate;
 }
 
 void Tile::resizeFromGravity(Gravity gravity, int x_root, int y_root)
@@ -374,93 +305,26 @@ void Tile::resizeByPixels(qreal delta, Qt::Edge edge)
     setRelativeGeometry(newGeom);
 }
 
-bool Tile::manage(Window *window)
+void Tile::addWindow(Window *window)
 {
-    if (!window->isResizable() || window->isAppletPopup()) {
-        return false;
+    if (!window->isClient()) {
+        return;
     }
-
-    if (m_windows.contains(window)) {
-        return true;
-    }
-
-    // If the window is not on the same tile's desktop
-    // it can't be added
-    if (!window->isOnDesktop(m_desktop)) {
-        return false;
-    }
-
-    // There can be only one window owner per root tile, so make it forget
-    // if anybody else had the association
-    bool evacuated = false;
-    const auto evacuate = [&evacuated, window](Tile *tile) {
-        if (tile->remove(window)) {
-            evacuated = true;
-        }
-    };
-
-    const auto outputs = workspace()->outputs();
-    for (LogicalOutput *output : outputs) {
-        if (TileManager *manager = workspace()->tileManager(output)) {
-            if (Tile *rootTile = manager->rootTile(m_desktop)) {
-                rootTile->visitDescendants(evacuate);
-            }
-            if (Tile *rootTile = manager->quickRootTile(m_desktop)) {
-                rootTile->visitDescendants(evacuate);
-            }
-        }
-    }
-
-    add(window);
-
-    // We can actually manage the window geometry if our desktop is current
-    // or if our desktop is the only desktop the window is in
-    if (isActive()) {
-        window->requestTile(this);
-    } else if (evacuated) {
-        window->requestTile(nullptr);
-    }
-
-    return true;
-}
-
-bool Tile::unmanage(Window *window)
-{
-    if (!remove(window)) {
-        return false;
-    }
-
-    if (window->requestedTile() == this) {
-        window->requestTile(nullptr);
-    }
-    return true;
-}
-
-void Tile::forget(Window *window)
-{
-    if (remove(window)) {
-        window->forgetTile(this);
+    if (!m_windows.contains(window)) {
+        // Don't resize the window here, it was already resized in the configureEvent
+        m_windows.append(window);
+        Q_EMIT windowAdded(window);
+        Q_EMIT windowsChanged();
     }
 }
 
-void Tile::add(Window *window)
+void Tile::removeWindow(Window *window)
 {
-    Q_ASSERT(!m_windows.contains(window));
-    m_windows.append(window);
-
-    Q_EMIT windowAdded(window);
-    Q_EMIT windowsChanged();
-}
-
-bool Tile::remove(Window *window)
-{
-    if (!m_windows.removeOne(window)) {
-        return false;
+    // We already ensure there is a single copy of window in m_windows
+    if (m_windows.removeOne(window)) {
+        Q_EMIT windowRemoved(window);
+        Q_EMIT windowsChanged();
     }
-
-    Q_EMIT windowRemoved(window);
-    Q_EMIT windowsChanged();
-    return true;
 }
 
 QList<KWin::Window *> Tile::windows() const
@@ -478,13 +342,9 @@ void Tile::insertChild(int position, Tile *item)
 
     if (wasEmpty) {
         Q_EMIT isLayoutChanged(true);
-        auto windows = m_windows;
-        for (auto *w : windows) {
-            Tile *tile = m_tiling->rootTile(m_desktop)->pick(w->moveResizeGeometry().center());
-            unmanage(w);
-            if (tile) {
-                tile->manage(w);
-            }
+        for (auto *w : std::as_const(m_windows)) {
+            Tile *tile = m_tiling->bestTileForPosition(w->moveResizeGeometry().center());
+            w->requestTile(tile);
         }
     }
 
@@ -545,10 +405,10 @@ Tile *Tile::parentTile() const
     return m_parentTile;
 }
 
-void Tile::visitDescendants(std::function<void(Tile *child)> callback)
+void Tile::visitDescendants(std::function<void(const Tile *child)> callback) const
 {
     callback(this);
-    for (Tile *child : m_children) {
+    for (const Tile *child : m_children) {
         child->visitDescendants(callback);
     }
 }

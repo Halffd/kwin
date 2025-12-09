@@ -31,7 +31,7 @@ LayerShellV1Integration::LayerShellV1Integration(QObject *parent)
 
 void LayerShellV1Integration::createWindow(LayerSurfaceV1Interface *shellSurface)
 {
-    LogicalOutput *output;
+    Output *output;
     if (OutputInterface *preferredOutput = shellSurface->output()) {
         if (preferredOutput->isRemoved()) {
             shellSurface->sendClosed();
@@ -149,7 +149,7 @@ static void rearrangeLayer(const QList<LayerShellV1Window *> &windows, QRect *wo
         window->updateLayer();
 
         if (geometry.isValid()) {
-            window->place(geometry);
+            window->moveResize(geometry);
         } else {
             qCWarning(KWIN_CORE) << "Closing a layer shell window due to invalid geometry";
             window->closeWindow();
@@ -162,12 +162,7 @@ static void rearrangeLayer(const QList<LayerShellV1Window *> &windows, QRect *wo
     }
 }
 
-static int weightForWindow(const LayerShellV1Window *window)
-{
-    return (window->shellSurface()->anchor() & AnchorHorizontal) == AnchorHorizontal ? 1 : 0;
-}
-
-static QList<LayerShellV1Window *> windowsForOutput(LogicalOutput *output)
+static QList<LayerShellV1Window *> windowsForOutput(Output *output)
 {
     QList<LayerShellV1Window *> result;
     const QList<Window *> windows = waylandServer()->windows();
@@ -180,19 +175,10 @@ static QList<LayerShellV1Window *> windowsForOutput(LogicalOutput *output)
             result.append(layerShellWindow);
         }
     }
-    std::stable_sort(result.begin(), result.end(), [](LayerShellV1Window *a, LayerShellV1Window *b) {
-        if (a->layer() < b->layer()) {
-            return false;
-        } else if (a->layer() > b->layer()) {
-            return true;
-        } else {
-            return weightForWindow(a) > weightForWindow(b);
-        }
-    });
     return result;
 }
 
-static void rearrangeOutput(LogicalOutput *output)
+static void rearrangeOutput(Output *output)
 {
     const QList<LayerShellV1Window *> windows = windowsForOutput(output);
     if (!windows.isEmpty()) {
@@ -212,8 +198,8 @@ static void rearrangeOutput(LogicalOutput *output)
 
 void LayerShellV1Integration::rearrange()
 {
-    const QList<LogicalOutput *> outputs = workspace()->outputs();
-    for (LogicalOutput *output : outputs) {
+    const QList<Output *> outputs = workspace()->outputs();
+    for (Output *output : outputs) {
         rearrangeOutput(output);
     }
 }

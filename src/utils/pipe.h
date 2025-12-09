@@ -16,8 +16,7 @@ namespace KWin
 
 struct Pipe
 {
-    FileDescriptor readEndpoint;
-    FileDescriptor writeEndpoint;
+    FileDescriptor fds[2];
 
     static std::optional<Pipe> create(int flags)
     {
@@ -26,8 +25,10 @@ struct Pipe
             return std::nullopt;
         }
         return Pipe{
-            .readEndpoint = FileDescriptor(fds[0]),
-            .writeEndpoint = FileDescriptor(fds[1]),
+            .fds = {
+                FileDescriptor(fds[0]),
+                FileDescriptor(fds[1]),
+            },
         };
     }
 };

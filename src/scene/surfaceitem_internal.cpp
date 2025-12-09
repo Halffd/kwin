@@ -5,6 +5,8 @@
 */
 
 #include "scene/surfaceitem_internal.h"
+#include "compositor.h"
+#include "core/renderbackend.h"
 #include "internalwindow.h"
 
 namespace KWin
@@ -33,6 +35,11 @@ QList<QRectF> SurfaceItemInternal::shape() const
     return {rect()};
 }
 
+std::unique_ptr<SurfacePixmap> SurfaceItemInternal::createPixmap()
+{
+    return std::make_unique<SurfacePixmapInternal>(this);
+}
+
 void SurfaceItemInternal::handlePresented(const InternalWindowFrame &frame)
 {
     setDestinationSize(m_window->bufferGeometry().size());
@@ -41,6 +48,30 @@ void SurfaceItemInternal::handlePresented(const InternalWindowFrame &frame)
     setBufferTransform(frame.bufferTransform);
 
     addDamage(frame.bufferDamage);
+}
+
+SurfacePixmapInternal::SurfacePixmapInternal(SurfaceItemInternal *item)
+    : SurfacePixmap(Compositor::self()->backend()->createSurfaceTextureWayland(this), item)
+{
+}
+
+void SurfacePixmapInternal::create()
+{
+    update();
+}
+
+void SurfacePixmapInternal::update()
+{
+    if (GraphicsBuffer *buffer = m_item->buffer()) {
+        m_size = buffer->size();
+        m_hasAlphaChannel = buffer->hasAlphaChannel();
+        m_valid = true;
+    }
+}
+
+bool SurfacePixmapInternal::isValid() const
+{
+    return m_valid;
 }
 
 } // namespace KWin

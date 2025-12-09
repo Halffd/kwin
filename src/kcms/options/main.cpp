@@ -22,7 +22,40 @@
 #include "mouse.h"
 #include "windows.h"
 
-K_PLUGIN_CLASS_WITH_JSON(KWinOptions, "kcm_kwinoptions.json")
+K_PLUGIN_CLASS_WITH_JSON(KWinOptions, "kcm_kwinoptions_x11.json")
+
+class KFocusConfigStandalone : public KFocusConfig
+{
+    Q_OBJECT
+public:
+    KFocusConfigStandalone(QWidget *parent, const QVariantList &)
+        : KFocusConfig(true, nullptr, parent)
+    {
+        initialize(new KWinOptionsSettings(this));
+    }
+};
+
+class KMovingConfigStandalone : public KMovingConfig
+{
+    Q_OBJECT
+public:
+    KMovingConfigStandalone(QWidget *parent, const QVariantList &)
+        : KMovingConfig(true, nullptr, parent)
+    {
+        initialize(new KWinOptionsSettings(this));
+    }
+};
+
+class KAdvancedConfigStandalone : public KAdvancedConfig
+{
+    Q_OBJECT
+public:
+    KAdvancedConfigStandalone(QWidget *parent, const QVariantList &)
+        : KAdvancedConfig(true, nullptr, nullptr, parent)
+    {
+        initialize(new KWinOptionsSettings(this), new KWinOptionsKDEGlobalsSettings(this));
+    }
+};
 
 KWinOptions::KWinOptions(QObject *parent, const KPluginMetaData &data)
     : KCModule(parent, data)
@@ -43,37 +76,30 @@ KWinOptions::KWinOptions(QObject *parent, const KPluginMetaData &data)
         });
     };
 
-    mFocus = new KFocusConfig(mSettings, widget());
+    mFocus = new KFocusConfig(false, mSettings, widget());
     mFocus->setObjectName(QLatin1String("KWin Focus Config"));
     tab->addTab(mFocus->widget(), i18n("&Focus"));
     connectKCM(mFocus);
 
-    mTitleBarActions = new KTitleBarActionsConfig(mSettings, widget());
+    mTitleBarActions = new KTitleBarActionsConfig(false, mSettings, widget());
     mTitleBarActions->setObjectName(QLatin1String("KWin TitleBar Actions"));
     tab->addTab(mTitleBarActions->widget(), i18n("Titlebar A&ctions"));
     connectKCM(mTitleBarActions);
 
-    mWindowActions = new KWindowActionsConfig(mSettings, widget());
+    mWindowActions = new KWindowActionsConfig(false, mSettings, widget());
     mWindowActions->setObjectName(QLatin1String("KWin Window Actions"));
     tab->addTab(mWindowActions->widget(), i18n("W&indow Actions"));
     connectKCM(mWindowActions);
 
-    mMoving = new KMovingConfig(mSettings, widget());
+    mMoving = new KMovingConfig(false, mSettings, widget());
     mMoving->setObjectName(QLatin1String("KWin Moving"));
     tab->addTab(mMoving->widget(), i18n("Mo&vement"));
     connectKCM(mMoving);
 
-    mAdvanced = new KAdvancedConfig(mSettings, new KWinOptionsKDEGlobalsSettings(this), widget());
+    mAdvanced = new KAdvancedConfig(false, mSettings, new KWinOptionsKDEGlobalsSettings(this), widget());
     mAdvanced->setObjectName(QLatin1String("KWin Advanced"));
     tab->addTab(mAdvanced->widget(), i18n("Adva&nced"));
     connectKCM(mAdvanced);
-
-    if (qEnvironmentVariableIntValue("KWIN_WAYLAND_SUPPORT_XX_PIP_V1")) {
-        mPip = new KPipConfig(mSettings, widget());
-        mPip->setObjectName(QLatin1String("KWin Picture-in-Picture"));
-        tab->addTab(mPip->widget(), i18n("&Picture-in-picture"));
-        connectKCM(mPip);
-    }
 }
 
 void KWinOptions::load()
@@ -87,9 +113,6 @@ void KWinOptions::load()
     // mFocus is last because it may send unmanagedWidgetStateChanged
     // that need to have the final word
     mFocus->load();
-    if (mPip) {
-        mPip->load();
-    }
 }
 
 void KWinOptions::save()
@@ -101,9 +124,6 @@ void KWinOptions::save()
     mWindowActions->save();
     mMoving->save();
     mAdvanced->save();
-    if (mPip) {
-        mPip->save();
-    }
 
     // Send signal to all kwin instances
     QDBusMessage message =
@@ -122,9 +142,6 @@ void KWinOptions::defaults()
     // mFocus is last because it may send unmanagedWidgetDefaulted
     // that need to have the final word
     mFocus->defaults();
-    if (mPip) {
-        mPip->defaults();
-    }
 }
 
 void KWinOptions::updateUnmanagedState()
@@ -135,7 +152,6 @@ void KWinOptions::updateUnmanagedState()
     changed |= mWindowActions->needsSave();
     changed |= mMoving->needsSave();
     changed |= mAdvanced->needsSave();
-    changed |= mPip ? mPip->needsSave() : false;
 
     unmanagedWidgetChangeState(changed);
 
@@ -145,7 +161,6 @@ void KWinOptions::updateUnmanagedState()
     isDefault &= mWindowActions->representsDefaults();
     isDefault &= mMoving->representsDefaults();
     isDefault &= mAdvanced->representsDefaults();
-    isDefault &= mPip ? mPip->representsDefaults() : true;
 
     unmanagedWidgetDefaultState(isDefault);
 }
@@ -160,7 +175,7 @@ KActionsOptions::KActionsOptions(QObject *parent, const KPluginMetaData &data)
     tab = new QTabWidget(widget());
     layout->addWidget(tab);
 
-    mTitleBarActions = new KTitleBarActionsConfig(mSettings, widget());
+    mTitleBarActions = new KTitleBarActionsConfig(false, mSettings, widget());
     mTitleBarActions->setObjectName(QLatin1String("KWin TitleBar Actions"));
     tab->addTab(mTitleBarActions->widget(), i18n("&Titlebar Actions"));
     connect(mTitleBarActions, &KCModule::needsSaveChanged, this, [this]() {
@@ -170,7 +185,7 @@ KActionsOptions::KActionsOptions(QObject *parent, const KPluginMetaData &data)
         setRepresentsDefaults(mTitleBarActions->representsDefaults());
     });
 
-    mWindowActions = new KWindowActionsConfig(mSettings, widget());
+    mWindowActions = new KWindowActionsConfig(false, mSettings, widget());
     mWindowActions->setObjectName(QLatin1String("KWin Window Actions"));
     tab->addTab(mWindowActions->widget(), i18n("Window Actio&ns"));
     connect(mWindowActions, &KCModule::needsSaveChanged, this, [this]() {

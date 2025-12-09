@@ -19,11 +19,12 @@ kwin_add_builtin_effect(overview ${overview_SOURCES})
 
 qt6_add_qml_module(overview
     NO_PLUGIN
-    URI org.kde.kwin.overview
+    URI overview
+    RESOURCE_PREFIX /
     QML_FILES
         qml/DesktopBar.qml
         qml/DesktopView.qml
-        qml/Main.qml
+        qml/main.qml
 )
 
 target_link_libraries(overview PRIVATE

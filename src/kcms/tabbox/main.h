@@ -16,8 +16,6 @@
 #include <kcmodule.h>
 #include <ksharedconfig.h>
 
-class QProcess;
-
 namespace KWin
 {
 class KWinTabBoxConfigForm;
@@ -42,7 +40,7 @@ public Q_SLOTS:
 
 private Q_SLOTS:
     void updateUnmanagedState();
-    void showPreview();
+    void configureEffectClicked();
 
 private:
     void initLayoutLists();
@@ -55,8 +53,6 @@ private:
     KSharedConfigPtr m_config;
 
     TabBox::KWinTabboxData *m_data;
-
-    std::unique_ptr<QProcess> m_previewProcess;
 };
 
 } // namespace

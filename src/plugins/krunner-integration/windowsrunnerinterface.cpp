@@ -236,6 +236,7 @@ void WindowsRunner::Run(const QString &id, const QString &actionId)
         window->setFullScreen(!window->isFullScreen());
         break;
     case ShadeAction:
+        window->toggleShade();
         break;
     case KeepAboveAction:
         window->setKeepAbove(!window->keepAbove());
@@ -333,7 +334,7 @@ bool WindowsRunner::actionSupported(const Window *window, const WindowsRunnerAct
     case MaximizeAction:
         return window->isMaximizable();
     case ShadeAction:
-        return false;
+        return window->isShadeable();
     case FullscreenAction:
         return window->isFullScreenable();
     case KeepAboveAction:

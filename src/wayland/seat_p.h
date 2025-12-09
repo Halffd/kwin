@@ -22,14 +22,12 @@ namespace KWin
 {
 class AbstractDataSource;
 class DataDeviceInterface;
-class DataOfferInterface;
 class DataSourceInterface;
 class DataControlDeviceV1Interface;
 class TextInputV1Interface;
 class TextInputV2Interface;
 class TextInputV3Interface;
 class PrimarySelectionDeviceV1Interface;
-class PrimarySelectionOfferV1Interface;
 class PrimarySelectionSourceV1Interface;
 class DragAndDropIcon;
 
@@ -42,16 +40,12 @@ public:
 
     void sendCapabilities();
     QList<DataDeviceInterface *> dataDevicesForSurface(SurfaceInterface *surface) const;
-    QList<PrimarySelectionDeviceV1Interface *> primarySelectionDevicesForSurface(SurfaceInterface *surface) const;
     void registerPrimarySelectionDevice(PrimarySelectionDeviceV1Interface *primarySelectionDevice);
     void registerDataDevice(DataDeviceInterface *dataDevice);
     void registerDataControlDevice(DataControlDeviceV1Interface *dataDevice);
+    void endDrag();
+    void cancelDrag();
     bool dragInhibitsPointer(SurfaceInterface *surface) const;
-
-    void offerSelection(DataDeviceInterface *device);
-    void offerSelection(DataControlDeviceV1Interface *device);
-    void offerPrimarySelection(PrimarySelectionDeviceV1Interface *device);
-    void offerPrimarySelection(DataControlDeviceV1Interface *device);
 
     SeatInterface *q;
     QPointer<Display> display;
@@ -61,7 +55,6 @@ public:
     std::unique_ptr<KeyboardInterface> keyboard;
     std::unique_ptr<PointerInterface> pointer;
     std::unique_ptr<TouchInterface> touch;
-    std::map<qint32, std::unique_ptr<TouchPoint>> touchPoints;
     QList<DataDeviceInterface *> dataDevices;
     QList<PrimarySelectionDeviceV1Interface *> primarySelectionDevices;
     QList<DataControlDeviceV1Interface *> dataControlDevices;
@@ -76,9 +69,9 @@ public:
 
     // the last thing copied into the clipboard content
     AbstractDataSource *currentSelection = nullptr;
-    UInt32Serial currentSelectionSerial = 0;
+    quint32 currentSelectionSerial = 0;
     AbstractDataSource *currentPrimarySelection = nullptr;
-    UInt32Serial currentPrimarySelectionSerial = 0;
+    quint32 currentPrimarySelectionSerial = 0;
 
     // Pointer related members
     struct Pointer
@@ -109,21 +102,41 @@ public:
     {
         struct Focus
         {
-            QPointer<SurfaceInterface> surface;
+            SurfaceInterface *surface = nullptr;
+            QMetaObject::Connection destroyConnection;
+            quint32 serial = 0;
+            QList<DataDeviceInterface *> selections;
+            QList<PrimarySelectionDeviceV1Interface *> primarySelections;
         };
         Focus focus;
     };
     Keyboard globalKeyboard;
 
-    struct DataDevice
+    // Touch related members
+    struct Touch
     {
-        QPointer<ClientConnection> client;
-        QList<DataDeviceInterface *> selections;
-        QList<DataOfferInterface *> selectionOffers;
-        QList<PrimarySelectionDeviceV1Interface *> primarySelections;
-        QList<PrimarySelectionOfferV1Interface *> primarySelectionOffers;
+        struct Interaction
+        {
+            Interaction()
+            {
+            }
+            Q_DISABLE_COPY(Interaction)
+
+            ~Interaction()
+            {
+                QObject::disconnect(destroyConnection);
+            }
+
+            SurfaceInterface *surface = nullptr;
+            QMetaObject::Connection destroyConnection;
+            QPointF firstTouchPos;
+            uint refs = 0;
+        };
+        std::unordered_map<SurfaceInterface *, std::unique_ptr<Interaction>> focus;
+
+        std::map<qint32, std::unique_ptr<TouchPoint>> ids;
     };
-    DataDevice globalDataDevice;
+    Touch globalTouch;
 
     struct Drag
     {
@@ -131,21 +144,17 @@ public:
             None,
             Pointer,
             Touch,
-            Tablet,
         };
         Mode mode = Mode::None;
         AbstractDataSource *source = nullptr;
         QPointer<SurfaceInterface> surface;
         QPointer<AbstractDropHandler> target;
         QPointer<DragAndDropIcon> dragIcon;
-        QPointF position;
         QMatrix4x4 transformation;
         std::optional<quint32> dragImplicitGrabSerial;
         QMetaObject::Connection dragSourceDestroyConnection;
     };
     Drag drag;
-
-    bool startDrag(Drag::Mode mode, AbstractDataSource *source, SurfaceInterface *sourceSurface, const QPointF &position, const QMatrix4x4 &inputTransformation, quint32 dragSerial, DragAndDropIcon *dragIcon);
 
 protected:
     void seat_bind_resource(Resource *resource) override;
@@ -155,8 +164,8 @@ protected:
     void seat_release(Resource *resource) override;
 
 private:
-    void updateSelection(DataSourceInterface *dataSource, UInt32Serial serial);
-    void updatePrimarySelection(PrimarySelectionSourceV1Interface *dataSource, UInt32Serial serial);
+    void updateSelection(DataSourceInterface *dataSource, quint32 serial);
+    void updatePrimarySelection(PrimarySelectionSourceV1Interface *dataSource, quint32);
 };
 
 } // namespace KWin

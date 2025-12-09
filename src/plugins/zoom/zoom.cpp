@@ -9,12 +9,10 @@
 */
 
 #include "zoom.h"
-#include "core/output.h"
 #include "core/rendertarget.h"
 #include "core/renderviewport.h"
 #include "effect/effecthandler.h"
 #include "opengl/glutils.h"
-#include "utils/keys.h"
 #include "zoomconfig.h"
 
 #if HAVE_ACCESSIBILITY
@@ -24,10 +22,9 @@
 #include <KConfigGroup>
 #include <KGlobalAccel>
 #include <KLocalizedString>
-#include <KStandardAction>
+#include <KStandardActions>
 
 #include <QAction>
-#include <QTimer>
 
 using namespace std::chrono_literals;
 
@@ -44,24 +41,19 @@ ZoomEffect::ZoomEffect()
 {
     ensureResources();
 
-    m_configurationTimer = std::make_unique<QTimer>();
-    m_configurationTimer->setInterval(1s);
-    m_configurationTimer->setSingleShot(true);
-    connect(m_configurationTimer.get(), &QTimer::timeout, this, &ZoomEffect::saveInitialZoom);
-
     ZoomConfig::instance(effects->config());
     QAction *a = nullptr;
-    a = KStandardAction::zoomIn(this, &ZoomEffect::zoomIn, this);
+    a = KStandardActions::zoomIn(this, &ZoomEffect::zoomIn, this);
     KGlobalAccel::self()->setDefaultShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_Plus) << (Qt::META | Qt::Key_Equal));
     KGlobalAccel::self()->setShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_Plus) << (Qt::META | Qt::Key_Equal));
-    effects->registerAxisShortcut(Qt::ControlModifier | Qt::MetaModifier, PointerAxisDown, a);
-
-    a = KStandardAction::zoomOut(this, &ZoomEffect::zoomOut, this);
-    KGlobalAccel::self()->setDefaultShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_Minus));
-    KGlobalAccel::self()->setShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_Minus));
     effects->registerAxisShortcut(Qt::ControlModifier | Qt::MetaModifier, PointerAxisUp, a);
 
-    a = KStandardAction::actualSize(this, &ZoomEffect::actualSize, this);
+    a = KStandardActions::zoomOut(this, &ZoomEffect::zoomOut, this);
+    KGlobalAccel::self()->setDefaultShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_Minus));
+    KGlobalAccel::self()->setShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_Minus));
+    effects->registerAxisShortcut(Qt::ControlModifier | Qt::MetaModifier, PointerAxisDown, a);
+
+    a = KStandardActions::actualSize(this, &ZoomEffect::actualSize, this);
     KGlobalAccel::self()->setDefaultShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_0));
     KGlobalAccel::self()->setShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_0));
 
@@ -140,7 +132,8 @@ ZoomEffect::~ZoomEffect()
     // switch off and free resources
     showCursor();
     // Save the zoom value.
-    saveInitialZoom();
+    ZoomConfig::setInitialZoom(m_targetZoom);
+    ZoomConfig::self()->save();
 }
 
 bool ZoomEffect::isFocusTrackingEnabled() const
@@ -264,7 +257,7 @@ void ZoomEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseco
     effects->prePaintScreen(data, presentTime);
 }
 
-ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &renderTarget, const RenderViewport &viewport, LogicalOutput *screen)
+ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &renderTarget, const RenderViewport &viewport, Output *screen)
 {
     const QSize nativeSize = renderTarget.size();
 
@@ -272,7 +265,7 @@ ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &r
     data.viewport = viewport.renderRect();
     data.color = renderTarget.colorDescription();
 
-    const GLenum textureFormat = renderTarget.colorDescription() == *ColorDescription::sRGB ? GL_RGBA8 : GL_RGBA16F;
+    const GLenum textureFormat = renderTarget.colorDescription() == ColorDescription::sRGB ? GL_RGBA8 : GL_RGBA16F;
     if (!data.texture || data.texture->size() != nativeSize || data.texture->internalFormat() != textureFormat) {
         data.texture = GLTexture::allocate(textureFormat, nativeSize);
         if (!data.texture) {
@@ -299,7 +292,7 @@ GLShader *ZoomEffect::shaderForZoom(double zoom)
     }
 }
 
-void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen)
+void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
 {
     OffscreenData *offscreenData = ensureOffscreenData(renderTarget, viewport, screen);
     if (!offscreenData) {
@@ -310,7 +303,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     RenderTarget offscreenRenderTarget(offscreenData->framebuffer.get(), renderTarget.colorDescription());
     RenderViewport offscreenViewport(viewport.renderRect(), viewport.scale(), offscreenRenderTarget);
     GLFramebuffer::pushFramebuffer(offscreenData->framebuffer.get());
-    effects->paintScreen(offscreenRenderTarget, offscreenViewport, mask, deviceRegion, screen);
+    effects->paintScreen(offscreenRenderTarget, offscreenViewport, mask, region, screen);
     GLFramebuffer::popFramebuffer();
 
     const QSize screenSize = effects->virtualScreenSize();
@@ -432,7 +425,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             auto s = ShaderManager::instance()->pushShader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
-            s->setColorspaceUniforms(**ColorDescription::sRGB, renderTarget.colorDescription(), RenderingIntent::Perceptual);
+            s->setColorspaceUniforms(ColorDescription::sRGB, renderTarget.colorDescription(), RenderingIntent::Perceptual);
             QMatrix4x4 mvp = viewport.projectionMatrix();
             mvp.translate(p.x() * scale, p.y() * scale);
             s->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, mvp);
@@ -596,7 +589,7 @@ void ZoomEffect::slotWindowDamaged()
     }
 }
 
-void ZoomEffect::slotScreenRemoved(LogicalOutput *screen)
+void ZoomEffect::slotScreenRemoved(Output *screen)
 {
     if (auto it = m_offscreenData.find(screen); it != m_offscreenData.end()) {
         effects->makeOpenGLContextCurrent();
@@ -654,15 +647,9 @@ qreal ZoomEffect::targetZoom() const
     return m_targetZoom;
 }
 
-void ZoomEffect::saveInitialZoom()
-{
-    ZoomConfig::setInitialZoom(m_targetZoom);
-    ZoomConfig::self()->save();
-}
-
 bool ZoomEffect::screenExistsAt(const QPoint &point) const
 {
-    const LogicalOutput *output = effects->screenAt(point);
+    const Output *output = effects->screenAt(point);
     return output && output->geometry().contains(point);
 }
 
@@ -677,8 +664,6 @@ void ZoomEffect::setTargetZoom(double value)
         disconnect(effects, &EffectsHandler::mouseChanged, this, &ZoomEffect::slotMouseChanged);
     }
     m_targetZoom = value;
-    m_configurationTimer->start();
-    effects->addRepaintFull();
 }
 
 } // namespace

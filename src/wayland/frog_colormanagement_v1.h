@@ -36,7 +36,7 @@ public:
     explicit FrogColorManagementSurfaceV1(SurfaceInterface *surface, wl_client *client, uint32_t id);
     ~FrogColorManagementSurfaceV1() override;
 
-    void setPreferredColorDescription(const std::shared_ptr<ColorDescription> &colorDescription);
+    void setPreferredColorDescription(const ColorDescription &colorDescription);
 
 private:
     void frog_color_managed_surface_set_known_transfer_function(Resource *resource, uint32_t transfer_function) override;
@@ -54,7 +54,7 @@ private:
 
     const QPointer<SurfaceInterface> m_surface;
     TransferFunction m_transferFunction{TransferFunction::sRGB};
-    Colorimetry m_containerColorimetry = Colorimetry::BT709;
+    NamedColorimetry m_containerColorimetry = NamedColorimetry::BT709;
     std::optional<Colorimetry> m_masteringColorimetry;
     std::optional<double> m_minMasteringLuminance;
     std::optional<double> m_maxAverageLuminance;

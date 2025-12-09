@@ -1,15 +1,23 @@
-kwin_add_builtin_effect(zoom)
+#######################################
+# Effect
 
-target_sources(zoom PRIVATE
-    focustracker.cpp
+set(zoom_SOURCES
     main.cpp
-    textcarettracker.cpp
     zoom.cpp
     zoom.qrc
 )
 
-kconfig_add_kcfg_files(zoom zoomconfig.kcfgc)
+if (HAVE_ACCESSIBILITY)
+    set(zoom_SOURCES ${zoom_SOURCES}
+        accessibilityintegration.cpp
+    )
+endif()
 
+kconfig_add_kcfg_files(zoom_SOURCES
+    zoomconfig.kcfgc
+)
+
+kwin_add_builtin_effect(zoom ${zoom_SOURCES})
 target_link_libraries(zoom PRIVATE
     kwin
 
@@ -18,6 +26,6 @@ target_link_libraries(zoom PRIVATE
     KF6::I18n
 )
 
-if (KWIN_BUILD_QACCESSIBILITYCLIENT)
+if (HAVE_ACCESSIBILITY)
     target_link_libraries(zoom PRIVATE QAccessibilityClient6)
 endif()

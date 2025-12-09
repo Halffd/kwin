@@ -12,45 +12,19 @@
 namespace KWin
 {
 
-OutputLayer::OutputLayer(BackendOutput *output, OutputLayerType type)
-    : m_type(type)
-    , m_output(output)
-    , m_renderLoop(output ? output->renderLoop() : nullptr)
-    , m_zpos(type == OutputLayerType::Primary ? 0 : 1)
-    , m_minZpos(m_zpos)
-    , m_maxZpos(m_zpos)
+OutputLayer::OutputLayer(Output *output)
+    : m_output(output)
 {
 }
 
-OutputLayer::OutputLayer(BackendOutput *output, OutputLayerType type, int zpos, int minZpos, int maxZpos)
-    : m_type(type)
-    , m_output(output)
-    , m_renderLoop(output ? output->renderLoop() : nullptr)
-    , m_zpos(zpos)
-    , m_minZpos(minZpos)
-    , m_maxZpos(maxZpos)
+qreal OutputLayer::scale() const
 {
+    return m_scale;
 }
 
-OutputLayerType OutputLayer::type() const
+void OutputLayer::setScale(qreal scale)
 {
-    return m_type;
-}
-
-void OutputLayer::setRenderLoop(RenderLoop *loop)
-{
-    m_renderLoop = loop;
-}
-
-void OutputLayer::setOutput(BackendOutput *output)
-{
-    m_output = output;
-    if (output) {
-        m_renderLoop = output->renderLoop();
-        addDeviceRepaint(infiniteRegion());
-    } else {
-        m_renderLoop = nullptr;
-    }
+    m_scale = scale;
 }
 
 QPointF OutputLayer::hotspot() const
@@ -68,75 +42,94 @@ QList<QSize> OutputLayer::recommendedSizes() const
     return {};
 }
 
-QRegion OutputLayer::deviceRepaints() const
+QRegion OutputLayer::repaints() const
 {
     return m_repaints;
 }
 
-void OutputLayer::scheduleRepaint(Item *item)
+void OutputLayer::addRepaint(const QRegion &region)
 {
-    if (!m_output) {
-        return;
-    }
-    m_repaintScheduled = true;
-    if (m_renderLoop) {
-        m_renderLoop->scheduleRepaint(item, this);
-    }
-    Q_EMIT repaintScheduled();
-}
-
-void OutputLayer::addDeviceRepaint(const QRegion &region)
-{
-    if (region.isEmpty() || !m_output) {
-        return;
-    }
     m_repaints += region;
-    if (m_renderLoop) {
-        m_renderLoop->scheduleRepaint(nullptr, this);
+    if (m_output) {
+        m_output->renderLoop()->scheduleRepaint(nullptr, nullptr, this);
     }
-    Q_EMIT repaintScheduled();
 }
 
 void OutputLayer::resetRepaints()
 {
-    m_repaintScheduled = false;
     m_repaints = QRegion();
 }
 
 bool OutputLayer::needsRepaint() const
 {
-    return m_repaintScheduled || !m_repaints.isEmpty();
+    return !m_repaints.isEmpty();
 }
 
-bool OutputLayer::importScanoutBuffer(GraphicsBuffer *buffer, const std::shared_ptr<OutputFrame> &frame)
+bool OutputLayer::doImportScanoutBuffer(GraphicsBuffer *buffer, const ColorDescription &color, RenderingIntent intent, const std::shared_ptr<OutputFrame> &frame)
 {
     return false;
 }
 
+bool OutputLayer::importScanoutBuffer(SurfaceItem *surfaceItem, const std::shared_ptr<OutputFrame> &frame)
+{
+    SurfaceItemWayland *wayland = qobject_cast<SurfaceItemWayland *>(surfaceItem);
+    if (!wayland || !wayland->surface()) {
+        return false;
+    }
+    const auto buffer = wayland->surface()->buffer();
+    if (!buffer) {
+        return false;
+    }
+    const auto attrs = buffer->dmabufAttributes();
+    if (!attrs) {
+        return false;
+    }
+    const auto formats = supportedDrmFormats();
+    if (auto it = formats.find(attrs->format); it != formats.end() && !it->contains(attrs->modifier)) {
+        if (m_scanoutCandidate && m_scanoutCandidate != surfaceItem) {
+            m_scanoutCandidate->setScanoutHint(nullptr, {});
+        }
+        m_scanoutCandidate = surfaceItem;
+        surfaceItem->setScanoutHint(scanoutDevice(), formats);
+        return false;
+    }
+    m_sourceRect = surfaceItem->bufferSourceBox();
+    m_bufferTransform = surfaceItem->bufferTransform();
+    const auto desiredTransform = m_output ? m_output->transform() : OutputTransform::Kind::Normal;
+    m_offloadTransform = m_bufferTransform.combine(desiredTransform.inverted());
+    const bool ret = doImportScanoutBuffer(buffer, surfaceItem->colorDescription(), surfaceItem->renderingIntent(), frame);
+    if (ret) {
+        surfaceItem->resetDamage();
+        // ensure the pixmap is updated when direct scanout ends
+        surfaceItem->destroyPixmap();
+    }
+    return ret;
+}
+
 std::optional<OutputLayerBeginFrameInfo> OutputLayer::beginFrame()
 {
+    m_sourceRect = QRectF(QPointF(0, 0), m_targetRect.size());
+    m_bufferTransform = m_output ? m_output->transform() : OutputTransform::Kind::Normal;
+    m_offloadTransform = OutputTransform::Kind::Normal;
     return doBeginFrame();
 }
 
-bool OutputLayer::endFrame(const QRegion &renderedDeviceRegion, const QRegion &damagedDeviceRegion, OutputFrame *frame)
+bool OutputLayer::endFrame(const QRegion &renderedRegion, const QRegion &damagedRegion, OutputFrame *frame)
 {
-    return doEndFrame(renderedDeviceRegion, damagedDeviceRegion, frame);
+    return doEndFrame(renderedRegion, damagedRegion, frame);
 }
 
-void OutputLayer::setScanoutCandidate(SurfaceItem *item)
+void OutputLayer::notifyNoScanoutCandidate()
 {
-    if (m_scanoutCandidate && item != m_scanoutCandidate) {
+    if (m_scanoutCandidate) {
         m_scanoutCandidate->setScanoutHint(nullptr, {});
+        m_scanoutCandidate = nullptr;
     }
-    m_scanoutCandidate = item;
 }
 
 void OutputLayer::setEnabled(bool enable)
 {
     m_enabled = enable;
-    if (!enable) {
-        releaseBuffers();
-    }
 }
 
 bool OutputLayer::isEnabled() const
@@ -172,111 +165,6 @@ QRect OutputLayer::targetRect() const
 void OutputLayer::setTargetRect(const QRect &rect)
 {
     m_targetRect = rect;
-}
-
-QHash<uint32_t, QList<uint64_t>> OutputLayer::supportedAsyncDrmFormats() const
-{
-    return supportedDrmFormats();
-}
-
-void OutputLayer::setOffloadTransform(const OutputTransform &transform)
-{
-    m_offloadTransform = transform;
-}
-
-void OutputLayer::setBufferTransform(const OutputTransform &transform)
-{
-    m_bufferTransform = transform;
-}
-
-const ColorPipeline &OutputLayer::colorPipeline() const
-{
-    return m_colorPipeline;
-}
-
-const std::shared_ptr<ColorDescription> &OutputLayer::colorDescription() const
-{
-    return m_color;
-}
-
-RenderingIntent OutputLayer::renderIntent() const
-{
-    return m_renderingIntent;
-}
-
-void OutputLayer::setColor(const std::shared_ptr<ColorDescription> &color, RenderingIntent intent, const ColorPipeline &pipeline)
-{
-    m_color = color;
-    m_renderingIntent = intent;
-    m_colorPipeline = pipeline;
-}
-
-bool OutputLayer::preparePresentationTest()
-{
-    return true;
-}
-
-void OutputLayer::setRequiredAlphaBits(uint32_t bits)
-{
-    m_requiredAlphaBits = bits;
-}
-
-void OutputLayer::setZpos(int zpos)
-{
-    Q_ASSERT(zpos >= m_minZpos);
-    Q_ASSERT(zpos <= m_maxZpos);
-    m_zpos = zpos;
-}
-
-int OutputLayer::zpos() const
-{
-    return m_zpos;
-}
-
-int OutputLayer::minZpos() const
-{
-    return m_minZpos;
-}
-
-int OutputLayer::maxZpos() const
-{
-    return m_maxZpos;
-}
-
-QList<FormatInfo> OutputLayer::filterAndSortFormats(const QHash<uint32_t, QList<uint64_t>> &formats, uint32_t requiredAlphaBits, BackendOutput::ColorPowerTradeoff tradeoff)
-{
-    QList<FormatInfo> ret;
-    for (auto it = formats.begin(); it != formats.end(); it++) {
-        const auto info = FormatInfo::get(it.key());
-        if (!info) {
-            continue;
-        }
-        if (info->alphaBits < requiredAlphaBits) {
-            continue;
-        }
-        if (info->bitsPerColor < 8) {
-            continue;
-        }
-        ret.push_back(*info);
-    }
-    std::ranges::sort(ret, [tradeoff](const FormatInfo &before, const FormatInfo &after) {
-        if (tradeoff == BackendOutput::ColorPowerTradeoff::PreferAccuracy && before.bitsPerColor != after.bitsPerColor) {
-            return before.bitsPerColor > after.bitsPerColor;
-        }
-        if (before.floatingPoint != after.floatingPoint) {
-            return !before.floatingPoint;
-        }
-        const bool beforeHasAlpha = before.alphaBits != 0;
-        const bool afterHasAlpha = after.alphaBits != 0;
-        if (beforeHasAlpha != afterHasAlpha) {
-            return beforeHasAlpha;
-        }
-        if (before.bitsPerPixel != after.bitsPerPixel) {
-            return before.bitsPerPixel < after.bitsPerPixel;
-        }
-        return before.bitsPerColor > after.bitsPerColor;
-    });
-    return ret;
 }
 
 } // namespace KWin

@@ -28,6 +28,15 @@
         <default>false</default>
     </entry>
 
+    <entry key="ShadeHover" type="Bool">
+        <default>false</default>
+    </entry>
+
+    <entry key="ShadeHoverInterval" type="Int">
+        <default>250</default>
+        <min>0</min>
+    </entry>
+
     <entry name="Placement" type="Enum">
         <choices name="PlacementChoices">
             <choice name="Smart"></choice>
@@ -55,6 +64,7 @@
             <choice name="MaximizeVerticalOnly" value="Maximize (vertical only)"></choice>
             <choice name="MaximizeHorizontalOnly" value="Maximize (horizontal only)"></choice>
             <choice name="Minimize"></choice>
+            <choice name="Shade"></choice>
             <choice name="Lower"></choice>
             <choice name="Close"></choice>
             <choice name="OnAllDesktops"></choice>
@@ -131,20 +141,6 @@
         <max>4</max>
     </entry>
 
-    <entry name="PictureInPictureHomeCorner" type="Enum">
-        <choices name="Qt::Corner">
-            <choice name="TopLeftCorner"/>
-            <choice name="TopRightCorner"/>
-            <choice name="BottomLeftCorner"/>
-            <choice name="BottomRightCorner"/>
-        </choices>
-        <default>Qt::BottomRightCorner</default>
-    </entry>
-
-    <entry name="PictureInPictureMargin" type="Int">
-        <default>20</default>
-    </entry>
-
     </group>
 
     <group name="MouseBindings">
@@ -156,6 +152,7 @@
          <choice name="Lower"></choice>
          <choice name="ToggleRaiseAndLower" value="Toggle raise and lower"></choice>
          <choice name="Minimize"></choice>
+         <choice name="Shade"></choice>
          <choice name="Close"></choice>
          <choice name="OperationsMenu" value="Operations menu"></choice>
          <choice name="Nothing"></choice>
@@ -169,6 +166,7 @@
             <choice name="Lower"></choice>
             <choice name="ToggleRaiseAndLower" value="Toggle raise and lower"></choice>
             <choice name="Minimize"></choice>
+            <choice name="Shade"></choice>
             <choice name="Close"></choice>
             <choice name="OperationsMenu" value="Operations menu"></choice>
             <choice name="Nothing"></choice>
@@ -182,6 +180,7 @@
             <choice name="Lower"></choice>
             <choice name="ToggleRaiseAndLower" value="Toggle raise and lower"></choice>
             <choice name="Minimize"></choice>
+            <choice name="Shade"></choice>
             <choice name="Close"></choice>
             <choice name="OperationsMenu" value="Operations menu"></choice>
             <choice name="Nothing"></choice>
@@ -192,6 +191,7 @@
         <default>Nothing</default>
         <choices>
         <choice name="RaiseLower" value="Raise/Lower"></choice>
+        <choice name="ShadeUnshade" value="Shade/Unshade"></choice>
         <choice name="MaxmizeRestore" value="Maximize/Restore"></choice>
         <choice name="AboveBelow" value="Above/Below"></choice>
         <choice name="PreviousNextDesktop" value="Previous/Next Desktop"></choice>
@@ -201,8 +201,9 @@
     </entry>
 
     <entry key="CommandInactiveTitlebar1" type="Enum">
-        <default>ActivateAndRaise</default>
+        <default>ActivateRaiseOnReleaseAndPassClick</default>
         <choices>
+            <choice name="ActivateRaiseOnReleaseAndPassClick" value="Activate, pass click and raise on release"></choice>
             <choice name="ActivateAndRaise" value="Activate and raise"></choice>
             <choice name="ActivateAndLower" value="Activate and lower"></choice>
             <choice name="Activate"></choice>
@@ -210,6 +211,7 @@
             <choice name="Lower"></choice>
             <choice name="ToggleRaiseAndLower" value="Toggle raise and lower"></choice>
             <choice name="Minimize"></choice>
+            <choice name="Shade"></choice>
             <choice name="Close"></choice>
             <choice name="OperationsMenu" value="Operations menu"></choice>
             <choice name="Nothing"></choice>
@@ -226,6 +228,7 @@
             <choice name="Lower"></choice>
             <choice name="ToggleRaiseAndLower" value="Toggle raise and lower"></choice>
             <choice name="Minimize"></choice>
+            <choice name="Shade"></choice>
             <choice name="Close"></choice>
             <choice name="OperationsMenu" value="Operations menu"></choice>
             <choice name="Nothing"></choice>
@@ -242,6 +245,7 @@
           <choice name="Lower"></choice>
           <choice name="ToggleRaiseAndLower" value="Toggle raise and lower"></choice>
           <choice name="Minimize"></choice>
+          <choice name="Shade"></choice>
           <choice name="Close"></choice>
           <choice name="OperationsMenu" value="Operations menu"></choice>
           <choice name="Nothing"></choice>
@@ -249,9 +253,8 @@
     </entry>
 
     <entry key="CommandWindow1" type="Enum">
-      <default>ActivateRaiseOnReleaseAndPassClick</default>
+      <default>ActivateRaisePassClick</default>
       <choices>
-          <choice name="ActivateRaiseOnReleaseAndPassClick" value="Activate, pass click and raise on release"></choice>
           <choice name="ActivateRaisePassClick" value="Activate, raise and pass click"></choice>
           <choice name="ActivatePassClick" value="Activate and pass click"></choice>
           <choice name="Activate"></choice>
@@ -308,7 +311,6 @@
           <choice name="Minimize"></choice>
           <choice name="DecreaseOpacity" value="Decrease Opacity"></choice>
           <choice name="IncreaseOpactiy" value="Increase Opacity"></choice>
-          <choice name="OperationsMenu" value="Operations menu"></choice>
           <choice name="Nothing"></choice>
       </choices>
     </entry>
@@ -325,7 +327,6 @@
           <choice name="Minimize"></choice>
           <choice name="DecreaseOpacity" value="Decrease Opacity"></choice>
           <choice name="IncreaseOpactiy" value="Increase Opacity"></choice>
-          <choice name="OperationsMenu" value="Operations menu"></choice>
           <choice name="Nothing"></choice>
       </choices>
     </entry>
@@ -342,7 +343,6 @@
           <choice name="Minimize"></choice>
           <choice name="DecreaseOpacity" value="Decrease Opacity"></choice>
           <choice name="IncreaseOpactiy" value="Increase Opacity"></choice>
-          <choice name="OperationsMenu" value="Operations menu"></choice>
           <choice name="Nothing"></choice>
       </choices>
     </entry>
@@ -351,6 +351,7 @@
       <default>Nothing</default>
       <choices>
           <choice name="RaiseLower" value="Raise/Lower"></choice>
+          <choice name="ShadeUnshade" value="Shade/Unshade"></choice>
           <choice name="MaxmizeRestore" value="Maximize/Restore"></choice>
           <choice name="AboveBelow" value="Above/Below"></choice>
           <choice name="PreviousNextDesktop" value="Previous/Next Desktop"></choice>

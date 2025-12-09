@@ -26,11 +26,8 @@
        <verstretch>0</verstretch>
       </sizepolicy>
      </property>
-     <property name="minimum">
-      <number>10</number>
-     </property>
      <property name="maximum">
-      <number>90</number>
+      <number>100</number>
      </property>
      <property name="singleStep">
       <number>5</number>

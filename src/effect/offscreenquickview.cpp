@@ -11,8 +11,8 @@
 #include "effect/effecthandler.h"
 
 #include "logging_p.h"
-#include "opengl/eglcontext.h"
 #include "opengl/glutils.h"
+#include "opengl/openglcontext.h"
 
 #include <QGuiApplication>
 #include <QQmlComponent>
@@ -71,14 +71,10 @@ public:
 class Q_DECL_HIDDEN OffscreenQuickScene::Private
 {
 public:
-    Private(OffscreenQuickScene *q)
-        : q(q)
+    Private()
     {
     }
 
-    void createItem(const QVariantMap &initialProperties);
-
-    OffscreenQuickScene *q;
     std::unique_ptr<QQmlComponent> qmlComponent;
     std::unique_ptr<QQuickItem> quickItem;
 };
@@ -103,7 +99,7 @@ OffscreenQuickView::OffscreenQuickView(ExportMode exportMode, bool alpha)
     if (!usingGl) {
         qCDebug(LIBKWINEFFECTS) << "QtQuick Software rendering mode detected";
         d->m_useBlit = true;
-        // explicitly do not call QQuickRenderControl::initialize, see Qt docs
+        // explicilty do not call QQuickRenderControl::initialize, see Qt docs
     } else {
         QSurfaceFormat format;
         format.setOption(QSurfaceFormat::ResetNotification);
@@ -219,7 +215,7 @@ void OffscreenQuickView::update()
     }
 
     bool usingGl = d->m_glcontext != nullptr;
-    EglContext *previousContext = EglContext::currentContext();
+    OpenGlContext *previousContext = OpenGlContext::currentContext();
 
     if (usingGl) {
         if (!d->m_glcontext->makeCurrent(d->m_offscreenSurface.get())) {
@@ -244,7 +240,6 @@ void OffscreenQuickView::update()
             if (!d->m_fbo->isValid()) {
                 d->m_fbo.reset();
                 d->m_glcontext->doneCurrent();
-                qCWarning(LIBKWINEFFECTS, "Creating FBO for OffscreenQuickView failed!");
                 return;
             }
         }
@@ -321,7 +316,7 @@ void OffscreenQuickView::forwardMouseEvent(QEvent *e)
     case QEvent::HoverLeave:
     case QEvent::HoverMove: {
         QHoverEvent *he = static_cast<QHoverEvent *>(e);
-        const QPointF widgetPos = d->m_view->mapFromGlobal(he->position());
+        const QPointF widgetPos = d->m_view->mapFromGlobal(he->pos());
         const QPointF oldWidgetPos = d->m_view->mapFromGlobal(he->oldPos());
         QHoverEvent cloneEvent(he->type(), widgetPos, oldWidgetPos, he->modifiers());
         cloneEvent.setAccepted(false);
@@ -478,12 +473,8 @@ GLTexture *OffscreenQuickView::bufferAsTexture()
 {
     if (d->m_useBlit) {
         d->m_textureExport = GLTexture::upload(d->m_image);
-        if (!d->m_textureExport) {
-            qCWarning(LIBKWINEFFECTS, "Uploading texture for OffscreenQuickView failed!");
-        }
     } else {
         if (!d->m_fbo) {
-            qCWarning(LIBKWINEFFECTS, "OffscreenQuickView has no fbo!");
             return nullptr;
         }
         if (!d->m_textureExport) {
@@ -593,7 +584,7 @@ void OffscreenQuickView::Private::updateTouchState(Qt::TouchPointState state, qi
 
 OffscreenQuickScene::OffscreenQuickScene(OffscreenQuickView::ExportMode exportMode, bool alpha)
     : OffscreenQuickView(exportMode, alpha)
-    , d(new OffscreenQuickScene::Private(this))
+    , d(new OffscreenQuickScene::Private)
 {
 }
 
@@ -616,51 +607,32 @@ void OffscreenQuickScene::setSource(const QUrl &source, const QVariantMap &initi
         d->qmlComponent.reset();
         return;
     }
-    d->createItem(initialProperties);
-}
 
-void OffscreenQuickScene::loadFromModule(const QString &uri, const QString &typeName, const QVariantMap &initialProperties)
-{
-    if (!d->qmlComponent) {
-        d->qmlComponent = std::make_unique<QQmlComponent>(effects->qmlEngine());
-    }
+    d->quickItem.reset();
 
-    d->qmlComponent->loadFromModule(uri, typeName);
-    if (d->qmlComponent->isError()) {
-        qCWarning(LIBKWINEFFECTS).nospace() << "Failed to load effect quick view " << (uri + u'.' + typeName) << ": " << d->qmlComponent->errors();
-        d->qmlComponent.reset();
+    std::unique_ptr<QObject> qmlObject(d->qmlComponent->createWithInitialProperties(initialProperties));
+    QQuickItem *item = qobject_cast<QQuickItem *>(qmlObject.get());
+    if (!item) {
+        qCWarning(LIBKWINEFFECTS) << "Root object of effect quick view" << source << "is not a QQuickItem";
         return;
     }
-    d->createItem(initialProperties);
+
+    qmlObject.release();
+    d->quickItem.reset(item);
+
+    item->setParentItem(contentItem());
+
+    auto updateSize = [item, this]() {
+        item->setSize(contentItem()->size());
+    };
+    updateSize();
+    connect(contentItem(), &QQuickItem::widthChanged, item, updateSize);
+    connect(contentItem(), &QQuickItem::heightChanged, item, updateSize);
 }
 
 QQuickItem *OffscreenQuickScene::rootItem() const
 {
     return d->quickItem.get();
-}
-
-void OffscreenQuickScene::Private::createItem(const QVariantMap &initialProperties)
-{
-    quickItem.reset();
-
-    std::unique_ptr<QObject> qmlObject(qmlComponent->createWithInitialProperties(initialProperties));
-    QQuickItem *item = qobject_cast<QQuickItem *>(qmlObject.get());
-    if (!item) {
-        qCWarning(LIBKWINEFFECTS) << "Root object of effect quick view" << qmlComponent->url() << "is not a QQuickItem";
-        return;
-    }
-
-    qmlObject.release();
-    quickItem.reset(item);
-
-    item->setParentItem(q->contentItem());
-
-    auto updateSize = [item, this]() {
-        item->setSize(q->contentItem()->size());
-    };
-    updateSize();
-    connect(q->contentItem(), &QQuickItem::widthChanged, item, updateSize);
-    connect(q->contentItem(), &QQuickItem::heightChanged, item, updateSize);
 }
 
 } // namespace KWin

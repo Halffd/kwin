@@ -160,11 +160,11 @@ uint ConsoleKitSession::terminal() const
     return m_terminal;
 }
 
-std::expected<int, Session::Error> ConsoleKitSession::openRestricted(const QString &fileName)
+int ConsoleKitSession::openRestricted(const QString &fileName)
 {
     struct stat st;
     if (stat(fileName.toUtf8(), &st) < 0) {
-        return std::unexpected(errorFromErrno());
+        return -1;
     }
 
     QDBusMessage message = QDBusMessage::createMethodCall(s_serviceName, m_sessionPath,
@@ -177,24 +177,15 @@ std::expected<int, Session::Error> ConsoleKitSession::openRestricted(const QStri
     if (reply.type() == QDBusMessage::ErrorMessage) {
         qCDebug(KWIN_CORE, "Failed to open %s device (%s)",
                 qPrintable(fileName), qPrintable(reply.errorMessage()));
-        if (reply.errorName() == "System.Error.EBUSY") {
-            return std::unexpected(Error::EBusy);
-        } else {
-            return std::unexpected(Error::Other);
-        }
+        return -1;
     }
 
     const QDBusUnixFileDescriptor descriptor = reply.arguments().constFirst().value<QDBusUnixFileDescriptor>();
     if (!descriptor.isValid()) {
-        return std::unexpected(Error::Other);
+        return -1;
     }
 
-    const int ret = fcntl(descriptor.fileDescriptor(), F_DUPFD_CLOEXEC, 0);
-    if (ret == -1) {
-        return std::unexpected(errorFromErrno());
-    } else {
-        return ret;
-    }
+    return fcntl(descriptor.fileDescriptor(), F_DUPFD_CLOEXEC, 0);
 }
 
 void ConsoleKitSession::closeRestricted(int fileDescriptor)
@@ -228,8 +219,8 @@ void ConsoleKitSession::switchTo(uint terminal)
 
 FileDescriptor ConsoleKitSession::delaySleep(const QString &reason)
 {
-    QDBusMessage message = QDBusMessage::createMethodCall(s_serviceName, s_managerPath,
-                                                          s_managerInterface,
+    QDBusMessage message = QDBusMessage::createMethodCall(s_serviceName, m_seatPath,
+                                                          s_seatInterface,
                                                           QStringLiteral("Inhibit"));
     message.setArguments({QStringLiteral("sleep"), QStringLiteral("compositor"), reason, QStringLiteral("delay")});
 

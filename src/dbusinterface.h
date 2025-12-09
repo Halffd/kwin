@@ -49,14 +49,18 @@ public: // PROPERTIES
     bool showingDesktop() const;
 
 public Q_SLOTS: // METHODS
+    Q_NOREPLY void cascadeDesktop();
     int currentDesktop();
     Q_NOREPLY void killWindow();
     void nextDesktop();
     void previousDesktop();
     Q_NOREPLY void reconfigure();
     bool setCurrentDesktop(int desktop);
+    bool startActivity(const QString &in0);
+    bool stopActivity(const QString &in0);
     QString supportInformation();
     QString activeOutputName();
+    Q_NOREPLY void unclutterDesktop();
     Q_NOREPLY void showDebugConsole();
 
     /**
@@ -138,6 +142,7 @@ class CompositorDBusInterface : public QObject
      * @brief All currently supported OpenGLPlatformInterfaces.
      *
      * Possible values:
+     * @li glx
      * @li egl
      *
      * Values depend on operation mode and compile time options.

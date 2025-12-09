@@ -18,6 +18,9 @@ var blacklist = [
     "kscreenlocker_greet kscreenlocker_greet",
     // KDE Plasma splash screen has to be animated only by the login effect.
     "ksplashqml ksplashqml",
+    // Spectacle can trigger a screenshot from a popup menu
+    "spectacle org.kde.spectacle",
+    "spectacle spectacle",
 ];
 
 function isPopupWindow(window) {

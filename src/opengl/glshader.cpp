@@ -37,7 +37,7 @@ GLShader::GLShader(const QString &vertexfile, const QString &fragmentfile, unsig
 
 GLShader::~GLShader()
 {
-    if (!EglContext::currentContext()) {
+    if (!OpenGlContext::currentContext()) {
         qCWarning(KWIN_OPENGL, "Could not delete shader because no context is current");
         return;
     }
@@ -99,7 +99,7 @@ const QByteArray GLShader::prepareSource(GLenum shaderType, const QByteArray &so
 {
     // Prepare the source code
     QByteArray ba;
-    const auto context = EglContext::currentContext();
+    const auto context = OpenGlContext::currentContext();
     if (context->isOpenGLES() && context->glslVersion() < Version(3, 0)) {
         ba.append("precision highp float;\n");
     }
@@ -192,7 +192,7 @@ void GLShader::bindAttributeLocation(const char *name, int index)
 
 void GLShader::bindFragDataLocation(const char *name, int index)
 {
-    const auto context = EglContext::currentContext();
+    const auto context = OpenGlContext::currentContext();
     if (!context->isOpenGLES() && (context->hasVersion(Version(3, 0)) || context->hasOpenglExtension(QByteArrayLiteral("GL_EXT_gpu_shader4")))) {
         glBindFragDataLocation(m_program, index, name);
     }
@@ -223,7 +223,6 @@ void GLShader::resolveLocations()
     m_matrix4Locations[Mat4Uniform::ColorimetryTransformation] = uniformLocation("colorimetryTransform");
     m_matrix4Locations[Mat4Uniform::DestinationToLMS] = uniformLocation("destinationToLMS");
     m_matrix4Locations[Mat4Uniform::LMSToDestination] = uniformLocation("lmsToDestination");
-    m_matrix4Locations[Mat4Uniform::YuvToRgb] = uniformLocation("yuvToRgb");
 
     m_vec2Locations[Vec2Uniform::Offset] = uniformLocation("offset");
     m_vec2Locations[Vec2Uniform::SourceTransferFunctionParams] = uniformLocation("sourceTransferFunctionParams");
@@ -468,7 +467,7 @@ QMatrix4x4 GLShader::getUniformMatrix4x4(const char *name)
     int location = uniformLocation(name);
     if (location >= 0) {
         GLfloat m[16];
-        EglContext::currentContext()->glGetnUniformfv(m_program, location, sizeof(m), m);
+        OpenGlContext::currentContext()->glGetnUniformfv(m_program, location, sizeof(m), m);
         QMatrix4x4 matrix(m[0], m[4], m[8], m[12],
                           m[1], m[5], m[9], m[13],
                           m[2], m[6], m[10], m[14],
@@ -482,30 +481,22 @@ QMatrix4x4 GLShader::getUniformMatrix4x4(const char *name)
 
 static bool s_disableTonemapping = qEnvironmentVariableIntValue("KWIN_DISABLE_TONEMAPPING") == 1;
 
-void GLShader::setColorspaceUniforms(const std::shared_ptr<ColorDescription> &src, const std::shared_ptr<ColorDescription> &dst, RenderingIntent intent)
+void GLShader::setColorspaceUniforms(const ColorDescription &src, const ColorDescription &dst, RenderingIntent intent)
 {
-    setUniform(Mat4Uniform::ColorimetryTransformation, src->toOther(*dst, intent));
-    setUniform(IntUniform::SourceNamedTransferFunction, src->transferFunction().type);
-    if (src->transferFunction().type == TransferFunction::BT1886) {
-        setUniform(Vec2Uniform::SourceTransferFunctionParams, QVector2D(src->transferFunction().bt1886B(), src->transferFunction().bt1886A()));
-    } else {
-        setUniform(Vec2Uniform::SourceTransferFunctionParams, QVector2D(src->transferFunction().minLuminance, src->transferFunction().maxLuminance - src->transferFunction().minLuminance));
-    }
-    setUniform(FloatUniform::SourceReferenceLuminance, src->referenceLuminance());
-    setUniform(IntUniform::DestinationNamedTransferFunction, dst->transferFunction().type);
-    if (dst->transferFunction().type == TransferFunction::BT1886) {
-        setUniform(Vec2Uniform::DestinationTransferFunctionParams, QVector2D(dst->transferFunction().bt1886B(), dst->transferFunction().bt1886A()));
-    } else {
-        setUniform(Vec2Uniform::DestinationTransferFunctionParams, QVector2D(dst->transferFunction().minLuminance, dst->transferFunction().maxLuminance - dst->transferFunction().minLuminance));
-    }
-    setUniform(FloatUniform::DestinationReferenceLuminance, dst->referenceLuminance());
-    setUniform(FloatUniform::MaxDestinationLuminance, dst->maxHdrLuminance().value_or(10'000));
+    setUniform(Mat4Uniform::ColorimetryTransformation, src.toOther(dst, intent));
+    setUniform(IntUniform::SourceNamedTransferFunction, src.transferFunction().type);
+    setUniform(Vec2Uniform::SourceTransferFunctionParams, QVector2D(src.transferFunction().minLuminance, src.transferFunction().maxLuminance - src.transferFunction().minLuminance));
+    setUniform(FloatUniform::SourceReferenceLuminance, src.referenceLuminance());
+    setUniform(IntUniform::DestinationNamedTransferFunction, dst.transferFunction().type);
+    setUniform(Vec2Uniform::DestinationTransferFunctionParams, QVector2D(dst.transferFunction().minLuminance, dst.transferFunction().maxLuminance - dst.transferFunction().minLuminance));
+    setUniform(FloatUniform::DestinationReferenceLuminance, dst.referenceLuminance());
+    setUniform(FloatUniform::MaxDestinationLuminance, dst.maxHdrLuminance().value_or(10'000));
     if (!s_disableTonemapping && intent == RenderingIntent::Perceptual) {
-        setUniform(FloatUniform::MaxTonemappingLuminance, src->maxHdrLuminance().value_or(src->referenceLuminance()) * dst->referenceLuminance() / src->referenceLuminance());
+        setUniform(FloatUniform::MaxTonemappingLuminance, src.maxHdrLuminance().value_or(src.referenceLuminance()) * dst.referenceLuminance() / src.referenceLuminance());
     } else {
-        setUniform(FloatUniform::MaxTonemappingLuminance, dst->maxHdrLuminance().value_or(10'000));
+        setUniform(FloatUniform::MaxTonemappingLuminance, dst.referenceLuminance());
     }
-    setUniform(Mat4Uniform::DestinationToLMS, dst->containerColorimetry().toLMS());
-    setUniform(Mat4Uniform::LMSToDestination, dst->containerColorimetry().fromLMS());
+    setUniform(Mat4Uniform::DestinationToLMS, dst.containerColorimetry().toLMS());
+    setUniform(Mat4Uniform::LMSToDestination, dst.containerColorimetry().fromLMS());
 }
 }

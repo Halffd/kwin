@@ -8,7 +8,6 @@
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 #include "utils/xcbutils.h"
-#include "atoms.h"
 #include "utils/common.h"
 #include <core/output.h>
 #include <workspace.h>
@@ -18,9 +17,10 @@
 // xcb
 #include <cmath>
 #include <xcb/composite.h>
+#include <xcb/damage.h>
+#include <xcb/glx.h>
 #include <xcb/randr.h>
 #include <xcb/render.h>
-#include <xcb/res.h>
 #include <xcb/shape.h>
 #include <xcb/sync.h>
 #include <xcb/xfixes.h>
@@ -36,6 +36,8 @@ namespace Xcb
 
 static const int COMPOSITE_MAX_MAJOR = 0;
 static const int COMPOSITE_MAX_MINOR = 4;
+static const int DAMAGE_MAX_MAJOR = 1;
+static const int DAMAGE_MIN_MAJOR = 1;
 static const int SYNC_MAX_MAJOR = 3;
 static const int SYNC_MAX_MINOR = 0;
 static const int RANDR_MAX_MAJOR = 1;
@@ -44,16 +46,6 @@ static const int RENDER_MAX_MAJOR = 0;
 static const int RENDER_MAX_MINOR = 11;
 static const int XFIXES_MAX_MAJOR = 5;
 static const int XFIXES_MAX_MINOR = 0;
-
-QList<QByteArray> resOpCodes()
-{
-    return QList<QByteArray>({QByteArrayLiteral("QueryVersion"),
-                              QByteArrayLiteral("QueryClients"),
-                              QByteArrayLiteral("QueryClientResources"),
-                              QByteArrayLiteral("QueryClientPixmapBytes"),
-                              QByteArrayLiteral("QueryClientIds"),
-                              QByteArrayLiteral("QueryResourceBytes")});
-}
 
 QList<QByteArray> shapeOpCodes()
 {
@@ -126,6 +118,24 @@ QList<QByteArray> randrErrorCodes()
                               QByteArrayLiteral("BadCrtc"),
                               QByteArrayLiteral("BadMode"),
                               QByteArrayLiteral("BadProvider")});
+}
+
+QList<QByteArray> damageOpCodes()
+{
+    // see https://www.x.org/releases/X11R7.7/doc/damageproto/damageproto.txt
+    // extracted from <xcb/damage.h>
+    return QList<QByteArray>({QByteArrayLiteral("QueryVersion"),
+                              QByteArrayLiteral("Create"),
+                              QByteArrayLiteral("Destroy"),
+                              QByteArrayLiteral("Subtract"),
+                              QByteArrayLiteral("Add")});
+}
+
+QList<QByteArray> damageErrorCodes()
+{
+    // see https://www.x.org/releases/X11R7.7/doc/damageproto/damageproto.txt
+    // extracted from <xcb/damage.h>
+    return QList<QByteArray>({QByteArrayLiteral("BadDamage")});
 }
 
 QList<QByteArray> compositeOpCodes()
@@ -252,6 +262,69 @@ QList<QByteArray> syncOpCodes()
                               QByteArrayLiteral("AwaitFence")});
 }
 
+static QList<QByteArray> glxOpCodes()
+{
+    return QList<QByteArray>{
+        QByteArrayLiteral(""),
+        QByteArrayLiteral("Render"),
+        QByteArrayLiteral("RenderLarge"),
+        QByteArrayLiteral("CreateContext"),
+        QByteArrayLiteral("DestroyContext"),
+        QByteArrayLiteral("MakeCurrent"),
+        QByteArrayLiteral("IsDirect"),
+        QByteArrayLiteral("QueryVersion"),
+        QByteArrayLiteral("WaitGL"),
+        QByteArrayLiteral("WaitX"),
+        QByteArrayLiteral("CopyContext"),
+        QByteArrayLiteral("SwapBuffers"),
+        QByteArrayLiteral("UseXFont"),
+        QByteArrayLiteral("CreateGLXPixmap"),
+        QByteArrayLiteral("GetVisualConfigs"),
+        QByteArrayLiteral("DestroyGLXPixmap"),
+        QByteArrayLiteral("VendorPrivate"),
+        QByteArrayLiteral("VendorPrivateWithReply"),
+        QByteArrayLiteral("QueryExtensionsString"),
+        QByteArrayLiteral("QueryServerString"),
+        QByteArrayLiteral("ClientInfo"),
+        QByteArrayLiteral("GetFBConfigs"),
+        QByteArrayLiteral("CreatePixmap"),
+        QByteArrayLiteral("DestroyPixmap"),
+        QByteArrayLiteral("CreateNewContext"),
+        QByteArrayLiteral("QueryContext"),
+        QByteArrayLiteral("MakeContextCurrent"),
+        QByteArrayLiteral("CreatePbuffer"),
+        QByteArrayLiteral("DestroyPbuffer"),
+        QByteArrayLiteral("GetDrawableAttributes"),
+        QByteArrayLiteral("ChangeDrawableAttributes"),
+        QByteArrayLiteral("CreateWindow"),
+        QByteArrayLiteral("DeleteWindow"),
+        QByteArrayLiteral("SetClientInfoARB"),
+        QByteArrayLiteral("CreateContextAttribsARB"),
+        QByteArrayLiteral("SetClientInfo2ARB")
+        // Opcodes 36-100 are unused
+        // The GL single commands begin at opcode 101
+    };
+}
+
+static QList<QByteArray> glxErrorCodes()
+{
+    return QList<QByteArray>{
+        QByteArrayLiteral("BadContext"),
+        QByteArrayLiteral("BadContextState"),
+        QByteArrayLiteral("BadDrawable"),
+        QByteArrayLiteral("BadPixmap"),
+        QByteArrayLiteral("BadContextTag"),
+        QByteArrayLiteral("BadCurrentWindow"),
+        QByteArrayLiteral("BadRenderRequest"),
+        QByteArrayLiteral("BadLargeRequest"),
+        QByteArrayLiteral("UnsupportedPrivateRequest"),
+        QByteArrayLiteral("BadFBConfig"),
+        QByteArrayLiteral("BadPbuffer"),
+        QByteArrayLiteral("BadCurrentDrawable"),
+        QByteArrayLiteral("BadWindow"),
+        QByteArrayLiteral("GLXBadProfileARB")};
+}
+
 ExtensionData::ExtensionData()
     : version(0)
     , eventBase(0)
@@ -299,53 +372,62 @@ void Extensions::init()
     Q_ASSERT(c);
     xcb_prefetch_extension_data(c, &xcb_shape_id);
     xcb_prefetch_extension_data(c, &xcb_randr_id);
+    xcb_prefetch_extension_data(c, &xcb_damage_id);
     xcb_prefetch_extension_data(c, &xcb_composite_id);
     xcb_prefetch_extension_data(c, &xcb_xfixes_id);
     xcb_prefetch_extension_data(c, &xcb_render_id);
     xcb_prefetch_extension_data(c, &xcb_sync_id);
-    xcb_prefetch_extension_data(c, &xcb_res_id);
+    xcb_prefetch_extension_data(c, &xcb_glx_id);
 
     m_shape.name = QByteArray("SHAPE");
     m_randr.name = QByteArray("RANDR");
+    m_damage.name = QByteArray("DAMAGE");
     m_composite.name = QByteArray("Composite");
     m_fixes.name = QByteArray("XFIXES");
     m_render.name = QByteArray("RENDER");
     m_sync.name = QByteArray("SYNC");
-    m_res.name = QByteArray("RES");
+    m_glx.name = QByteArray("GLX");
 
     m_shape.opCodes = shapeOpCodes();
     m_randr.opCodes = randrOpCodes();
+    m_damage.opCodes = damageOpCodes();
     m_composite.opCodes = compositeOpCodes();
     m_fixes.opCodes = fixesOpCodes();
     m_render.opCodes = renderOpCodes();
     m_sync.opCodes = syncOpCodes();
-    m_res.opCodes = resOpCodes();
+    m_glx.opCodes = glxOpCodes();
 
     m_randr.errorCodes = randrErrorCodes();
+    m_damage.errorCodes = damageErrorCodes();
     m_fixes.errorCodes = fixesErrorCodes();
+    m_glx.errorCodes = glxErrorCodes();
 
     extensionQueryReply(xcb_get_extension_data(c, &xcb_shape_id), &m_shape);
     extensionQueryReply(xcb_get_extension_data(c, &xcb_randr_id), &m_randr);
+    extensionQueryReply(xcb_get_extension_data(c, &xcb_damage_id), &m_damage);
     extensionQueryReply(xcb_get_extension_data(c, &xcb_composite_id), &m_composite);
     extensionQueryReply(xcb_get_extension_data(c, &xcb_xfixes_id), &m_fixes);
     extensionQueryReply(xcb_get_extension_data(c, &xcb_render_id), &m_render);
     extensionQueryReply(xcb_get_extension_data(c, &xcb_sync_id), &m_sync);
-    extensionQueryReply(xcb_get_extension_data(c, &xcb_res_id), &m_res);
+    extensionQueryReply(xcb_get_extension_data(c, &xcb_glx_id), &m_glx);
 
     // extension specific queries
     xcb_shape_query_version_cookie_t shapeVersion;
     xcb_randr_query_version_cookie_t randrVersion;
+    xcb_damage_query_version_cookie_t damageVersion;
     xcb_composite_query_version_cookie_t compositeVersion;
     xcb_xfixes_query_version_cookie_t xfixesVersion;
     xcb_render_query_version_cookie_t renderVersion;
     xcb_sync_initialize_cookie_t syncVersion;
-    xcb_res_query_version_cookie_t resVersion;
     if (m_shape.present) {
         shapeVersion = xcb_shape_query_version_unchecked(c);
     }
     if (m_randr.present) {
         randrVersion = xcb_randr_query_version_unchecked(c, RANDR_MAX_MAJOR, RANDR_MAX_MINOR);
         xcb_randr_select_input(connection(), rootWindow(), XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
+    }
+    if (m_damage.present) {
+        damageVersion = xcb_damage_query_version_unchecked(c, DAMAGE_MAX_MAJOR, DAMAGE_MIN_MAJOR);
     }
     if (m_composite.present) {
         compositeVersion = xcb_composite_query_version_unchecked(c, COMPOSITE_MAX_MAJOR, COMPOSITE_MAX_MINOR);
@@ -359,15 +441,15 @@ void Extensions::init()
     if (m_sync.present) {
         syncVersion = xcb_sync_initialize(c, SYNC_MAX_MAJOR, SYNC_MAX_MINOR);
     }
-    if (m_res.present) {
-        resVersion = xcb_res_query_version(c, XCB_RES_MAJOR_VERSION, XCB_RES_MINOR_VERSION);
-    }
     // handle replies
     if (m_shape.present) {
         initVersion<xcb_shape_query_version_reply_t>(shapeVersion, &xcb_shape_query_version_reply, &m_shape);
     }
     if (m_randr.present) {
         initVersion<xcb_randr_query_version_reply_t>(randrVersion, &xcb_randr_query_version_reply, &m_randr);
+    }
+    if (m_damage.present) {
+        initVersion<xcb_damage_query_version_reply_t>(damageVersion, &xcb_damage_query_version_reply, &m_damage);
     }
     if (m_composite.present) {
         initVersion<xcb_composite_query_version_reply_t>(compositeVersion, &xcb_composite_query_version_reply, &m_composite);
@@ -381,19 +463,13 @@ void Extensions::init()
     if (m_sync.present) {
         initVersion<xcb_sync_initialize_reply_t>(syncVersion, &xcb_sync_initialize_reply, &m_sync);
     }
-    if (m_res.present) {
-        if (auto reply = xcb_res_query_version_reply(c, resVersion, nullptr)) {
-            m_res.version = reply->server_major * 0x10 + reply->server_minor;
-            free(reply);
-        }
-    }
     qCDebug(KWIN_CORE) << "Extensions: shape: 0x" << QString::number(m_shape.version, 16)
                        << " composite: 0x" << QString::number(m_composite.version, 16)
                        << " render: 0x" << QString::number(m_render.version, 16)
                        << " fixes: 0x" << QString::number(m_fixes.version, 16)
                        << " randr: 0x" << QString::number(m_randr.version, 16)
                        << " sync: 0x" << QString::number(m_sync.version, 16)
-                       << " res: 0x" << QString::number(m_res.version, 16);
+                       << " damage: 0x " << QString::number(m_damage.version, 16);
 }
 
 void Extensions::extensionQueryReply(const xcb_query_extension_reply_t *extension, ExtensionData *dataToFill)
@@ -405,6 +481,11 @@ void Extensions::extensionQueryReply(const xcb_query_extension_reply_t *extensio
     dataToFill->eventBase = extension->first_event;
     dataToFill->errorBase = extension->first_error;
     dataToFill->majorOpcode = extension->major_opcode;
+}
+
+int Extensions::damageNotifyEvent() const
+{
+    return m_damage.eventBase + XCB_DAMAGE_NOTIFY;
 }
 
 bool Extensions::hasShape(xcb_window_t w) const
@@ -465,11 +546,12 @@ QList<ExtensionData> Extensions::extensions() const
     return {
         m_shape,
         m_randr,
+        m_damage,
         m_composite,
         m_render,
         m_fixes,
         m_sync,
-        m_res};
+        m_glx};
 }
 
 //****************************************
@@ -588,62 +670,6 @@ QRectF nativeFloor(const QRectF &rect)
     const QRectF outputRect = output->mapFromGlobal(rect);
     return output->mapToGlobal(QRectF(nativeFloor(outputRect.left()), nativeFloor(outputRect.top()),
                                       nativeFloor(outputRect.width()), nativeFloor(outputRect.height())));
-}
-
-QString atomName(xcb_atom_t atom)
-{
-    xcb_connection_t *xcbConn = kwinApp()->x11Connection();
-    xcb_get_atom_name_cookie_t nameCookie = xcb_get_atom_name(xcbConn, atom);
-    xcb_get_atom_name_reply_t *nameReply = xcb_get_atom_name_reply(xcbConn, nameCookie, nullptr);
-    if (!nameReply) {
-        return QString();
-    }
-
-    const size_t length = xcb_get_atom_name_name_length(nameReply);
-    QString name = QString::fromLatin1(xcb_get_atom_name_name(nameReply), length);
-    free(nameReply);
-    return name;
-}
-
-QStringList atomToMimeTypes(xcb_atom_t atom)
-{
-    QStringList mimeTypes;
-
-    if (atom == XCB_ATOM_NONE) {
-        // Nothing
-    } else if (atom == atoms->utf8_string) {
-        mimeTypes << QStringLiteral("text/plain;charset=utf-8");
-    } else if (atom == atoms->text) {
-        mimeTypes << QStringLiteral("text/plain");
-    } else if (atom == atoms->uri_list) {
-        mimeTypes << QStringLiteral("text/uri-list") << QStringLiteral("text/x-uri");
-    } else if (atom == atoms->moz_url) {
-        mimeTypes << QStringLiteral("text/x-moz-url");
-    } else if (atom == atoms->netscape_url) {
-        mimeTypes << QStringLiteral("_NETSCAPE_URL");
-    } else {
-        mimeTypes << Xcb::atomName(atom);
-    }
-    return mimeTypes;
-}
-
-xcb_atom_t mimeTypeToAtom(const QString &mimeType)
-{
-    if (mimeType.isEmpty()) {
-        return XCB_ATOM_NONE;
-    } else if (mimeType == QStringLiteral("text/plain;charset=utf-8")) {
-        return atoms->utf8_string;
-    } else if (mimeType == QStringLiteral("text/plain")) {
-        return atoms->text;
-    } else if (mimeType == QStringLiteral("text/uri-list") || mimeType == QStringLiteral("text/x-uri")) {
-        return atoms->uri_list;
-    } else if (mimeType == QStringLiteral("text/x-moz-url")) {
-        return atoms->moz_url;
-    } else if (mimeType == QStringLiteral("_NETSCAPE_URL")) {
-        return atoms->netscape_url;
-    } else {
-        return Xcb::Atom(mimeType.toLatin1(), false, connection());
-    }
 }
 
 } // namespace Xcb

@@ -12,6 +12,7 @@
 #include "opengl/eglswapchain.h"
 #include "opengl/glrendertimequery.h"
 #include "opengl/glutils.h"
+#include "platformsupport/scenes/opengl/basiceglsurfacetexture_wayland.h"
 #include "utils/softwarevsyncmonitor.h"
 #include "virtual_backend.h"
 #include "virtual_logging.h"
@@ -22,26 +23,24 @@
 namespace KWin
 {
 
-static const bool s_bufferAgeEnabled = qEnvironmentVariable("KWIN_USE_BUFFER_AGE") != QStringLiteral("0");
-
-VirtualEglLayer::VirtualEglLayer(BackendOutput *output, VirtualEglBackend *backend)
-    : OutputLayer(output, OutputLayerType::Primary)
+VirtualEglLayer::VirtualEglLayer(Output *output, VirtualEglBackend *backend)
+    : OutputLayer(output)
     , m_backend(backend)
 {
 }
 
-VirtualEglLayer::~VirtualEglLayer()
+std::shared_ptr<GLTexture> VirtualEglLayer::texture() const
 {
-    m_backend->openglContext()->makeCurrent();
+    return m_current->texture();
 }
 
 std::optional<OutputLayerBeginFrameInfo> VirtualEglLayer::doBeginFrame()
 {
-    m_backend->openglContext()->makeCurrent();
+    m_backend->makeCurrent();
 
     const QSize nativeSize = m_output->modeSize();
     if (!m_swapchain || m_swapchain->size() != nativeSize) {
-        m_swapchain = EglSwapchain::create(m_backend->drmDevice()->allocator(), m_backend->openglContext(), nativeSize, DRM_FORMAT_XRGB8888, m_backend->supportedFormats()[DRM_FORMAT_XRGB8888]);
+        m_swapchain = EglSwapchain::create(m_backend->drmDevice()->allocator(), m_backend->openglContext(), nativeSize, DRM_FORMAT_XRGB8888, {DRM_FORMAT_MOD_INVALID});
         if (!m_swapchain) {
             return std::nullopt;
         }
@@ -57,17 +56,15 @@ std::optional<OutputLayerBeginFrameInfo> VirtualEglLayer::doBeginFrame()
 
     return OutputLayerBeginFrameInfo{
         .renderTarget = RenderTarget(m_current->framebuffer()),
-        .repaint = s_bufferAgeEnabled ? m_damageJournal.accumulate(m_current->age(), infiniteRegion()) : infiniteRegion(),
+        .repaint = infiniteRegion(),
     };
 }
 
-bool VirtualEglLayer::doEndFrame(const QRegion &renderedDeviceRegion, const QRegion &damagedDeviceRegion, OutputFrame *frame)
+bool VirtualEglLayer::doEndFrame(const QRegion &renderedRegion, const QRegion &damagedRegion, OutputFrame *frame)
 {
     m_query->end();
     frame->addRenderTimeQuery(std::move(m_query));
     glFlush(); // flush pending rendering commands.
-    m_swapchain->release(m_current, FileDescriptor{});
-    m_damageJournal.add(damagedDeviceRegion);
     return true;
 }
 
@@ -81,28 +78,15 @@ QHash<uint32_t, QList<uint64_t>> VirtualEglLayer::supportedDrmFormats() const
     return m_backend->supportedFormats();
 }
 
-void VirtualEglLayer::releaseBuffers()
-{
-    m_current.reset();
-    m_swapchain.reset();
-}
-
-GLTexture *VirtualEglLayer::texture() const
-{
-    return m_current ? m_current->texture().get() : nullptr;
-}
-
 VirtualEglBackend::VirtualEglBackend(VirtualBackend *b)
-    : m_backend(b)
+    : AbstractEglBackend()
+    , m_backend(b)
 {
 }
 
 VirtualEglBackend::~VirtualEglBackend()
 {
-    const auto outputs = m_backend->outputs();
-    for (BackendOutput *output : outputs) {
-        static_cast<VirtualOutput *>(output)->setOutputLayer(nullptr);
-    }
+    m_outputs.clear();
     cleanup();
 }
 
@@ -155,30 +139,58 @@ void VirtualEglBackend::init()
         return;
     }
 
+    setSupportsBufferAge(false);
     initWayland();
 
     const auto outputs = m_backend->outputs();
-    for (BackendOutput *output : outputs) {
+    for (Output *output : outputs) {
         addOutput(output);
     }
 
     connect(m_backend, &VirtualBackend::outputAdded, this, &VirtualEglBackend::addOutput);
+    connect(m_backend, &VirtualBackend::outputRemoved, this, &VirtualEglBackend::removeOutput);
 }
 
 bool VirtualEglBackend::initRenderingContext()
 {
-    return createContext(EGL_NO_CONFIG_KHR) && openglContext()->makeCurrent();
+    return createContext(EGL_NO_CONFIG_KHR) && makeCurrent();
 }
 
-void VirtualEglBackend::addOutput(BackendOutput *output)
+void VirtualEglBackend::addOutput(Output *output)
 {
-    openglContext()->makeCurrent();
-    static_cast<VirtualOutput *>(output)->setOutputLayer(std::make_unique<VirtualEglLayer>(output, this));
+    makeCurrent();
+    m_outputs[output] = std::make_unique<VirtualEglLayer>(output, this);
 }
 
-QList<OutputLayer *> VirtualEglBackend::compatibleOutputLayers(BackendOutput *output)
+void VirtualEglBackend::removeOutput(Output *output)
 {
-    return {static_cast<VirtualOutput *>(output)->outputLayer()};
+    makeCurrent();
+    m_outputs.erase(output);
+}
+
+std::unique_ptr<SurfaceTexture> VirtualEglBackend::createSurfaceTextureWayland(SurfacePixmap *pixmap)
+{
+    return std::make_unique<BasicEGLSurfaceTextureWayland>(this, pixmap);
+}
+
+OutputLayer *VirtualEglBackend::primaryLayer(Output *output)
+{
+    return m_outputs[output].get();
+}
+
+bool VirtualEglBackend::present(Output *output, const std::shared_ptr<OutputFrame> &frame)
+{
+    static_cast<VirtualOutput *>(output)->present(frame);
+    return true;
+}
+
+std::pair<std::shared_ptr<KWin::GLTexture>, ColorDescription> VirtualEglBackend::textureForOutput(Output *output) const
+{
+    auto it = m_outputs.find(output);
+    if (it == m_outputs.end()) {
+        return {nullptr, ColorDescription::sRGB};
+    }
+    return std::make_pair(it->second->texture(), ColorDescription::sRGB);
 }
 
 } // namespace

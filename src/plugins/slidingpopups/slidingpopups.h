@@ -10,6 +10,9 @@
 
 #pragma once
 
+// Include with base class for effects.
+#include "config-kwin.h"
+
 #include "effect/effect.h"
 #include "effect/effectwindow.h"
 #include "effect/timeline.h"
@@ -30,11 +33,11 @@ public:
     SlidingPopupsEffect();
     ~SlidingPopupsEffect() override;
 
-    void prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
-    void paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceGeometry, WindowPaintData &data) override;
+    void prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
+    void paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, QRegion region, WindowPaintData &data) override;
+    void postPaintWindow(EffectWindow *w) override;
     void reconfigure(ReconfigureFlags flags) override;
     bool isActive() const override;
-    void postPaintScreen() override;
 
     int requestedEffectChainPosition() const override
     {
@@ -53,6 +56,9 @@ private Q_SLOTS:
     void slotWindowAdded(EffectWindow *w);
     void slotWindowClosed(EffectWindow *w);
     void slotWindowDeleted(EffectWindow *w);
+#if KWIN_BUILD_X11
+    void slotPropertyNotify(EffectWindow *w, long atom);
+#endif
     void slotWaylandSlideOnShowChanged(EffectWindow *w);
     void slotWindowHiddenChanged(EffectWindow *w);
 
@@ -68,6 +74,9 @@ private:
 
     static SlideManagerInterface *s_slideManager;
     static QTimer *s_slideManagerRemoveTimer;
+#if KWIN_BUILD_X11
+    long m_atom = 0;
+#endif
 
     int m_slideLength;
     std::chrono::milliseconds m_slideInDuration;
@@ -104,8 +113,6 @@ private:
         int slideLength;
     };
     QHash<const EffectWindow *, AnimationData> m_animationsData;
-
-    QRectF damagedLogicalArea(EffectWindow *w, const AnimationData animData);
 };
 
 inline int SlidingPopupsEffect::slideInDuration() const

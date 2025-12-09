@@ -53,6 +53,7 @@ public:
 
     void reconfigure(ReconfigureFlags) override;
     int requestedEffectChainPosition() const override;
+    void grabbedKeyboardEvent(QKeyEvent *e) override;
     bool borderActivated(ElectricBorder border) override;
 
     qreal partialActivationFactor() const;

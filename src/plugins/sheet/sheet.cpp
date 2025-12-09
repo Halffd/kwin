@@ -47,7 +47,7 @@ void SheetEffect::reconfigure(ReconfigureFlags flags)
     m_duration = std::chrono::milliseconds(int(d));
 }
 
-void SheetEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
+void SheetEffect::prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
 {
     auto animationIt = m_animations.find(w);
     if (animationIt != m_animations.end()) {
@@ -55,7 +55,7 @@ void SheetEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePai
         data.setTransformed();
     }
 
-    effects->prePaintWindow(view, w, data, presentTime);
+    effects->prePaintWindow(w, data, presentTime);
 }
 
 void SheetEffect::apply(EffectWindow *window, int mask, WindowPaintData &data, WindowQuadList &quads)
@@ -105,9 +105,10 @@ void SheetEffect::apply(EffectWindow *window, int mask, WindowPaintData &data, W
     data.multiplyOpacity(t);
 }
 
-void SheetEffect::postPaintScreen()
+void SheetEffect::postPaintWindow(EffectWindow *w)
 {
-    for (auto animationIt = m_animations.begin(); animationIt != m_animations.end();) {
+    auto animationIt = m_animations.begin();
+    while (animationIt != m_animations.end()) {
         EffectWindow *w = animationIt.key();
         w->addRepaintFull();
         if ((*animationIt).timeLine.done()) {
@@ -122,7 +123,7 @@ void SheetEffect::postPaintScreen()
         effects->addRepaintFull();
     }
 
-    effects->postPaintScreen();
+    effects->postPaintWindow(w);
 }
 
 bool SheetEffect::isActive() const

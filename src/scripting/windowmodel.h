@@ -17,7 +17,7 @@
 namespace KWin
 {
 class Window;
-class LogicalOutput;
+class Output;
 
 class WindowModel : public QAbstractListModel
 {
@@ -114,7 +114,7 @@ private:
 
     WindowModel *m_windowModel = nullptr;
     std::optional<QString> m_activity;
-    QPointer<LogicalOutput> m_output;
+    QPointer<Output> m_output;
     QPointer<VirtualDesktop> m_desktop;
     QString m_filter;
     std::optional<WindowTypes> m_windowType;

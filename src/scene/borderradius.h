@@ -35,7 +35,6 @@ public:
     qreal topRight() const;
     qreal bottomRight() const;
 
-    bool clips(const QRectF &rect, const QRectF &bounds) const;
     QRegion clip(const QRegion &region, const QRectF &bounds) const;
 
     BorderRadius scaled(qreal scale) const;

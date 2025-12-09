@@ -38,7 +38,7 @@
         <item row="1" column="0" rowspan="2" colspan="3">
          <widget class="QCheckBox" name="showDesktop">
           <property name="text">
-           <string>Include &quot;Peek at Desktop&quot; entry</string>
+           <string>Include &quot;Show Desktop&quot; entry</string>
           </property>
          </widget>
         </item>
@@ -647,7 +647,7 @@
             </widget>
            </item>
            <item>
-            <widget class="QPushButton" name="effectPreviewButton">
+            <widget class="QPushButton" name="effectConfigButton">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
                <horstretch>0</horstretch>
@@ -720,7 +720,7 @@
   <tabstop>kcfg_HighlightWindows</tabstop>
   <tabstop>kcfg_ShowTabBox</tabstop>
   <tabstop>effectCombo</tabstop>
-  <tabstop>effectPreviewButton</tabstop>
+  <tabstop>effectConfigButton</tabstop>
   <tabstop>switchingModeCombo</tabstop>
   <tabstop>showDesktop</tabstop>
   <tabstop>oneAppWindow</tabstop>

@@ -15,7 +15,7 @@
 
 namespace KWin
 {
-class LogicalOutput;
+class Output;
 
 class InputPanelV1Window : public WaylandWindow
 {
@@ -58,6 +58,10 @@ public:
     void closeWindow() override
     {
     }
+    bool takeFocus() override
+    {
+        return false;
+    }
     bool wantsInput() const override
     {
         return false;
@@ -67,7 +71,7 @@ public:
         return true;
     }
     WindowType windowType() const override;
-    RectF frameRectToBufferRect(const RectF &rect) const override;
+    QRectF frameRectToBufferRect(const QRectF &rect) const override;
 
     Mode mode() const
     {
@@ -76,10 +80,9 @@ public:
     void allow();
     void show();
     void hide();
-    bool wasUnmapped() const;
 
 protected:
-    void moveResizeInternal(const RectF &rect, MoveResizeMode mode) override;
+    void moveResizeInternal(const QRectF &rect, MoveResizeMode mode) override;
     void doSetNextTargetScale() override;
     void doSetPreferredBufferTransform() override;
     void doSetPreferredColorDescription() override;
@@ -90,14 +93,12 @@ private:
     void resetPosition();
     void reposition();
     void handleMapped();
-    void handleUnmapped();
     void maybeShow();
 
-    RectF m_windowGeometry;
+    QRectF m_windowGeometry;
     Mode m_mode = Mode::None;
     bool m_allowed = false;
-    bool m_requestedToBeShown = false;
-    bool m_wasEverMapped = false;
+    bool m_virtualKeyboardShouldBeShown = false;
     const QPointer<InputPanelSurfaceV1Interface> m_panelSurface;
     QTimer m_rescalingTimer;
 };

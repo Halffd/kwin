@@ -45,7 +45,7 @@ FrogColorManagementSurfaceV1::~FrogColorManagementSurfaceV1()
     if (m_surface) {
         const auto priv = SurfaceInterfacePrivate::get(m_surface);
         priv->pending->colorDescription = ColorDescription::sRGB;
-        priv->pending->committed |= SurfaceState::Field::ColorDescription;
+        priv->pending->colorDescriptionIsSet = true;
         priv->frogColorManagement = nullptr;
     }
 }
@@ -56,7 +56,6 @@ static QtWaylandServer::frog_color_managed_surface::transfer_function kwinToFrog
     case TransferFunction::sRGB:
         return QtWaylandServer::frog_color_managed_surface::transfer_function_srgb;
     case TransferFunction::gamma22:
-    case TransferFunction::BT1886:
         return QtWaylandServer::frog_color_managed_surface::transfer_function_gamma_22;
     case TransferFunction::PerceptualQuantizer:
         return QtWaylandServer::frog_color_managed_surface::transfer_function_st2084_pq;
@@ -71,21 +70,21 @@ uint16_t encodePrimary(float primary)
     return uint16_t(std::clamp<float>(std::round(primary / 0.00002), 0, 0xC350));
 }
 
-void FrogColorManagementSurfaceV1::setPreferredColorDescription(const std::shared_ptr<ColorDescription> &colorDescription)
+void FrogColorManagementSurfaceV1::setPreferredColorDescription(const ColorDescription &colorDescription)
 {
-    const auto &color = colorDescription->masteringColorimetry();
+    const auto color = colorDescription.masteringColorimetry().value_or(colorDescription.containerColorimetry());
     const xyY red = color.red().toxyY();
     const xyY green = color.green().toxyY();
     const xyY blue = color.blue().toxyY();
     const xyY white = color.white().toxyY();
-    send_preferred_metadata(kwinToFrogTransferFunction(colorDescription->transferFunction()),
+    send_preferred_metadata(kwinToFrogTransferFunction(colorDescription.transferFunction()),
                             encodePrimary(red.x), encodePrimary(red.y),
                             encodePrimary(green.x), encodePrimary(green.y),
                             encodePrimary(blue.x), encodePrimary(blue.y),
                             encodePrimary(white.x), encodePrimary(white.y),
-                            std::round(colorDescription->maxHdrLuminance().value_or(0)),
-                            std::round(colorDescription->minLuminance() / 0.0001),
-                            std::round(colorDescription->maxAverageLuminance().value_or(0)));
+                            std::round(colorDescription.maxHdrLuminance().value_or(0)),
+                            std::round(colorDescription.minLuminance() / 0.0001),
+                            std::round(colorDescription.maxAverageLuminance().value_or(0)));
 }
 
 void FrogColorManagementSurfaceV1::frog_color_managed_surface_set_known_transfer_function(Resource *resource, uint32_t transfer_function)
@@ -111,10 +110,10 @@ void FrogColorManagementSurfaceV1::frog_color_managed_surface_set_known_containe
     switch (primaries) {
     case primaries_undefined:
     case primaries_rec709:
-        m_containerColorimetry = Colorimetry::BT709;
+        m_containerColorimetry = NamedColorimetry::BT709;
         break;
     case primaries_rec2020:
-        m_containerColorimetry = Colorimetry::BT2020;
+        m_containerColorimetry = NamedColorimetry::BT2020;
         break;
     }
     updateColorDescription();
@@ -190,17 +189,17 @@ void FrogColorManagementSurfaceV1::updateColorDescription()
             // quite badly when the more correct reference of 80 nits is used
             referenceLuminance = 203;
         }
-        priv->pending->colorDescription = std::make_shared<ColorDescription>(ColorDescription{
+        priv->pending->colorDescription = ColorDescription{
             m_containerColorimetry,
             m_transferFunction,
             referenceLuminance,
             m_minMasteringLuminance.value_or(m_transferFunction.minLuminance),
             m_maxAverageLuminance,
             m_maxPeakBrightness,
-            m_masteringColorimetry.value_or(m_containerColorimetry),
-            Colorimetry::BT709,
-        });
-        priv->pending->committed |= SurfaceState::Field::ColorDescription;
+            m_masteringColorimetry,
+            Colorimetry::fromName(NamedColorimetry::BT709),
+        };
+        priv->pending->colorDescriptionIsSet = true;
     }
 }
 

@@ -1,5 +1,5 @@
 # KI18N Translation Domain for this library
-add_definitions(-DTRANSLATION_DOMAIN=\"kcm_kwinrules\")
+add_definitions(-DTRANSLATION_DOMAIN=\"kcm_kwinrules_x11\")
 add_definitions(-DKCMRULES)
 
 set(kwinrules_SRCS
@@ -7,6 +7,7 @@ set(kwinrules_SRCS
     ../../rules.cpp
     ../../utils/common.cpp
     ../../virtualdesktopsdbustypes.cpp
+    kwinsrc.cpp
     optionsmodel.cpp
     ruleitem.cpp
     rulesmodel.cpp
@@ -21,6 +22,7 @@ set_property(TARGET KWinRulesObjects PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 if (KWIN_BUILD_X11)
     set(kwin_kcm_rules_XCB_LIBS
+        XCB::CURSOR
         XCB::XCB
         XCB::XFIXES
     )
@@ -34,7 +36,6 @@ set(kcm_libs
     KF6::KCMUtilsQuick
     KF6::WindowSystem
     KF6::XmlGui
-    KF6::ColorScheme
 )
 
 if (KWIN_BUILD_ACTIVITIES)
@@ -42,5 +43,5 @@ if (KWIN_BUILD_ACTIVITIES)
 endif()
 target_link_libraries(KWinRulesObjects ${kcm_libs} ${kwin_kcm_rules_XCB_LIBS})
 
-kcmutils_add_qml_kcm(kcm_kwinrules SOURCES kcmrules.cpp)
-target_link_libraries(kcm_kwinrules PRIVATE KWinRulesObjects)
+kcmutils_add_qml_kcm(kcm_kwinrules_x11 SOURCES kcmrules.cpp)
+target_link_libraries(kcm_kwinrules_x11 PRIVATE KWinRulesObjects)

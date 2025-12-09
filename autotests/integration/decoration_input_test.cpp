@@ -120,6 +120,10 @@ void DecorationInputTest::initTestCase()
     qRegisterMetaType<KWin::Window *>();
     qRegisterMetaType<KWin::InternalWindow *>();
     QVERIFY(waylandServer()->init(s_socketName));
+    Test::setOutputConfig({
+        QRect(0, 0, 1280, 1024),
+        QRect(1280, 0, 1280, 1024),
+    });
 
     // change some options
     KSharedConfig::Ptr config = KSharedConfig::openConfig(QString(), KConfig::SimpleConfig);
@@ -131,10 +135,6 @@ void DecorationInputTest::initTestCase()
     kwinApp()->setConfig(config);
 
     kwinApp()->start();
-    Test::setOutputConfig({
-        QRect(0, 0, 1280, 1024),
-        QRect(1280, 0, 1280, 1024),
-    });
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 2);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -655,9 +655,9 @@ void DecorationInputTest::testModifierScrollOpacity()
     }
     QFETCH(int, modifierKey);
     Test::keyboardKeyPressed(modifierKey, timestamp++);
-    Test::pointerAxisVertical(-15, timestamp++);
+    Test::pointerAxisVertical(-5, timestamp++);
     QCOMPARE(window->opacity(), 0.6);
-    Test::pointerAxisVertical(15, timestamp++);
+    Test::pointerAxisVertical(5, timestamp++);
     QCOMPARE(window->opacity(), 0.5);
     Test::keyboardKeyReleased(modifierKey, timestamp++);
     if (capsLock) {

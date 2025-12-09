@@ -10,7 +10,9 @@
 // Qt
 #include <QStringList>
 // Wayland
-#include <qwayland-server-primary-selection-unstable-v1.h>
+#include <qwayland-server-wp-primary-selection-unstable-v1.h>
+// system
+#include <unistd.h>
 
 namespace KWin
 {
@@ -59,9 +61,10 @@ PrimarySelectionSourceV1Interface::PrimarySelectionSourceV1Interface(::wl_resour
 
 PrimarySelectionSourceV1Interface::~PrimarySelectionSourceV1Interface() = default;
 
-void PrimarySelectionSourceV1Interface::requestData(const QString &mimeType, FileDescriptor fd)
+void PrimarySelectionSourceV1Interface::requestData(const QString &mimeType, qint32 fd)
 {
-    d->send_send(mimeType, fd.get());
+    d->send_send(mimeType, fd);
+    close(fd);
 }
 
 void PrimarySelectionSourceV1Interface::cancel()

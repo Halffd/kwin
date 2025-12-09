@@ -12,10 +12,6 @@
 
 #include "effect/effect.h"
 
-#include <memory>
-
-class QAction;
-
 namespace KWin
 {
 
@@ -32,7 +28,7 @@ public:
     ~MagnifierEffect() override;
     void reconfigure(ReconfigureFlags) override;
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime) override;
-    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen) override;
+    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen) override;
     void postPaintScreen() override;
     bool isActive() const override;
     static bool supported();
@@ -41,7 +37,6 @@ public:
     QSize magnifierSize() const;
     qreal targetZoom() const;
 private Q_SLOTS:
-    void saveInitialZoom();
     void zoomIn();
     void zoomOut();
     void toggle();
@@ -53,20 +48,9 @@ private Q_SLOTS:
 
 private:
     QRect magnifierArea(QPointF pos = cursorPos()) const;
-    QRect visibleArea(QPointF pos = cursorPos()) const;
-    void setTargetZoom(double zoomFactor);
-    void realtimeZoom(double delta);
-
-    std::unique_ptr<QTimer> m_configurationTimer;
     double m_zoom;
     double m_targetZoom;
     double m_zoomFactor;
-    double m_pixelGridZoom;
-    std::unique_ptr<QAction> m_zoomInAxisAction;
-    std::unique_ptr<QAction> m_zoomOutAxisAction;
-    Qt::KeyboardModifiers m_axisModifiers;
-    std::unique_ptr<QAction> m_touchpadAction;
-    double m_lastPinchProgress = 0;
     std::chrono::milliseconds m_lastPresentTime;
     QSize m_magnifierSize;
     std::unique_ptr<GLTexture> m_texture;

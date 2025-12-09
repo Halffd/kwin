@@ -72,19 +72,6 @@ void XwaylandLauncher::setXauthority(const QString &xauthority)
     m_xAuthority = xauthority;
 }
 
-void XwaylandLauncher::addEnvironmentVariables(const QMap<QString, QString> &extraEnvironment)
-{
-    m_extraEnvironment.insert(extraEnvironment);
-}
-
-void XwaylandLauncher::passFileDescriptors(std::vector<FileDescriptor> &&fds)
-{
-    m_fdsToPreserve.reserve(m_fdsToPreserve.size() + fds.size());
-    for (auto & fd : fds) {
-        m_fdsToPreserve.emplace_back(std::move(fd));
-    }
-}
-
 void XwaylandLauncher::enable()
 {
     if (m_enabled) {
@@ -169,18 +156,15 @@ bool XwaylandLauncher::start()
         }
     }
 
-    arguments << QStringLiteral("-displayfd") << QString::number(displayfd->writeEndpoint.get());
-    fdsToPass << displayfd->writeEndpoint.get();
+    arguments << QStringLiteral("-displayfd") << QString::number(displayfd->fds[1].get());
+    fdsToPass << displayfd->fds[1].get();
 
     arguments << QStringLiteral("-wm") << QString::number(wmfd->fds[1].get());
     fdsToPass << wmfd->fds[1].get();
 
     arguments << QStringLiteral("-rootless");
-
 #if HAVE_XWAYLAND_ENABLE_EI_PORTAL
-    if (!options->xwaylandEisNoPrompt()) {
-        arguments << QStringLiteral("-enable-ei-portal");
-    }
+    arguments << QStringLiteral("-enable-ei-portal");
 #endif
 
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
@@ -190,14 +174,6 @@ bool XwaylandLauncher::start()
 
     if (qEnvironmentVariableIntValue("KWIN_XWAYLAND_DEBUG") == 1) {
         env.insert("WAYLAND_DEBUG", QByteArrayLiteral("1"));
-    }
-
-    for (const auto &[variable, value] : m_extraEnvironment.asKeyValueRange()) {
-        env.insert(variable, value);
-    }
-
-    for (const auto &fd : m_fdsToPreserve) {
-        fdsToPass.push_back(fd.get());
     }
 
     m_xwaylandProcess = new QProcess(this);
@@ -219,7 +195,6 @@ bool XwaylandLauncher::start()
             }
         }
     });
-
     connect(m_xwaylandProcess, &QProcess::errorOccurred, this, &XwaylandLauncher::handleXwaylandError);
     connect(m_xwaylandProcess, &QProcess::finished, this, &XwaylandLauncher::handleXwaylandFinished);
 
@@ -229,7 +204,7 @@ bool XwaylandLauncher::start()
     // will quit. So we keep the ready file descriptor open instead of closing it when the socket
     // notifier is activated.
     m_xcbConnectionFd = std::move(wmfd->fds[0]);
-    m_readyFd = std::move(displayfd->readEndpoint);
+    m_readyFd = std::move(displayfd->fds[0]);
     m_readyNotifier = std::make_unique<QSocketNotifier>(m_readyFd.get(), QSocketNotifier::Read);
     connect(m_readyNotifier.get(), &QSocketNotifier::activated, this, [this]() {
         m_readyNotifier.reset();
@@ -292,7 +267,10 @@ void XwaylandLauncher::handleXwaylandFinished(int exitCode, QProcess::ExitStatus
     qCDebug(KWIN_XWL) << "Xwayland process has quit with exit status:" << exitStatus << "exit code:" << exitCode;
 
 #if KWIN_BUILD_NOTIFICATIONS
-    KNotification::event(QStringLiteral("xwaylandcrash"), i18n("Xwayland has crashed"));
+    auto notification = new KNotification(QStringLiteral("xwaylandcrash"));
+    notification->setComponentName(QStringLiteral("kwin-x11"));
+    notification->setText(i18n("Xwayland has crashed"));
+    notification->sendEvent();
 #endif
     m_resetCrashCountTimer->stop();
 

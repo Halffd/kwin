@@ -61,7 +61,6 @@ static const char *const window_type_names[] = {
     "Override", "TopMenu", "Utility", "Splash"};
 // change also the two functions below when adding new entries
 
-#if KWIN_BUILD_X11
 static const char *windowTypeToTxt(WindowType type)
 {
     if (type >= WindowType::Unknown && type <= WindowType::Splash) {
@@ -73,7 +72,6 @@ static const char *windowTypeToTxt(WindowType type)
     qFatal("Unknown Window Type");
     return nullptr;
 }
-#endif
 
 static WindowType txtToWindowType(const char *txt)
 {
@@ -157,8 +155,8 @@ void SessionManager::storeClient(KConfigGroup &cg, int num, X11Window *c)
     cg.writeEntry(QLatin1String("resourceName") + n, c->resourceName());
     cg.writeEntry(QLatin1String("resourceClass") + n, c->resourceClass());
     cg.writeEntry(QLatin1String("geometry") + n, QRectF(c->calculateGravitation(true), c->clientSize()).toRect()); // FRAME
-    cg.writeEntry(QLatin1String("restore") + n, QRectF(c->geometryRestore()));
-    cg.writeEntry(QLatin1String("fsrestore") + n, QRectF(c->fullscreenGeometryRestore()));
+    cg.writeEntry(QLatin1String("restore") + n, c->geometryRestore());
+    cg.writeEntry(QLatin1String("fsrestore") + n, c->fullscreenGeometryRestore());
     cg.writeEntry(QLatin1String("maximize") + n, (int)c->maximizeMode());
     cg.writeEntry(QLatin1String("fullscreen") + n, (int)c->fullScreenMode());
     cg.writeEntry(QLatin1String("desktop") + n, c->desktopId());
@@ -168,13 +166,15 @@ void SessionManager::storeClient(KConfigGroup &cg, int num, X11Window *c)
     cg.writeEntry(QLatin1String("opacity") + n, c->opacity());
     // the config entry is called "sticky" for back. comp. reasons
     cg.writeEntry(QLatin1String("sticky") + n, c->isOnAllDesktops());
+    cg.writeEntry(QLatin1String("shaded") + n, c->isShade());
     // the config entry is called "staysOnTop" for back. comp. reasons
     cg.writeEntry(QLatin1String("staysOnTop") + n, c->keepAbove());
     cg.writeEntry(QLatin1String("keepBelow") + n, c->keepBelow());
     cg.writeEntry(QLatin1String("skipTaskbar") + n, c->originalSkipTaskbar());
     cg.writeEntry(QLatin1String("skipPager") + n, c->skipPager());
     cg.writeEntry(QLatin1String("skipSwitcher") + n, c->skipSwitcher());
-    cg.writeEntry(QLatin1String("decorationPolicy") + n, uint(c->decorationPolicy()));
+    // not really just set by user, but name kept for back. comp. reasons
+    cg.writeEntry(QLatin1String("userNoBorder") + n, c->userNoBorder());
     cg.writeEntry(QLatin1String("windowType") + n, windowTypeToTxt(c->windowType()));
     cg.writeEntry(QLatin1String("shortcut") + n, c->shortcut().toString());
     cg.writeEntry(QLatin1String("stackingOrder") + n, workspace()->unconstrainedStackingOrder().indexOf(c));
@@ -201,44 +201,45 @@ void SessionManager::addSessionInfo(KConfigGroup &cg)
     int active_client = cg.readEntry("active", 0);
     for (int i = 1; i <= count; i++) {
         QString n = QString::number(i);
-        SessionInfo info;
-        info.sessionId = cg.readEntry(QLatin1String("sessionId") + n, QString()).toLatin1();
-        info.windowRole = cg.readEntry(QLatin1String("windowRole") + n, QString());
-        info.wmCommand = cg.readEntry(QLatin1String("wmCommand") + n, QString()).toLatin1();
-        info.resourceName = cg.readEntry(QLatin1String("resourceName") + n, QString());
-        info.resourceClass = cg.readEntry(QLatin1String("resourceClass") + n, QString()).toLower();
-        info.geometry = cg.readEntry(QLatin1String("geometry") + n, QRect());
-        info.restore = cg.readEntry(QLatin1String("restore") + n, QRect());
-        info.fsrestore = cg.readEntry(QLatin1String("fsrestore") + n, QRect());
-        info.maximized = cg.readEntry(QLatin1String("maximize") + n, 0);
-        info.fullscreen = cg.readEntry(QLatin1String("fullscreen") + n, 0);
-        info.desktop = cg.readEntry(QLatin1String("desktop") + n, 0);
-        info.minimized = cg.readEntry(QLatin1String("iconified") + n, false);
-        info.opacity = cg.readEntry(QLatin1String("opacity") + n, 1.0);
-        info.onAllDesktops = cg.readEntry(QLatin1String("sticky") + n, false);
-        info.keepAbove = cg.readEntry(QLatin1String("staysOnTop") + n, false);
-        info.keepBelow = cg.readEntry(QLatin1String("keepBelow") + n, false);
-        info.skipTaskbar = cg.readEntry(QLatin1String("skipTaskbar") + n, false);
-        info.skipPager = cg.readEntry(QLatin1String("skipPager") + n, false);
-        info.skipSwitcher = cg.readEntry(QLatin1String("skipSwitcher") + n, false);
-        info.decorationPolicy = DecorationPolicy(cg.readEntry(QLatin1String("decorationPolicy") + n, uint(DecorationPolicy::PreferredByClient)));
-        info.windowType = txtToWindowType(cg.readEntry(QLatin1String("windowType") + n, QString()).toLatin1().constData());
-        info.shortcut = cg.readEntry(QLatin1String("shortcut") + n, QString());
-        info.active = (active_client == i);
-        info.stackingOrder = cg.readEntry(QLatin1String("stackingOrder") + n, -1);
-        info.activities = cg.readEntry(QLatin1String("activities") + n, QStringList());
+        SessionInfo *info = new SessionInfo;
         session.append(info);
+        info->sessionId = cg.readEntry(QLatin1String("sessionId") + n, QString()).toLatin1();
+        info->windowRole = cg.readEntry(QLatin1String("windowRole") + n, QString());
+        info->wmCommand = cg.readEntry(QLatin1String("wmCommand") + n, QString()).toLatin1();
+        info->resourceName = cg.readEntry(QLatin1String("resourceName") + n, QString());
+        info->resourceClass = cg.readEntry(QLatin1String("resourceClass") + n, QString()).toLower();
+        info->geometry = cg.readEntry(QLatin1String("geometry") + n, QRect());
+        info->restore = cg.readEntry(QLatin1String("restore") + n, QRect());
+        info->fsrestore = cg.readEntry(QLatin1String("fsrestore") + n, QRect());
+        info->maximized = cg.readEntry(QLatin1String("maximize") + n, 0);
+        info->fullscreen = cg.readEntry(QLatin1String("fullscreen") + n, 0);
+        info->desktop = cg.readEntry(QLatin1String("desktop") + n, 0);
+        info->minimized = cg.readEntry(QLatin1String("iconified") + n, false);
+        info->opacity = cg.readEntry(QLatin1String("opacity") + n, 1.0);
+        info->onAllDesktops = cg.readEntry(QLatin1String("sticky") + n, false);
+        info->shaded = cg.readEntry(QLatin1String("shaded") + n, false);
+        info->keepAbove = cg.readEntry(QLatin1String("staysOnTop") + n, false);
+        info->keepBelow = cg.readEntry(QLatin1String("keepBelow") + n, false);
+        info->skipTaskbar = cg.readEntry(QLatin1String("skipTaskbar") + n, false);
+        info->skipPager = cg.readEntry(QLatin1String("skipPager") + n, false);
+        info->skipSwitcher = cg.readEntry(QLatin1String("skipSwitcher") + n, false);
+        info->noBorder = cg.readEntry(QLatin1String("userNoBorder") + n, false);
+        info->windowType = txtToWindowType(cg.readEntry(QLatin1String("windowType") + n, QString()).toLatin1().constData());
+        info->shortcut = cg.readEntry(QLatin1String("shortcut") + n, QString());
+        info->active = (active_client == i);
+        info->stackingOrder = cg.readEntry(QLatin1String("stackingOrder") + n, -1);
+        info->activities = cg.readEntry(QLatin1String("activities") + n, QStringList());
     }
 }
 
 #if KWIN_BUILD_X11
-static bool sessionInfoWindowTypeMatch(X11Window *c, const SessionInfo &info)
+static bool sessionInfoWindowTypeMatch(X11Window *c, SessionInfo *info)
 {
-    if (int(info.windowType) == -2) {
+    if (int(info->windowType) == -2) {
         // undefined (not really part of NET::WindowType)
         return !c->isSpecialWindow();
     }
-    return info.windowType == c->windowType();
+    return info->windowType == c->windowType();
 }
 
 /**
@@ -250,9 +251,9 @@ static bool sessionInfoWindowTypeMatch(X11Window *c, const SessionInfo &info)
  *
  * May return 0 if there's no session info for the client.
  */
-std::optional<SessionInfo> SessionManager::takeSessionInfo(X11Window *c)
+SessionInfo *SessionManager::takeSessionInfo(X11Window *c)
 {
-    std::optional<SessionInfo> realInfo;
+    SessionInfo *realInfo = nullptr;
     QByteArray sessionId = c->sessionId();
     QString windowRole = c->windowRole();
     QString wmCommand = c->wmCommand();
@@ -262,20 +263,20 @@ std::optional<SessionInfo> SessionManager::takeSessionInfo(X11Window *c)
     // First search ``session''
     if (!sessionId.isEmpty()) {
         // look for a real session managed client (algorithm suggested by ICCCM)
-        for (const SessionInfo &info : std::as_const(session)) {
+        for (SessionInfo *info : std::as_const(session)) {
             if (realInfo) {
                 break;
             }
-            if (info.sessionId == sessionId && sessionInfoWindowTypeMatch(c, info)) {
+            if (info->sessionId == sessionId && sessionInfoWindowTypeMatch(c, info)) {
                 if (!windowRole.isEmpty()) {
-                    if (info.windowRole == windowRole) {
+                    if (info->windowRole == windowRole) {
                         realInfo = info;
                         session.removeAll(info);
                     }
                 } else {
-                    if (info.windowRole.isEmpty()
-                        && info.resourceName == resourceName
-                        && info.resourceClass == resourceClass) {
+                    if (info->windowRole.isEmpty()
+                        && info->resourceName == resourceName
+                        && info->resourceClass == resourceClass) {
                         realInfo = info;
                         session.removeAll(info);
                     }
@@ -284,14 +285,14 @@ std::optional<SessionInfo> SessionManager::takeSessionInfo(X11Window *c)
         }
     } else {
         // look for a sessioninfo with matching features.
-        for (const SessionInfo &info : std::as_const(session)) {
+        for (SessionInfo *info : std::as_const(session)) {
             if (realInfo) {
                 break;
             }
-            if (info.resourceName == resourceName
-                && info.resourceClass == resourceClass
+            if (info->resourceName == resourceName
+                && info->resourceClass == resourceClass
                 && sessionInfoWindowTypeMatch(c, info)) {
-                if (wmCommand.isEmpty() || info.wmCommand == wmCommand) {
+                if (wmCommand.isEmpty() || info->wmCommand == wmCommand) {
                     realInfo = info;
                     session.removeAll(info);
                 }
@@ -307,6 +308,11 @@ SessionManager::SessionManager(QObject *parent)
 {
     new SessionAdaptor(this);
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/Session"), this);
+}
+
+SessionManager::~SessionManager()
+{
+    qDeleteAll(session);
 }
 
 SessionState SessionManager::state() const
@@ -367,6 +373,9 @@ void SessionManager::finishSaveSession(const QString &name)
 bool SessionManager::closeWaylandWindows()
 {
     Q_ASSERT(calledFromDBus());
+    if (!waylandServer()) {
+        return true;
+    }
 
     if (m_closingWindowsGuard) {
         sendErrorReply(QDBusError::Failed, u"Operation already in progress"_s);
@@ -417,6 +426,7 @@ bool SessionManager::closeWaylandWindows()
     connect(&m_closeTimer, &QTimer::timeout, m_closingWindowsGuard.get(), [this, dbusMessage] {
 #if KWIN_BUILD_NOTIFICATIONS
         m_cancelNotification = new KNotification("cancellogout", KNotification::DefaultEvent | KNotification::Persistent);
+        m_cancelNotification->setComponentName(QStringLiteral("kwin-x11"));
         updateWaylandCancelNotification();
         auto cancel = m_cancelNotification->addAction(i18nc("@action:button", "Cancel Logout"));
         auto quit = m_cancelNotification->addAction(i18nc("@action::button", "Log Out Anyway"));

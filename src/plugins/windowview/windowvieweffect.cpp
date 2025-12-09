@@ -42,7 +42,7 @@ WindowViewEffect::WindowViewEffect()
     connect(m_shutdownTimer, &QTimer::timeout, this, &WindowViewEffect::realDeactivate);
     connect(effects, &EffectsHandler::screenAboutToLock, this, &WindowViewEffect::realDeactivate);
 
-    loadFromModule(QStringLiteral("org.kde.kwin.windowview"), QStringLiteral("Main"));
+    setSource(QUrl::fromLocalFile(QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QStringLiteral("/effects/windowview/qml/main.qml"))));
 
     m_exposeAction->setObjectName(QStringLiteral("Expose"));
     m_exposeAction->setText(i18n("Toggle Present Windows (Current desktop)"));
@@ -182,7 +182,7 @@ void WindowViewEffect::reconfigure(ReconfigureFlags)
         effects->reserveElectricBorder(ElectricBorder(i), this);
     }
 
-    auto touchCallback = [this](ElectricBorder border, const QPointF &deltaProgress, const LogicalOutput *screen) {
+    auto touchCallback = [this](ElectricBorder border, const QPointF &deltaProgress, const Output *screen) {
         if (m_status == Status::Active) {
             return;
         }
@@ -223,6 +223,30 @@ void WindowViewEffect::reconfigure(ReconfigureFlags)
         m_touchBorderActivateClassCurrentDesktop.append(ElectricBorder(border));
         effects->registerRealtimeTouchBorder(ElectricBorder(border), m_realtimeToggleAction, touchCallback);
     }
+}
+
+void WindowViewEffect::grabbedKeyboardEvent(QKeyEvent *e)
+{
+    if (e->type() == QEvent::KeyPress && !effects->waylandDisplay()) {
+        // check for global shortcuts
+        // HACK: keyboard grab disables the global shortcuts so we have to check for global shortcut (bug 156155)
+        if (m_mode == ModeCurrentDesktop && m_shortcut.contains(e->key() | e->modifiers())) {
+            toggleMode(ModeCurrentDesktop);
+            return;
+        } else if (m_mode == ModeAllDesktops && m_shortcutAll.contains(e->key() | e->modifiers())) {
+            toggleMode(ModeAllDesktops);
+            return;
+        } else if (m_mode == ModeWindowClass && m_shortcutClass.contains(e->key() | e->modifiers())) {
+            toggleMode(ModeWindowClass);
+            return;
+        } else if (m_mode == ModeWindowClassCurrentDesktop && m_shortcutClassCurrentDesktop.contains(e->key() | e->modifiers())) {
+            toggleMode(ModeWindowClassCurrentDesktop);
+            return;
+        } else if (e->key() == Qt::Key_Escape) {
+            deactivate(animationDuration());
+        }
+    }
+    QuickSceneEffect::grabbedKeyboardEvent(e);
 }
 
 qreal WindowViewEffect::partialActivationFactor() const

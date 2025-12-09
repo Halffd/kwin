@@ -13,8 +13,6 @@
 #include "screenshotlogging.h"
 #include "utils/filedescriptor.h"
 #include "utils/serviceutils.h"
-#include "window.h"
-#include "workspace.h"
 
 #include <KLocalizedString>
 
@@ -139,14 +137,66 @@ static const QString s_errorCancelled = QStringLiteral("org.kde.KWin.ScreenShot2
 static const QString s_errorCancelledMessage = QStringLiteral("Screenshot got cancelled");
 static const QString s_errorInvalidWindow = QStringLiteral("org.kde.KWin.ScreenShot2.Error.InvalidWindow");
 static const QString s_errorInvalidWindowMessage = QStringLiteral("Invalid window requested");
-static const QString s_errorNoActiveWindow = QStringLiteral("org.kde.KWin.ScreenShot2.Error.NoActiveWindow");
-static const QString s_errorNoActiveWindowMessage = QStringLiteral("No active window");
 static const QString s_errorInvalidArea = QStringLiteral("org.kde.KWin.ScreenShot2.Error.InvalidArea");
 static const QString s_errorInvalidAreaMessage = QStringLiteral("Invalid area requested");
 static const QString s_errorInvalidScreen = QStringLiteral("org.kde.KWin.ScreenShot2.Error.InvalidScreen");
 static const QString s_errorInvalidScreenMessage = QStringLiteral("Invalid screen requested");
 static const QString s_errorFileDescriptor = QStringLiteral("org.kde.KWin.ScreenShot2.Error.FileDescriptor");
 static const QString s_errorFileDescriptorMessage = QStringLiteral("No valid file descriptor");
+
+class ScreenShotSource2 : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit ScreenShotSource2(const QFuture<QImage> &future);
+
+    void marshal(ScreenShotSinkPipe2 *sink);
+
+    virtual QVariantMap attributes() const;
+
+Q_SIGNALS:
+    void cancelled();
+    void completed();
+
+private:
+    QFuture<QImage> m_future;
+    QFutureWatcher<QImage> *m_watcher;
+};
+
+class ScreenShotSourceScreen2 : public ScreenShotSource2
+{
+    Q_OBJECT
+
+public:
+    ScreenShotSourceScreen2(ScreenShotEffect *effect, Output *screen, ScreenShotFlags flags);
+
+    QVariantMap attributes() const override;
+
+private:
+    QString m_name;
+};
+
+class ScreenShotSourceArea2 : public ScreenShotSource2
+{
+    Q_OBJECT
+
+public:
+    ScreenShotSourceArea2(ScreenShotEffect *effect, const QRect &area, ScreenShotFlags flags);
+};
+
+class ScreenShotSourceWindow2 : public ScreenShotSource2
+{
+    Q_OBJECT
+
+public:
+    ScreenShotSourceWindow2(ScreenShotEffect *effect, EffectWindow *window, ScreenShotFlags flags);
+
+    QVariantMap attributes() const override;
+
+private:
+    QUuid m_internalId;
+};
 
 class ScreenShotSinkPipe2 : public QObject
 {
@@ -162,6 +212,67 @@ private:
     QDBusMessage m_replyMessage;
     FileDescriptor m_fileDescriptor;
 };
+
+ScreenShotSource2::ScreenShotSource2(const QFuture<QImage> &future)
+    : m_future(future)
+{
+    m_watcher = new QFutureWatcher<QImage>(this);
+    connect(m_watcher, &QFutureWatcher<QImage>::finished, this, [this]() {
+        if (!m_future.isValid()) {
+            Q_EMIT cancelled();
+        } else {
+            Q_EMIT completed();
+        }
+    });
+    m_watcher->setFuture(m_future);
+}
+
+QVariantMap ScreenShotSource2::attributes() const
+{
+    return QVariantMap();
+}
+
+void ScreenShotSource2::marshal(ScreenShotSinkPipe2 *sink)
+{
+    sink->flush(m_future.result(), attributes());
+}
+
+ScreenShotSourceScreen2::ScreenShotSourceScreen2(ScreenShotEffect *effect,
+                                                 Output *screen,
+                                                 ScreenShotFlags flags)
+    : ScreenShotSource2(effect->scheduleScreenShot(screen, flags))
+    , m_name(screen->name())
+{
+}
+
+QVariantMap ScreenShotSourceScreen2::attributes() const
+{
+    return QVariantMap{
+        {QStringLiteral("screen"), m_name},
+    };
+}
+
+ScreenShotSourceArea2::ScreenShotSourceArea2(ScreenShotEffect *effect,
+                                             const QRect &area,
+                                             ScreenShotFlags flags)
+    : ScreenShotSource2(effect->scheduleScreenShot(area, flags))
+{
+}
+
+ScreenShotSourceWindow2::ScreenShotSourceWindow2(ScreenShotEffect *effect,
+                                                 EffectWindow *window,
+                                                 ScreenShotFlags flags)
+    : ScreenShotSource2(effect->scheduleScreenShot(window, flags))
+    , m_internalId(window->internalId())
+{
+}
+
+QVariantMap ScreenShotSourceWindow2::attributes() const
+{
+    return QVariantMap{
+        {QStringLiteral("windowId"), m_internalId.toString()},
+    };
+}
 
 ScreenShotSinkPipe2::ScreenShotSinkPipe2(int fileDescriptor, QDBusMessage replyMessage)
     : m_replyMessage(replyMessage)
@@ -196,9 +307,9 @@ void ScreenShotSinkPipe2::flush(const QImage &image, const QVariantMap &attribut
     QThreadPool::globalInstance()->start(writer);
 }
 
-ScreenShotDBusInterface2::ScreenShotDBusInterface2(ScreenShotManager *manager)
-    : QObject(manager)
-    , m_effect(manager)
+ScreenShotDBusInterface2::ScreenShotDBusInterface2(ScreenShotEffect *effect)
+    : QObject(effect)
+    , m_effect(effect)
 {
     new ScreenShot2Adaptor(this);
 
@@ -217,46 +328,42 @@ int ScreenShotDBusInterface2::version() const
     return 4;
 }
 
-std::optional<pid_t> ScreenShotDBusInterface2::determineCallerPid() const
+bool ScreenShotDBusInterface2::checkPermissions() const
 {
     if (!calledFromDBus()) {
-        return std::nullopt;
+        return false;
     }
-    const QDBusReply<uint> reply = connection().interface()->servicePid(message().service());
-    if (reply.isValid()) {
-        return reply.value();
-    } else {
-        return std::nullopt;
-    }
-}
 
-bool ScreenShotDBusInterface2::checkPermissions(std::optional<pid_t> pid) const
-{
     static bool permissionCheckDisabled = qEnvironmentVariableIntValue("KWIN_SCREENSHOT_NO_PERMISSION_CHECKS") == 1;
     if (permissionCheckDisabled) {
         return true;
     }
-    if (!pid.has_value()) {
+
+    const QDBusReply<uint> reply = connection().interface()->servicePid(message().service());
+    if (reply.isValid()) {
+        const uint pid = reply.value();
+        const auto interfaces = KWin::fetchRestrictedDBusInterfacesFromPid(pid);
+        if (!interfaces.contains(s_dbusInterface)) {
+            sendErrorReply(s_errorNotAuthorized, s_errorNotAuthorizedMessage);
+            return false;
+        }
+    } else {
         return false;
     }
-    const auto interfaces = KWin::fetchRestrictedDBusInterfacesFromPid(*pid);
-    if (!interfaces.contains(s_dbusInterface)) {
-        sendErrorReply(s_errorNotAuthorized, s_errorNotAuthorizedMessage);
-        return false;
-    }
+
     return true;
 }
 
 QVariantMap ScreenShotDBusInterface2::CaptureActiveWindow(const QVariantMap &options,
                                                           QDBusUnixFileDescriptor pipe)
 {
-    if (!checkPermissions(determineCallerPid())) {
+    if (!checkPermissions()) {
         return QVariantMap();
     }
 
-    Window *window = workspace()->activeWindow();
+    EffectWindow *window = effects->activeWindow();
     if (!window) {
-        sendErrorReply(s_errorNoActiveWindow, s_errorNoActiveWindowMessage);
+        sendErrorReply(s_errorInvalidWindow, s_errorInvalidWindowMessage);
         return QVariantMap();
     }
 
@@ -277,11 +384,20 @@ QVariantMap ScreenShotDBusInterface2::CaptureWindow(const QString &handle,
                                                     const QVariantMap &options,
                                                     QDBusUnixFileDescriptor pipe)
 {
-    if (!checkPermissions(determineCallerPid())) {
+    if (!checkPermissions()) {
         return QVariantMap();
     }
 
-    Window *window = workspace()->findWindow(QUuid(handle));
+    EffectWindow *window = effects->findWindow(QUuid(handle));
+    if (!window) {
+        bool ok;
+        const int winId = handle.toInt(&ok);
+        if (ok) {
+            window = effects->findWindow(winId);
+        } else {
+            qCWarning(KWIN_SCREENSHOT) << "Invalid handle:" << handle;
+        }
+    }
     if (!window) {
         sendErrorReply(s_errorInvalidWindow, s_errorInvalidWindowMessage);
         return QVariantMap();
@@ -304,8 +420,7 @@ QVariantMap ScreenShotDBusInterface2::CaptureArea(int x, int y, int width, int h
                                                   const QVariantMap &options,
                                                   QDBusUnixFileDescriptor pipe)
 {
-    const auto pid = determineCallerPid();
-    if (!checkPermissions(pid)) {
+    if (!checkPermissions()) {
         return QVariantMap();
     }
 
@@ -322,7 +437,7 @@ QVariantMap ScreenShotDBusInterface2::CaptureArea(int x, int y, int width, int h
     }
 
     takeScreenShot(area, screenShotFlagsFromOptions(options),
-                   new ScreenShotSinkPipe2(fileDescriptor, message()), pid);
+                   new ScreenShotSinkPipe2(fileDescriptor, message()));
 
     setDelayedReply(true);
     return QVariantMap();
@@ -332,12 +447,11 @@ QVariantMap ScreenShotDBusInterface2::CaptureScreen(const QString &name,
                                                     const QVariantMap &options,
                                                     QDBusUnixFileDescriptor pipe)
 {
-    const auto pid = determineCallerPid();
-    if (!checkPermissions(pid)) {
+    if (!checkPermissions()) {
         return QVariantMap();
     }
 
-    LogicalOutput *screen = workspace()->findOutput(name);
+    Output *screen = effects->findScreen(name);
     if (!screen) {
         sendErrorReply(s_errorInvalidScreen, s_errorInvalidScreenMessage);
         return QVariantMap();
@@ -350,7 +464,7 @@ QVariantMap ScreenShotDBusInterface2::CaptureScreen(const QString &name,
     }
 
     takeScreenShot(screen, screenShotFlagsFromOptions(options),
-                   new ScreenShotSinkPipe2(fileDescriptor, message()), pid);
+                   new ScreenShotSinkPipe2(fileDescriptor, message()));
 
     setDelayedReply(true);
     return QVariantMap();
@@ -359,12 +473,11 @@ QVariantMap ScreenShotDBusInterface2::CaptureScreen(const QString &name,
 QVariantMap ScreenShotDBusInterface2::CaptureActiveScreen(const QVariantMap &options,
                                                           QDBusUnixFileDescriptor pipe)
 {
-    const auto pid = determineCallerPid();
-    if (!checkPermissions(pid)) {
+    if (!checkPermissions()) {
         return QVariantMap();
     }
 
-    LogicalOutput *screen = workspace()->activeOutput();
+    Output *screen = effects->activeScreen();
     if (!screen) {
         sendErrorReply(s_errorInvalidScreen, s_errorInvalidScreenMessage);
         return QVariantMap();
@@ -377,7 +490,7 @@ QVariantMap ScreenShotDBusInterface2::CaptureActiveScreen(const QVariantMap &opt
     }
 
     takeScreenShot(screen, screenShotFlagsFromOptions(options),
-                   new ScreenShotSinkPipe2(fileDescriptor, message()), pid);
+                   new ScreenShotSinkPipe2(fileDescriptor, message()));
 
     setDelayedReply(true);
     return QVariantMap();
@@ -387,7 +500,6 @@ QVariantMap ScreenShotDBusInterface2::CaptureInteractive(uint kind,
                                                          const QVariantMap &options,
                                                          QDBusUnixFileDescriptor pipe)
 {
-    const auto pid = determineCallerPid();
     const int fileDescriptor = fcntl(pipe.fileDescriptor(), F_DUPFD_CLOEXEC, 0);
     if (fileDescriptor == -1) {
         sendErrorReply(s_errorFileDescriptor, s_errorFileDescriptorMessage);
@@ -397,7 +509,7 @@ QVariantMap ScreenShotDBusInterface2::CaptureInteractive(uint kind,
     const QDBusMessage replyMessage = message();
 
     if (kind == 0) {
-        kwinApp()->startInteractiveWindowSelection([=, this](Window *window) {
+        effects->startInteractiveWindowSelection([=, this](EffectWindow *window) {
             effects->hideOnScreenMessage(EffectsHandler::OnScreenMessageHideFlag::SkipsCloseAnimation);
 
             if (!window) {
@@ -414,7 +526,7 @@ QVariantMap ScreenShotDBusInterface2::CaptureInteractive(uint kind,
                                           "Escape or right click to cancel."),
                                      QStringLiteral("spectacle"));
     } else {
-        kwinApp()->startInteractivePositionSelection([=, this](const QPointF &point) {
+        effects->startInteractivePositionSelection([=, this](const QPointF &point) {
             effects->hideOnScreenMessage(EffectsHandler::OnScreenMessageHideFlag::SkipsCloseAnimation);
 
             if (point == QPoint(-1, -1)) {
@@ -423,9 +535,9 @@ QVariantMap ScreenShotDBusInterface2::CaptureInteractive(uint kind,
                 QDBusConnection bus = QDBusConnection::sessionBus();
                 bus.send(replyMessage.createErrorReply(s_errorCancelled, s_errorCancelledMessage));
             } else {
-                LogicalOutput *screen = effects->screenAt(point.toPoint());
+                Output *screen = effects->screenAt(point.toPoint());
                 takeScreenShot(screen, screenShotFlagsFromOptions(options),
-                               new ScreenShotSinkPipe2(fileDescriptor, replyMessage), pid);
+                               new ScreenShotSinkPipe2(fileDescriptor, replyMessage));
             }
         });
         effects->showOnScreenMessage(i18n("Create screen shot with left click or enter.\n"
@@ -439,8 +551,7 @@ QVariantMap ScreenShotDBusInterface2::CaptureInteractive(uint kind,
 
 QVariantMap ScreenShotDBusInterface2::CaptureWorkspace(const QVariantMap &options, QDBusUnixFileDescriptor pipe)
 {
-    const auto pid = determineCallerPid();
-    if (!checkPermissions(pid)) {
+    if (!checkPermissions()) {
         return QVariantMap();
     }
 
@@ -451,47 +562,45 @@ QVariantMap ScreenShotDBusInterface2::CaptureWorkspace(const QVariantMap &option
     }
 
     takeScreenShot(effects->virtualScreenGeometry(), screenShotFlagsFromOptions(options),
-                   new ScreenShotSinkPipe2(fileDescriptor, message()), pid);
+                   new ScreenShotSinkPipe2(fileDescriptor, message()));
 
     setDelayedReply(true);
     return QVariantMap();
 }
 
-void ScreenShotDBusInterface2::takeScreenShot(LogicalOutput *screen, ScreenShotFlags flags,
-                                              ScreenShotSinkPipe2 *sink, std::optional<pid_t> pid)
+void ScreenShotDBusInterface2::bind(ScreenShotSinkPipe2 *sink, ScreenShotSource2 *source)
 {
-    if (const auto result = m_effect->takeScreenShot(screen, flags, pid)) {
-        sink->flush(*result, QVariantMap{
-                                 {QStringLiteral("screen"), screen->name()},
-                             });
-    } else {
+    connect(source, &ScreenShotSource2::cancelled, sink, [sink, source]() {
         sink->cancel();
-    }
-    sink->deleteLater();
+
+        sink->deleteLater();
+        source->deleteLater();
+    });
+
+    connect(source, &ScreenShotSource2::completed, sink, [sink, source]() {
+        source->marshal(sink);
+
+        sink->deleteLater();
+        source->deleteLater();
+    });
+}
+
+void ScreenShotDBusInterface2::takeScreenShot(Output *screen, ScreenShotFlags flags,
+                                              ScreenShotSinkPipe2 *sink)
+{
+    bind(sink, new ScreenShotSourceScreen2(m_effect, screen, flags));
 }
 
 void ScreenShotDBusInterface2::takeScreenShot(const QRect &area, ScreenShotFlags flags,
-                                              ScreenShotSinkPipe2 *sink, std::optional<pid_t> pid)
-{
-    if (const auto result = m_effect->takeScreenShot(area, flags, pid)) {
-        sink->flush(*result, {});
-    } else {
-        sink->cancel();
-    }
-    sink->deleteLater();
-}
-
-void ScreenShotDBusInterface2::takeScreenShot(Window *window, ScreenShotFlags flags,
                                               ScreenShotSinkPipe2 *sink)
 {
-    if (const auto result = m_effect->takeScreenShot(window, flags)) {
-        sink->flush(*result, QVariantMap{
-                                 {QStringLiteral("windowId"), window->internalId().toString()},
-                             });
-    } else {
-        sink->cancel();
-    }
-    sink->deleteLater();
+    bind(sink, new ScreenShotSourceArea2(m_effect, area, flags));
+}
+
+void ScreenShotDBusInterface2::takeScreenShot(EffectWindow *window, ScreenShotFlags flags,
+                                              ScreenShotSinkPipe2 *sink)
+{
+    bind(sink, new ScreenShotSourceWindow2(m_effect, window, flags));
 }
 
 } // namespace KWin

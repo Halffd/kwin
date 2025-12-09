@@ -33,8 +33,6 @@ class SubSurfaceInterface;
 class SurfaceInterfacePrivate;
 class Transaction;
 class SyncReleasePoint;
-class RawSurfaceAttachedState;
-class RawSurfaceExtension;
 
 /**
  * The SurfaceRole class represents a role assigned to a wayland surface.
@@ -96,13 +94,6 @@ public:
     ~SurfaceInterface() override;
 
     /**
-     * Returns @c true if the surface is being destroyed; otherwise returns @c false.
-     *
-     * The surface will be marked as tearing down after the aboutToBeDestroyed() signal is emitted.
-     */
-    bool tearingDown() const;
-
-    /**
      * Returns the object id for this Wayland surface.
      */
     uint32_t id() const;
@@ -138,8 +129,7 @@ public:
     void frameRendered(quint32 msec);
     bool hasFrameCallbacks() const;
 
-    std::shared_ptr<PresentationFeedback> presentationFeedback(LogicalOutput *output);
-    bool hasPresentationFeedback() const;
+    std::unique_ptr<PresentationFeedback> takePresentationFeedback(Output *output);
 
     QRegion opaque() const;
     QRegion input() const;
@@ -244,8 +234,6 @@ public:
      */
     SurfaceInterface *inputSurfaceAt(const QPointF &position);
 
-    std::pair<SurfaceInterface *, QPointF> mapToInputSurface(const QPointF &position);
-
     /**
      * Sets the @p outputs this SurfaceInterface overlaps with, may be empty.
      *
@@ -275,7 +263,7 @@ public:
     LockedPointerV1Interface *lockedPointer() const;
 
     /**
-     * @returns Whether this SurfaceInterface wants idle to be inhibited on the LogicalOutput it is shown
+     * @returns Whether this SurfaceInterface wants idle to be inhibited on the Output it is shown
      * @see inhibitsIdleChanged
      */
     bool inhibitsIdle() const;
@@ -294,18 +282,22 @@ public:
      * @returns The SurfaceInterface for the @p native resource.
      */
     static SurfaceInterface *get(wl_resource *native);
+    /**
+     * @returns The SurfaceInterface with given @p id for @p client, if it exists, otherwise @c nullptr.
+     */
+    static SurfaceInterface *get(quint32 id, const ClientConnection *client);
 
     /**
      * @see ClientConnection::setScaleOverride
      */
     qreal scaleOverride() const;
     /**
-     * Convert a coordinate from kwin logical space to surface logical space
+     * Convert a co-ordinate from kwin logical space to surface logical space
      * @internal
      */
     QPoint toSurfaceLocal(const QPoint &point) const;
     /**
-     * Convert a coordinate from kwin logical space to surface logical space
+     * Convert a co-ordinate from kwin logical space to surface logical space
      * @internal
      */
     QPointF toSurfaceLocal(const QPointF &point) const;
@@ -341,10 +333,10 @@ public:
     Transaction *lastTransaction() const;
     void setLastTransaction(Transaction *transaction);
 
-    const std::shared_ptr<ColorDescription> &colorDescription() const;
+    const ColorDescription &colorDescription() const;
     RenderingIntent renderingIntent() const;
 
-    void setPreferredColorDescription(const std::shared_ptr<ColorDescription> &descr);
+    void setPreferredColorDescription(const ColorDescription &descr);
 
     double alphaMultiplier() const;
 
@@ -365,31 +357,6 @@ public:
      * @returns the last surface found while traversing the subsurfaces parents
      */
     SurfaceInterface *mainSurface();
-
-    /**
-     * Should be called immediately after compositing a non-tearing frame
-     * but always at a minimum rate that guarantees forward progress for the application
-     * (for example 30Hz)
-     */
-    void clearFifoBarrier();
-    bool hasFifoBarrier() const;
-
-    /**
-     * Registers the specified @a extension. Returns the pending state for the extension.
-     *
-     * @internal
-     */
-    RawSurfaceAttachedState *addExtension(RawSurfaceExtension *extension);
-
-    /**
-     * Unregisters the specified @a extension. The state owned by the extension will be removed
-     * from the pending and all cached surface states.
-     *
-     * @internal
-     */
-    void removeExtension(RawSurfaceExtension *extension);
-
-    QPointF mapToMainSurface(const QPointF &localPoint) const;
 
 Q_SIGNALS:
     /**
@@ -440,7 +407,7 @@ Q_SIGNALS:
      */
     void childSubSurfaceAdded(SubSurfaceInterface *subSurface);
     /**
-     * Emitted whenever the child sub-surface @p subSurface is removed.
+     * Emitted whenver the child sub-surface @p subSurface is removed.
      */
     void childSubSurfaceRemoved(SubSurfaceInterface *subSurface);
     /**
@@ -478,110 +445,61 @@ Q_SIGNALS:
      */
     void committed();
 
+    /**
+     * This signal is emitted when a surface commit with the specified \a serial has been cached
+     * to be applied later.
+     */
+    void stateStashed(quint32 serial);
+
+    /**
+     * This signal is emitted when the state in a surface commit with the specified \a serial
+     * has been applied.
+     */
+    void stateApplied(quint32 serial);
+
 private:
     std::unique_ptr<SurfaceInterfacePrivate> d;
     friend class SurfaceInterfacePrivate;
 };
 
 /**
- * The RawSurfaceAttachedState type represents the state of a surface extension.
+ * The SurfaceExtension class is the base class for wl_surface extensions. The SurfaceExtension
+ * helps with managing extension state and keeping it in sync with the surface state.
  */
-class RawSurfaceAttachedState
-{
-public:
-    virtual ~RawSurfaceAttachedState()
-    {
-    }
-
-    /**
-     * Moves the data from this state into the @a target state.
-     */
-    virtual void mergeInto(RawSurfaceAttachedState *target) = 0;
-};
-
-/**
- * The SurfaceAttachedState type represents (typed) state of a surface extension. The main
- * difference between RawSurfaceAttachedState and SurfaceAttachedState is that the latter is
- * a convenience helper that does not require implementing the mergeInto() function if the
- * managed state can be moved using std::move().
- */
-template<typename Self>
-class SurfaceAttachedState : public RawSurfaceAttachedState
-{
-public:
-    void mergeInto(RawSurfaceAttachedState *target) override
-    {
-        auto self = static_cast<Self *>(this);
-        auto other = static_cast<Self *>(target);
-
-        *other = std::exchange(*self, Self{});
-    }
-};
-
-/**
- * The RawSurfaceExtension type represents a surface extension whose state must be synchronized
- * with the double buffered state of the surface.
- */
-class RawSurfaceExtension
-{
-public:
-    virtual ~RawSurfaceExtension()
-    {
-    }
-
-    /**
-     * Creates the state associated with the extension.
-     */
-    virtual std::unique_ptr<RawSurfaceAttachedState> createState() = 0;
-
-    /**
-     * Applies the state associated with the extension. It is called by the SurfaceInterface
-     * when it applies new surface state.
-     */
-    virtual void applyState(RawSurfaceAttachedState *state) = 0;
-};
-
-/**
- * The SurfaceExtension type represents a surface extension whose state must be synchronized
- * with the double buffered state of the surface. The main difference between the
- * RawSurfaceExtension and the SurfaceExtension is that the latter is a convenience helper that
- * removes the need for state static casts and registering/unregistering the extension manually.
- *
- * The surface extension must provide a `void apply(State *state)` function in order to apply
- * its state when a new surface state is applied.
- */
-template<typename Self, typename State>
-class SurfaceExtension : public RawSurfaceExtension
+template<typename Commit>
+class SurfaceExtension : public QObject
 {
 public:
     explicit SurfaceExtension(SurfaceInterface *surface)
-        : surface(surface)
     {
-        pending = static_cast<State *>(surface->addExtension(this));
+        connect(surface, &SurfaceInterface::stateStashed, this, &SurfaceExtension::stashState);
+        connect(surface, &SurfaceInterface::stateApplied, this, &SurfaceExtension::applyState);
     }
 
-    ~SurfaceExtension() override
-    {
-        if (surface) {
-            surface->removeExtension(this);
-        }
-    }
+    virtual void apply(Commit *commit) = 0;
 
-    /// The surface associated with the extension.
-    QPointer<SurfaceInterface> surface;
-
-    /// The pending state associated with the extension.
-    State *pending;
+    Commit pending;
+    QMap<quint32, Commit> stashed;
 
 private:
-    std::unique_ptr<RawSurfaceAttachedState> createState() override final
+    void stashState(quint32 serial)
     {
-        return std::make_unique<State>();
+        Commit stash = std::exchange(pending, Commit{});
+        stashed.insert(serial, stash);
     }
 
-    void applyState(RawSurfaceAttachedState *state) override final
+    void applyState(quint32 serial)
     {
-        static_cast<Self *>(this)->apply(static_cast<State *>(state));
+        if (!stashed.isEmpty()) {
+            if (stashed.firstKey() == serial) {
+                Commit stash = stashed.take(serial);
+                apply(&stash);
+            }
+            return;
+        }
+
+        apply(&pending);
+        pending = Commit{};
     }
 };
 

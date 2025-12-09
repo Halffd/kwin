@@ -14,7 +14,6 @@
 #include <QObject>
 #include <QRect>
 #include <QTextCharFormat>
-#include <QWindow>
 
 namespace KWin {
 
@@ -71,10 +70,6 @@ void InternalInputMethodContext::update(Qt::InputMethodQueries queries)
     if (queries & Qt::ImHints) {
         // When kwin gets some text input with numbers and passwords this needs pouplating
     }
-
-    if (queries & Qt::ImEnabled) {
-        Q_EMIT enabledChanged();
-    }
 }
 
 void InternalInputMethodContext::showInputPanel()
@@ -109,23 +104,11 @@ Qt::LayoutDirection InternalInputMethodContext::inputDirection() const
 
 void InternalInputMethodContext::setFocusObject(QObject *object)
 {
-    if (inputMethodAccepted()) {
-        update(Qt::ImQueryAll);
-    }
-
-    // In QWindow::destroy(), the focus window change may not be notified,
-    // Try to refresh potential missing enable change.
-    QWindow *window = QGuiApplication::focusWindow();
-    if (m_focusWindow != window) {
-        if (m_focusWindow) {
-            disconnect(m_focusWindow, &QObject::destroyed, this, &InternalInputMethodContext::enabledChanged);
-        }
-        m_focusWindow = window;
-        if (m_focusWindow) {
-            connect(m_focusWindow, &QObject::destroyed, this, &InternalInputMethodContext::enabledChanged);
-        }
+    if (!inputMethodAccepted()) {
+        return;
     }
     Q_EMIT enabledChanged();
+    update(Qt::ImQueryAll);
 }
 
 // From the InputMethod to our internal window

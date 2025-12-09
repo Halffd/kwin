@@ -36,7 +36,7 @@
 
 #include <QtGui/private/qgenericunixeventdispatcher_p.h>
 #include <QtGui/private/qgenericunixfontdatabase_p.h>
-#if __has_include(<QtGui/private/qgenericunixtheme_p.h>)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
 #include <QtGui/private/qgenericunixtheme_p.h>
 #else
 #include <QtGui/private/qgenericunixthemes_p.h>
@@ -58,7 +58,11 @@ Integration::Integration()
     , QPlatformIntegration()
     , m_fontDb(new QGenericUnixFontDatabase())
     , m_nativeInterface(new QPlatformNativeInterface())
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     , m_services(new QDesktopUnixServices())
+#else
+    , m_services(new QGenericUnixServices())
+#endif
     , m_clipboard(new Clipboard())
 {
     QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
@@ -75,7 +79,7 @@ Integration::~Integration()
     }
 }
 
-QHash<LogicalOutput *, Screen *> Integration::screens() const
+QHash<Output *, Screen *> Integration::screens() const
 {
     return m_screens;
 }
@@ -190,15 +194,15 @@ void Integration::handleWorkspaceCreated()
     connect(workspace(), &Workspace::outputRemoved,
             this, &Integration::handleOutputDisabled);
 
-    const QList<LogicalOutput *> outputs = workspace()->outputs();
-    for (LogicalOutput *output : outputs) {
+    const QList<Output *> outputs = workspace()->outputs();
+    for (Output *output : outputs) {
         handleOutputEnabled(output);
     }
 
     m_clipboard->initialize();
 }
 
-void Integration::handleOutputEnabled(LogicalOutput *output)
+void Integration::handleOutputEnabled(Output *output)
 {
     Screen *platformScreen = new Screen(output, this);
     QWindowSystemInterface::handleScreenAdded(platformScreen);
@@ -210,7 +214,7 @@ void Integration::handleOutputEnabled(LogicalOutput *output)
     }
 }
 
-void Integration::handleOutputDisabled(LogicalOutput *output)
+void Integration::handleOutputDisabled(Output *output)
 {
     Screen *platformScreen = m_screens.take(output);
     if (!platformScreen) {

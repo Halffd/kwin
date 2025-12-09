@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "wayland/abstract_drop_handler.h"
+#include "wayland/datadevice.h"
 
 #include <xcb/xcb.h>
 
@@ -28,8 +28,7 @@ class XwlDropHandler : public AbstractDropHandler
 public:
     XwlDropHandler(Dnd *dnd);
 
-    void updateDragTarget(SurfaceInterface *surface, const QPointF &position, quint32 serial) override;
-    void motion(const QPointF &position) override;
+    void updateDragTarget(SurfaceInterface *surface, quint32 serial) override;
     bool handleClientMessage(xcb_client_message_event_t *event);
 
 private:

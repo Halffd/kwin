@@ -166,7 +166,7 @@ bool ScriptedEffectLoader::loadJavascriptEffect(const KPluginMetaData &effect)
 bool ScriptedEffectLoader::loadDeclarativeEffect(const KPluginMetaData &metadata)
 {
     const QString name = metadata.pluginId();
-    QString scriptFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin-wayland/effects/") + name + QLatin1String("/contents/ui/main.qml"));
+    QString scriptFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QLatin1String("/effects/") + name + QLatin1String("/contents/ui/main.qml"));
     if (scriptFile.isNull()) {
         scriptFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin/effects/") + name + QLatin1String("/contents/ui/main.qml"));
         if (scriptFile.isNull()) {
@@ -228,13 +228,13 @@ void ScriptedEffectLoader::queryAndLoadAll()
 
 QList<KPluginMetaData> ScriptedEffectLoader::findAllEffects() const
 {
-    return KPackage::PackageLoader::self()->listPackages(s_serviceType, QStringLiteral("kwin-wayland/effects"))
+    return KPackage::PackageLoader::self()->listPackages(s_serviceType, KWIN_DATADIR + QStringLiteral("/effects"))
         + KPackage::PackageLoader::self()->listPackages(s_serviceType, QStringLiteral("kwin/effects"));
 }
 
 KPluginMetaData ScriptedEffectLoader::findEffect(const QString &name) const
 {
-    auto plugins = KPackage::PackageLoader::self()->findPackages(s_serviceType, QStringLiteral("kwin-wayland/effects"), [name](const KPluginMetaData &metadata) {
+    auto plugins = KPackage::PackageLoader::self()->findPackages(s_serviceType, KWIN_DATADIR + QStringLiteral("/effects"), [name](const KPluginMetaData &metadata) {
         return metadata.pluginId().compare(name, Qt::CaseInsensitive) == 0;
     });
     if (!plugins.isEmpty()) {
@@ -258,7 +258,7 @@ void ScriptedEffectLoader::clear()
 
 PluginEffectLoader::PluginEffectLoader(QObject *parent)
     : AbstractEffectLoader(parent)
-    , m_pluginSubDirectory(QStringLiteral("kwin/effects/plugins"))
+    , m_pluginSubDirectory(KWIN_PLUGINDIR + QStringLiteral("/effects/plugins"))
 {
 }
 
@@ -297,28 +297,22 @@ EffectPluginFactory *PluginEffectLoader::factory(const KPluginMetaData &info) co
     if (!info.isValid()) {
         return nullptr;
     }
-    QString error;
     KPluginFactory *factory;
     if (info.isStaticPlugin()) {
         // in case of static plugins we don't need to worry about the versions, because
         // they are shipped as part of the kwin executables
-        const auto result = KPluginFactory::loadFactory(info);
-        factory = result.plugin;
-        error = result.errorText;
+        factory = KPluginFactory::loadFactory(info).plugin;
     } else {
         QPluginLoader loader(info.fileName());
         if (loader.metaData().value("IID").toString() != QLatin1String(EffectPluginFactory_iid)) {
-            qCDebug(KWIN_CORE) << info.pluginId() << " has not matching plugin version, expected " << EffectPluginFactory_iid << "got "
+            qCDebug(KWIN_CORE) << info.pluginId() << " has not matching plugin version, expected " << PluginFactory_iid << "got "
                                << loader.metaData().value("IID");
             return nullptr;
         }
         factory = qobject_cast<KPluginFactory *>(loader.instance());
-        if (!factory) {
-            error = loader.errorString();
-        }
     }
     if (!factory) {
-        qCWarning(KWIN_CORE).nospace() << "Did not get KPluginFactory for " << info.pluginId() << ':' << error;
+        qCDebug(KWIN_CORE) << "Did not get KPluginFactory for " << info.pluginId();
         return nullptr;
     }
     return dynamic_cast<EffectPluginFactory *>(factory);
@@ -483,16 +477,6 @@ void EffectLoader::clear()
     for (auto it = m_loaders.constBegin(); it != m_loaders.constEnd(); ++it) {
         (*it)->clear();
     }
-}
-
-KPluginMetaData EffectLoader::findEffect(const QString &name) const
-{
-    for (const auto loader : m_loaders) {
-        if (auto result = loader->findEffect(name); result.isValid()) {
-            return result;
-        }
-    }
-    return {};
 }
 
 } // namespace KWin

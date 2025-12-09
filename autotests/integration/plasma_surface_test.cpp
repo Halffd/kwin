@@ -57,8 +57,9 @@ void PlasmaSurfaceTest::initTestCase()
 {
     qRegisterMetaType<KWin::Window *>();
     QVERIFY(waylandServer()->init(s_socketName));
-    kwinApp()->start();
     Test::setOutputConfig({QRect(0, 0, 1280, 1024)});
+
+    kwinApp()->start();
 }
 
 void PlasmaSurfaceTest::init()
@@ -139,7 +140,7 @@ void PlasmaSurfaceTest::testAcceptsFocus_data()
     QTest::addColumn<bool>("active");
 
     QTest::newRow("Desktop") << KWayland::Client::PlasmaShellSurface::Role::Desktop << true << true;
-    QTest::newRow("Panel") << KWayland::Client::PlasmaShellSurface::Role::Panel << false << false;
+    QTest::newRow("Panel") << KWayland::Client::PlasmaShellSurface::Role::Panel << true << false;
     QTest::newRow("OSD") << KWayland::Client::PlasmaShellSurface::Role::OnScreenDisplay << false << false;
     QTest::newRow("Normal") << KWayland::Client::PlasmaShellSurface::Role::Normal << true << true;
     QTest::newRow("Notification") << KWayland::Client::PlasmaShellSurface::Role::Notification << false << false;
@@ -184,7 +185,7 @@ void PlasmaSurfaceTest::testOSDPlacement()
     QVERIFY(window);
     QCOMPARE(window->windowType(), WindowType::OnScreenDisplay);
     QVERIFY(window->isOnScreenDisplay());
-    QCOMPARE(window->frameGeometry(), RectF(1280 / 2 - 100 / 2, 2 * 1024 / 3 - 50 / 2, 100, 50));
+    QCOMPARE(window->frameGeometry(), QRect(1280 / 2 - 100 / 2, 2 * 1024 / 3 - 50 / 2, 100, 50));
 
     // change the screen size
     const QList<QRect> geometries{QRect(0, 0, 1280, 1024), QRect(1280, 0, 1280, 1024)};
@@ -194,13 +195,13 @@ void PlasmaSurfaceTest::testOSDPlacement()
     QCOMPARE(outputs[0]->geometry(), geometries[0]);
     QCOMPARE(outputs[1]->geometry(), geometries[1]);
 
-    QCOMPARE(window->frameGeometry(), RectF(1280 / 2 - 100 / 2, 2 * 1024 / 3 - 50 / 2, 100, 50));
+    QCOMPARE(window->frameGeometry(), QRect(1280 / 2 - 100 / 2, 2 * 1024 / 3 - 50 / 2, 100, 50));
 
     // change size of window
     QSignalSpy frameGeometryChangedSpy(window, &Window::frameGeometryChanged);
     Test::render(surface.get(), QSize(200, 100), Qt::red);
     QVERIFY(frameGeometryChangedSpy.wait());
-    QCOMPARE(window->frameGeometry(), RectF(1280 / 2 - 200 / 2, 2 * 1024 / 3 - 100 / 2, 200, 100));
+    QCOMPARE(window->frameGeometry(), QRect(1280 / 2 - 200 / 2, 2 * 1024 / 3 - 100 / 2, 200, 100));
 }
 
 void PlasmaSurfaceTest::testOSDPlacementManualPosition()
@@ -224,7 +225,7 @@ void PlasmaSurfaceTest::testOSDPlacementManualPosition()
     QVERIFY(!window->isPlaceable());
     QCOMPARE(window->windowType(), WindowType::OnScreenDisplay);
     QVERIFY(window->isOnScreenDisplay());
-    QCOMPARE(window->frameGeometry(), RectF(50, 70, 100, 50));
+    QCOMPARE(window->frameGeometry(), QRect(50, 70, 100, 50));
 }
 
 void PlasmaSurfaceTest::testPanelActivate_data()
@@ -254,7 +255,7 @@ void PlasmaSurfaceTest::testPanelActivate()
     QCOMPARE(panel->windowType(), WindowType::Dock);
     QVERIFY(panel->isDock());
     QFETCH(bool, active);
-    QCOMPARE(panel->wantsInput(), active);
+    QCOMPARE(panel->dockWantsInput(), active);
     QCOMPARE(panel->isActive(), active);
 }
 

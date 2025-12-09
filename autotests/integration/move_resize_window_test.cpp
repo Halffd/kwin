@@ -9,6 +9,7 @@
 */
 #include "kwin_wayland_test.h"
 
+#include "atoms.h"
 #include "core/output.h"
 #include "cursor.h"
 #include "placement.h"
@@ -16,6 +17,7 @@
 #include "wayland_server.h"
 #include "window.h"
 #include "workspace.h"
+#include "x11window.h"
 
 #include <KWayland/Client/compositor.h>
 #include <KWayland/Client/connection_thread.h>
@@ -24,6 +26,7 @@
 #include <KWayland/Client/surface.h>
 
 #include <linux/input.h>
+#include <xcb/xcb_icccm.h>
 
 Q_DECLARE_METATYPE(KWin::QuickTileMode)
 Q_DECLARE_METATYPE(KWin::MaximizeMode)
@@ -68,7 +71,7 @@ private Q_SLOTS:
 
 private:
     std::tuple<Window *, std::unique_ptr<KWayland::Client::Surface>, std::unique_ptr<Test::XdgToplevel>> showWindow();
-    std::pair<std::unique_ptr<KWayland::Client::Surface>, std::unique_ptr<Test::LayerSurfaceV1>> addPanel(const Rect &geometry, int anchor);
+    std::pair<std::unique_ptr<KWayland::Client::Surface>, std::unique_ptr<Test::LayerSurfaceV1>> addPanel(const QRect &geometry, int anchor);
     KWayland::Client::ConnectionThread *m_connection = nullptr;
     KWayland::Client::Compositor *m_compositor = nullptr;
 };
@@ -78,8 +81,8 @@ void MoveResizeWindowTest::initTestCase()
     qRegisterMetaType<KWin::Window *>();
     qRegisterMetaType<KWin::MaximizeMode>("MaximizeMode");
     QVERIFY(waylandServer()->init(s_socketName));
-    kwinApp()->start();
     Test::setOutputConfig({QRect(0, 0, 1280, 1024)});
+    kwinApp()->start();
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 1);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -116,7 +119,7 @@ void MoveResizeWindowTest::testMove()
 
     QVERIFY(window);
     QCOMPARE(workspace()->activeWindow(), window);
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 100, 50));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 100, 50));
     QSignalSpy interactiveMoveResizeStartedSpy(window, &Window::interactiveMoveResizeStarted);
     QSignalSpy moveResizedChangedSpy(window, &Window::moveResizedChanged);
     QSignalSpy interactiveMoveResizeSteppedSpy(window, &Window::interactiveMoveResizeStepped);
@@ -130,7 +133,7 @@ void MoveResizeWindowTest::testMove()
     QCOMPARE(interactiveMoveResizeStartedSpy.count(), 1);
     QCOMPARE(moveResizedChangedSpy.count(), 1);
     QCOMPARE(window->isInteractiveMove(), true);
-    QCOMPARE(window->geometryRestore(), RectF());
+    QCOMPARE(window->geometryRestore(), QRect());
 
     // send some key events, not going through input redirection
     const QPointF cursorPos = Cursors::self()->mouse()->pos();
@@ -149,7 +152,7 @@ void MoveResizeWindowTest::testMove()
     window->keyPressEvent(Qt::Key_Down | Qt::ALT);
     window->updateInteractiveMoveResize(Cursors::self()->mouse()->pos(), Qt::KeyboardModifiers());
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 2);
-    QCOMPARE(window->frameGeometry(), RectF(16, 32, 100, 50));
+    QCOMPARE(window->frameGeometry(), QRect(16, 32, 100, 50));
     QCOMPARE(Cursors::self()->mouse()->pos(), cursorPos + QPoint(16, 32));
 
     // let's end
@@ -157,7 +160,7 @@ void MoveResizeWindowTest::testMove()
     window->keyPressEvent(Qt::Key_Enter);
     QCOMPARE(interactiveMoveResizeFinishedSpy.count(), 1);
     QCOMPARE(moveResizedChangedSpy.count(), 2);
-    QCOMPARE(window->frameGeometry(), RectF(16, 32, 100, 50));
+    QCOMPARE(window->frameGeometry(), QRect(16, 32, 100, 50));
     QCOMPARE(window->isInteractiveMove(), false);
     QVERIFY(workspace()->moveResizeWindow() == nullptr);
     surface.reset();
@@ -200,7 +203,7 @@ void MoveResizeWindowTest::testResize()
 
     QVERIFY(window);
     QCOMPARE(workspace()->activeWindow(), window);
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 100, 50));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 100, 50));
     QSignalSpy frameGeometryChangedSpy(window, &Window::frameGeometryChanged);
     QSignalSpy interactiveMoveResizeStartedSpy(window, &Window::interactiveMoveResizeStarted);
     QSignalSpy moveResizedChangedSpy(window, &Window::moveResizedChanged);
@@ -216,7 +219,7 @@ void MoveResizeWindowTest::testResize()
     QCOMPARE(interactiveMoveResizeStartedSpy.count(), 1);
     QCOMPARE(moveResizedChangedSpy.count(), 1);
     QCOMPARE(window->isInteractiveResize(), true);
-    QCOMPARE(window->geometryRestore(), RectF());
+    QCOMPARE(window->geometryRestore(), QRect());
     QVERIFY(surfaceConfigureRequestedSpy.wait());
     QCOMPARE(surfaceConfigureRequestedSpy.count(), 3);
     QCOMPARE(toplevelConfigureRequestedSpy.count(), 3);
@@ -244,7 +247,7 @@ void MoveResizeWindowTest::testResize()
     shellSurface->xdgSurface()->ack_configure(surfaceConfigureRequestedSpy.last().at(0).value<quint32>());
     Test::render(surface.get(), QSize(108, 50), Qt::blue);
     QVERIFY(frameGeometryChangedSpy.wait());
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 108, 50));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 108, 50));
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 1);
 
     // Go down.
@@ -265,7 +268,7 @@ void MoveResizeWindowTest::testResize()
     shellSurface->xdgSurface()->ack_configure(surfaceConfigureRequestedSpy.last().at(0).value<quint32>());
     Test::render(surface.get(), QSize(108, 58), Qt::blue);
     QVERIFY(frameGeometryChangedSpy.wait());
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 108, 58));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 108, 58));
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 2);
 
     // Let's finalize the resize operation.
@@ -290,12 +293,12 @@ void MoveResizeWindowTest::testResize()
 void MoveResizeWindowTest::testPackTo_data()
 {
     QTest::addColumn<QString>("methodCall");
-    QTest::addColumn<RectF>("expectedGeometry");
+    QTest::addColumn<QRectF>("expectedGeometry");
 
-    QTest::newRow("left") << QStringLiteral("slotWindowMoveLeft") << RectF(0, 487, 100, 50);
-    QTest::newRow("up") << QStringLiteral("slotWindowMoveUp") << RectF(590, 0, 100, 50);
-    QTest::newRow("right") << QStringLiteral("slotWindowMoveRight") << RectF(1180, 487, 100, 50);
-    QTest::newRow("down") << QStringLiteral("slotWindowMoveDown") << RectF(590, 974, 100, 50);
+    QTest::newRow("left") << QStringLiteral("slotWindowMoveLeft") << QRectF(0, 487, 100, 50);
+    QTest::newRow("up") << QStringLiteral("slotWindowMoveUp") << QRectF(590, 0, 100, 50);
+    QTest::newRow("right") << QStringLiteral("slotWindowMoveRight") << QRectF(1180, 487, 100, 50);
+    QTest::newRow("down") << QStringLiteral("slotWindowMoveDown") << QRectF(590, 974, 100, 50);
 }
 
 void MoveResizeWindowTest::testPackTo()
@@ -310,11 +313,11 @@ void MoveResizeWindowTest::testPackTo()
 
     QVERIFY(window);
     QCOMPARE(workspace()->activeWindow(), window);
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 100, 50));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 100, 50));
 
     // let's place it centered
-    window->place(*workspace()->placement()->placeCentered(window, QRect(0, 0, 1280, 1024)));
-    QCOMPARE(window->frameGeometry(), RectF(590, 487, 100, 50));
+    workspace()->placement()->placeCentered(window, QRect(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(590, 487, 100, 50));
 
     QFETCH(QString, methodCall);
     QMetaObject::invokeMethod(workspace(), methodCall.toLocal8Bit().constData());
@@ -326,12 +329,12 @@ void MoveResizeWindowTest::testPackTo()
 void MoveResizeWindowTest::testPackAgainstClient_data()
 {
     QTest::addColumn<QString>("methodCall");
-    QTest::addColumn<RectF>("expectedGeometry");
+    QTest::addColumn<QRectF>("expectedGeometry");
 
-    QTest::newRow("left") << QStringLiteral("slotWindowMoveLeft") << RectF(10, 487, 100, 50);
-    QTest::newRow("up") << QStringLiteral("slotWindowMoveUp") << RectF(590, 10, 100, 50);
-    QTest::newRow("right") << QStringLiteral("slotWindowMoveRight") << RectF(1170, 487, 100, 50);
-    QTest::newRow("down") << QStringLiteral("slotWindowMoveDown") << RectF(590, 964, 100, 50);
+    QTest::newRow("left") << QStringLiteral("slotWindowMoveLeft") << QRectF(10, 487, 100, 50);
+    QTest::newRow("up") << QStringLiteral("slotWindowMoveUp") << QRectF(590, 10, 100, 50);
+    QTest::newRow("right") << QStringLiteral("slotWindowMoveRight") << QRectF(1170, 487, 100, 50);
+    QTest::newRow("down") << QStringLiteral("slotWindowMoveDown") << QRectF(590, 964, 100, 50);
 }
 
 void MoveResizeWindowTest::testPackAgainstClient()
@@ -353,7 +356,7 @@ void MoveResizeWindowTest::testPackAgainstClient()
     QVERIFY(shellSurface3 != nullptr);
     std::unique_ptr<Test::XdgToplevel> shellSurface4(Test::createXdgToplevelSurface(surface4.get()));
     QVERIFY(shellSurface4 != nullptr);
-    auto renderWindow = [](KWayland::Client::Surface *surface, const QString &methodCall, const RectF &expectedGeometry) {
+    auto renderWindow = [](KWayland::Client::Surface *surface, const QString &methodCall, const QRect &expectedGeometry) {
         // let's render
         auto window = Test::renderAndWaitForShown(surface, QSize(10, 10), Qt::blue);
 
@@ -361,15 +364,15 @@ void MoveResizeWindowTest::testPackAgainstClient()
         QCOMPARE(workspace()->activeWindow(), window);
         QCOMPARE(window->frameGeometry().size(), QSize(10, 10));
         // let's place it centered
-        window->place(*workspace()->placement()->placeCentered(window, RectF(0, 0, 1280, 1024)));
-        QCOMPARE(window->frameGeometry(), RectF(635, 507, 10, 10));
+        workspace()->placement()->placeCentered(window, QRect(0, 0, 1280, 1024));
+        QCOMPARE(window->frameGeometry(), QRect(635, 507, 10, 10));
         QMetaObject::invokeMethod(workspace(), methodCall.toLocal8Bit().constData());
         QCOMPARE(window->frameGeometry(), expectedGeometry);
     };
-    renderWindow(surface1.get(), QStringLiteral("slotWindowMoveLeft"), RectF(0, 507, 10, 10));
-    renderWindow(surface2.get(), QStringLiteral("slotWindowMoveUp"), RectF(635, 0, 10, 10));
-    renderWindow(surface3.get(), QStringLiteral("slotWindowMoveRight"), RectF(1270, 507, 10, 10));
-    renderWindow(surface4.get(), QStringLiteral("slotWindowMoveDown"), RectF(635, 1014, 10, 10));
+    renderWindow(surface1.get(), QStringLiteral("slotWindowMoveLeft"), QRect(0, 507, 10, 10));
+    renderWindow(surface2.get(), QStringLiteral("slotWindowMoveUp"), QRect(635, 0, 10, 10));
+    renderWindow(surface3.get(), QStringLiteral("slotWindowMoveRight"), QRect(1270, 507, 10, 10));
+    renderWindow(surface4.get(), QStringLiteral("slotWindowMoveDown"), QRect(635, 1014, 10, 10));
 
     std::unique_ptr<KWayland::Client::Surface> surface(Test::createSurface());
     QVERIFY(surface != nullptr);
@@ -380,8 +383,8 @@ void MoveResizeWindowTest::testPackAgainstClient()
     QVERIFY(window);
     QCOMPARE(workspace()->activeWindow(), window);
     // let's place it centered
-    window->place(*workspace()->placement()->placeCentered(window, QRect(0, 0, 1280, 1024)));
-    QCOMPARE(window->frameGeometry(), RectF(590, 487, 100, 50));
+    workspace()->placement()->placeCentered(window, QRect(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(590, 487, 100, 50));
 
     QFETCH(QString, methodCall);
     QMetaObject::invokeMethod(workspace(), methodCall.toLocal8Bit().constData());
@@ -391,12 +394,12 @@ void MoveResizeWindowTest::testPackAgainstClient()
 void MoveResizeWindowTest::testGrowShrink_data()
 {
     QTest::addColumn<QString>("methodCall");
-    QTest::addColumn<RectF>("expectedGeometry");
+    QTest::addColumn<QRectF>("expectedGeometry");
 
-    QTest::newRow("grow vertical") << QStringLiteral("slotWindowExpandVertical") << RectF(590, 487, 100, 537);
-    QTest::newRow("grow horizontal") << QStringLiteral("slotWindowExpandHorizontal") << RectF(590, 487, 690, 50);
-    QTest::newRow("shrink vertical") << QStringLiteral("slotWindowShrinkVertical") << RectF(590, 487, 100, 23);
-    QTest::newRow("shrink horizontal") << QStringLiteral("slotWindowShrinkHorizontal") << RectF(590, 487, 40, 50);
+    QTest::newRow("grow vertical") << QStringLiteral("slotWindowExpandVertical") << QRectF(590, 487, 100, 537);
+    QTest::newRow("grow horizontal") << QStringLiteral("slotWindowExpandHorizontal") << QRectF(590, 487, 690, 50);
+    QTest::newRow("shrink vertical") << QStringLiteral("slotWindowShrinkVertical") << QRectF(590, 487, 100, 23);
+    QTest::newRow("shrink horizontal") << QStringLiteral("slotWindowShrinkHorizontal") << QRectF(590, 487, 40, 50);
 }
 
 void MoveResizeWindowTest::testGrowShrink()
@@ -426,8 +429,8 @@ void MoveResizeWindowTest::testGrowShrink()
     QCOMPARE(workspace()->activeWindow(), window);
 
     // let's place it centered
-    window->place(*workspace()->placement()->placeCentered(window, QRect(0, 0, 1280, 1024)));
-    QCOMPARE(window->frameGeometry(), RectF(590, 487, 100, 50));
+    workspace()->placement()->placeCentered(window, QRect(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(590, 487, 100, 50));
 
     QFETCH(QString, methodCall);
     QMetaObject::invokeMethod(workspace(), methodCall.toLocal8Bit().constData());
@@ -508,7 +511,7 @@ void MoveResizeWindowTest::testClientSideMove()
     QVERIFY(window);
 
     // move pointer into center of geometry
-    const RectF startGeometry = window->frameGeometry();
+    const QRectF startGeometry = window->frameGeometry();
     input()->pointer()->warp(startGeometry.center());
     QVERIFY(pointerEnteredSpy.wait());
     QCOMPARE(pointerEnteredSpy.first().last().toPoint(), QPoint(50, 25));
@@ -540,15 +543,15 @@ void MoveResizeWindowTest::testClientSideMove()
 
 void MoveResizeWindowTest::testResizeForVirtualKeyboard_data()
 {
-    QTest::addColumn<RectF>("windowRect");
-    QTest::addColumn<RectF>("keyboardRect");
-    QTest::addColumn<RectF>("resizedWindowRect");
+    QTest::addColumn<QRect>("windowRect");
+    QTest::addColumn<QRect>("keyboardRect");
+    QTest::addColumn<QRect>("resizedWindowRect");
 
-    QTest::newRow("standard") << RectF(100, 300, 500, 800) << RectF(0, 100, 1280, 500) << RectF(100, 0, 500, 100);
-    QTest::newRow("same size") << RectF(100, 300, 500, 500) << RectF(0, 600, 1280, 400) << RectF(100, 100, 500, 500);
-    QTest::newRow("smaller width") << RectF(100, 300, 500, 800) << RectF(300, 100, 100, 500) << RectF(100, 0, 500, 100);
-    QTest::newRow("no height change") << RectF(100, 300, 500, 500) << RectF(0, 900, 1280, 124) << RectF(100, 300, 500, 500);
-    QTest::newRow("no width change") << RectF(100, 300, 500, 500) << RectF(0, 400, 100, 500) << RectF(100, 300, 500, 500);
+    QTest::newRow("standard") << QRect(100, 300, 500, 800) << QRect(0, 100, 1280, 500) << QRect(100, 0, 500, 100);
+    QTest::newRow("same size") << QRect(100, 300, 500, 500) << QRect(0, 600, 1280, 400) << QRect(100, 100, 500, 500);
+    QTest::newRow("smaller width") << QRect(100, 300, 500, 800) << QRect(300, 100, 100, 500) << QRect(100, 0, 500, 100);
+    QTest::newRow("no height change") << QRect(100, 300, 500, 500) << QRect(0, 900, 1280, 124) << QRect(100, 300, 500, 500);
+    QTest::newRow("no width change") << QRect(100, 300, 500, 500) << QRect(0, 400, 100, 500) << QRect(100, 300, 500, 500);
 }
 
 void MoveResizeWindowTest::testResizeForVirtualKeyboard()
@@ -559,9 +562,9 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboard()
     std::unique_ptr<Test::XdgToplevel> shellSurface(Test::createXdgToplevelSurface(surface.get()));
     QVERIFY(shellSurface != nullptr);
 
-    QFETCH(RectF, windowRect);
-    QFETCH(RectF, keyboardRect);
-    QFETCH(RectF, resizedWindowRect);
+    QFETCH(QRect, windowRect);
+    QFETCH(QRect, keyboardRect);
+    QFETCH(QRect, resizedWindowRect);
 
     // There are three things that may happen when the virtual keyboard geometry
     // is set: We move the window to the top and resize it, we move the window
@@ -574,7 +577,7 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboard()
     bool positionChange = windowRect.topLeft() != resizedWindowRect.topLeft();
 
     // let's render
-    auto window = Test::renderAndWaitForShown(surface.get(), windowRect.size().toSize(), Qt::blue);
+    auto window = Test::renderAndWaitForShown(surface.get(), windowRect.size(), Qt::blue);
     QVERIFY(window);
 
     // The client should receive a configure event upon becoming active.
@@ -606,7 +609,7 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboard()
     }
 
     QCOMPARE(window->frameGeometry(), resizedWindowRect);
-    window->setVirtualKeyboardGeometry(RectF());
+    window->setVirtualKeyboardGeometry(QRect());
 
     if (sizeChange) {
         QVERIFY(surfaceConfigureRequestedSpy.wait());
@@ -644,24 +647,24 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboardWithMaximize()
     window->move(QPoint(100, 300));
     QSignalSpy frameGeometryChangedSpy(window, &Window::frameGeometryChanged);
 
-    QCOMPARE(window->frameGeometry(), RectF(100, 300, 500, 800));
-    window->setVirtualKeyboardGeometry(RectF(0, 100, 1280, 500));
+    QCOMPARE(window->frameGeometry(), QRect(100, 300, 500, 800));
+    window->setVirtualKeyboardGeometry(QRect(0, 100, 1280, 500));
     QVERIFY(surfaceConfigureRequestedSpy.wait());
 
     shellSurface->xdgSurface()->ack_configure(surfaceConfigureRequestedSpy.last()[0].toInt());
     // render at the new size
     Test::render(surface.get(), toplevelConfigureRequestedSpy.last().first().toSize(), Qt::blue);
     QVERIFY(frameGeometryChangedSpy.wait());
-    QCOMPARE(window->frameGeometry(), RectF(100, 0, 500, 100));
+    QCOMPARE(window->frameGeometry(), QRect(100, 0, 500, 100));
 
     window->setMaximize(true, true);
     QVERIFY(surfaceConfigureRequestedSpy.wait());
     shellSurface->xdgSurface()->ack_configure(surfaceConfigureRequestedSpy.last()[0].toInt());
     Test::render(surface.get(), toplevelConfigureRequestedSpy.last().first().toSize(), Qt::blue);
     QVERIFY(frameGeometryChangedSpy.wait());
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 1280, 1024));
 
-    window->setVirtualKeyboardGeometry(RectF());
+    window->setVirtualKeyboardGeometry(QRect());
     QVERIFY(!surfaceConfigureRequestedSpy.wait(10));
 
     // render at the size of the configureRequested.. it won't have changed
@@ -669,7 +672,7 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboardWithMaximize()
     QVERIFY(!frameGeometryChangedSpy.wait(10));
 
     // Size will NOT be restored
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 1280, 1024));
 }
 
 void MoveResizeWindowTest::testResizeForVirtualKeyboardWithFullScreen()
@@ -692,31 +695,31 @@ void MoveResizeWindowTest::testResizeForVirtualKeyboardWithFullScreen()
     window->move(QPoint(100, 300));
     QSignalSpy frameGeometryChangedSpy(window, &Window::frameGeometryChanged);
 
-    QCOMPARE(window->frameGeometry(), RectF(100, 300, 500, 800));
-    window->setVirtualKeyboardGeometry(RectF(0, 100, 1280, 500));
+    QCOMPARE(window->frameGeometry(), QRect(100, 300, 500, 800));
+    window->setVirtualKeyboardGeometry(QRect(0, 100, 1280, 500));
     QVERIFY(surfaceConfigureRequestedSpy.wait());
 
     shellSurface->xdgSurface()->ack_configure(surfaceConfigureRequestedSpy.last()[0].toInt());
     // render at the new size
     Test::render(surface.get(), toplevelConfigureRequestedSpy.last().first().toSize(), Qt::blue);
     QVERIFY(frameGeometryChangedSpy.wait());
-    QCOMPARE(window->frameGeometry(), RectF(100, 0, 500, 100));
+    QCOMPARE(window->frameGeometry(), QRect(100, 0, 500, 100));
 
     window->setFullScreen(true);
     QVERIFY(surfaceConfigureRequestedSpy.wait());
     shellSurface->xdgSurface()->ack_configure(surfaceConfigureRequestedSpy.last()[0].toInt());
     Test::render(surface.get(), toplevelConfigureRequestedSpy.last().first().toSize(), Qt::blue);
     QVERIFY(frameGeometryChangedSpy.wait());
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 1280, 1024));
 
-    window->setVirtualKeyboardGeometry(RectF());
+    window->setVirtualKeyboardGeometry(QRect());
     QVERIFY(!surfaceConfigureRequestedSpy.wait(10));
 
     // render at the size of the configureRequested.. it won't have changed
     Test::render(surface.get(), toplevelConfigureRequestedSpy.last().first().toSize(), Qt::blue);
     QVERIFY(!frameGeometryChangedSpy.wait(10));
     // Size will NOT be restored
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 1280, 1024));
 }
 
 void MoveResizeWindowTest::testDestroyMoveClient()
@@ -836,8 +839,8 @@ void MoveResizeWindowTest::testCancelInteractiveMoveResize()
     Test::render(surface.get(), toplevelConfigureRequestedSpy.last().first().toSize(), Qt::blue);
     QVERIFY(frameGeomtryChangedSpy.wait());
     QCOMPARE(window->quickTileMode(), quickTileMode);
-    const RectF geometry = window->moveResizeGeometry();
-    const RectF geometryRestore = window->geometryRestore();
+    const QRectF geometry = window->moveResizeGeometry();
+    const QRectF geometryRestore = window->geometryRestore();
 
     // Start resizing the client.
     QSignalSpy interactiveMoveResizeStartedSpy(window, &Window::interactiveMoveResizeStarted);
@@ -909,7 +912,7 @@ std::tuple<Window *, std::unique_ptr<KWayland::Client::Surface>, std::unique_ptr
     return {window, std::move(surface), std::move(shellSurface)};
 }
 
-std::pair<std::unique_ptr<KWayland::Client::Surface>, std::unique_ptr<Test::LayerSurfaceV1>> MoveResizeWindowTest::addPanel(const Rect &geometry, int anchor)
+std::pair<std::unique_ptr<KWayland::Client::Surface>, std::unique_ptr<Test::LayerSurfaceV1>> MoveResizeWindowTest::addPanel(const QRect &geometry, int anchor)
 {
 #define VERIFY(statement)                                                 \
     if (!QTest::qVerify((statement), #statement, "", __FILE__, __LINE__)) \
@@ -984,7 +987,7 @@ void MoveResizeWindowTest::testRestrictedMove()
     QFETCH(bool, hasStruts);
     std::vector<std::unique_ptr<KWayland::Client::Surface>> surfaces;
     std::vector<std::unique_ptr<Test::LayerSurfaceV1>> shellSurfaces;
-    const auto add = [this, &surfaces, &shellSurfaces](const Rect &geometry, int anchor) {
+    const auto add = [this, &surfaces, &shellSurfaces](const QRect &geometry, int anchor) {
         auto [surface, shellSurface] = addPanel(geometry, anchor);
         QVERIFY(surface);
         QVERIFY(shellSurface);
@@ -992,10 +995,10 @@ void MoveResizeWindowTest::testRestrictedMove()
         shellSurfaces.push_back(std::move(shellSurface));
     };
     if (hasStruts) {
-        add(Rect(320, 0, 640, 100), Test::LayerSurfaceV1::anchor_top);
-        add(Rect(320, 924, 640, 100), Test::LayerSurfaceV1::anchor_bottom);
-        add(Rect(0, 0, 100, 1024), Test::LayerSurfaceV1::anchor_left);
-        add(Rect(1180, 0, 100, 1024), Test::LayerSurfaceV1::anchor_right);
+        add(QRect(320, 0, 640, 100), Test::LayerSurfaceV1::anchor_top);
+        add(QRect(320, 924, 640, 100), Test::LayerSurfaceV1::anchor_bottom);
+        add(QRect(0, 0, 100, 1024), Test::LayerSurfaceV1::anchor_left);
+        add(QRect(1180, 0, 100, 1024), Test::LayerSurfaceV1::anchor_right);
     }
 
     auto [window, surface, shellSurface] = showWindow();
@@ -1006,7 +1009,7 @@ void MoveResizeWindowTest::testRestrictedMove()
     QVERIFY(surface);
 
     QCOMPARE(workspace()->activeWindow(), window);
-    RectF decorationLeft, decorationRight, decorationTop, decorationBottom;
+    QRectF decorationLeft, decorationRight, decorationTop, decorationBottom;
     window->layoutDecorationRects(decorationLeft, decorationTop, decorationRight, decorationBottom);
     QVERIFY(!decorationTop.isEmpty());
     const auto titleThickness = decorationTop.height();
@@ -1090,7 +1093,7 @@ void MoveResizeWindowTest::testRestrictedMoveMultiMonitor()
     QVERIFY(surface);
 
     QCOMPARE(workspace()->activeWindow(), window);
-    RectF decorationLeft, decorationRight, decorationTop, decorationBottom;
+    QRectF decorationLeft, decorationRight, decorationTop, decorationBottom;
     window->layoutDecorationRects(decorationLeft, decorationTop, decorationRight, decorationBottom);
     QVERIFY(!decorationTop.isEmpty());
     const auto titleThickness = decorationTop.height();
@@ -1132,17 +1135,17 @@ void MoveResizeWindowTest::testRestrictedResizeUp()
 {
     std::vector<std::unique_ptr<KWayland::Client::Surface>> surfaces;
     std::vector<std::unique_ptr<Test::LayerSurfaceV1>> shellSurfaces;
-    const auto add = [this, &surfaces, &shellSurfaces](const Rect &geometry, int anchor) {
+    const auto add = [this, &surfaces, &shellSurfaces](const QRect &geometry, int anchor) {
         auto [surface, shellSurface] = addPanel(geometry, anchor);
         QVERIFY(surface);
         QVERIFY(shellSurface);
         surfaces.push_back(std::move(surface));
         shellSurfaces.push_back(std::move(shellSurface));
     };
-    add(Rect(320, 0, 640, 100), Test::LayerSurfaceV1::anchor_top);
-    add(Rect(320, 924, 640, 100), Test::LayerSurfaceV1::anchor_bottom);
-    add(Rect(0, 0, 100, 1024), Test::LayerSurfaceV1::anchor_left);
-    add(Rect(1180, 0, 100, 1024), Test::LayerSurfaceV1::anchor_right);
+    add(QRect(320, 0, 640, 100), Test::LayerSurfaceV1::anchor_top);
+    add(QRect(320, 924, 640, 100), Test::LayerSurfaceV1::anchor_bottom);
+    add(QRect(0, 0, 100, 1024), Test::LayerSurfaceV1::anchor_left);
+    add(QRect(1180, 0, 100, 1024), Test::LayerSurfaceV1::anchor_right);
 
     auto [window, surface, shellSurface] = showWindow();
     QVERIFY(window);
@@ -1152,7 +1155,7 @@ void MoveResizeWindowTest::testRestrictedResizeUp()
     QVERIFY(surface);
 
     QCOMPARE(workspace()->activeWindow(), window);
-    RectF decorationLeft, decorationRight, decorationTop, decorationBottom;
+    QRectF decorationLeft, decorationRight, decorationTop, decorationBottom;
     window->layoutDecorationRects(decorationLeft, decorationTop, decorationRight, decorationBottom);
     QVERIFY(!decorationTop.isEmpty());
 
@@ -1196,17 +1199,17 @@ void MoveResizeWindowTest::testRestrictedResizeRight()
 {
     std::vector<std::unique_ptr<KWayland::Client::Surface>> surfaces;
     std::vector<std::unique_ptr<Test::LayerSurfaceV1>> shellSurfaces;
-    const auto add = [this, &surfaces, &shellSurfaces](const Rect &geometry, int anchor) {
+    const auto add = [this, &surfaces, &shellSurfaces](const QRect &geometry, int anchor) {
         auto [surface, shellSurface] = addPanel(geometry, anchor);
         QVERIFY(surface);
         QVERIFY(shellSurface);
         surfaces.push_back(std::move(surface));
         shellSurfaces.push_back(std::move(shellSurface));
     };
-    add(Rect(320, 0, 640, 100), Test::LayerSurfaceV1::anchor_top);
-    add(Rect(320, 924, 640, 100), Test::LayerSurfaceV1::anchor_bottom);
-    add(Rect(0, 0, 100, 1024), Test::LayerSurfaceV1::anchor_left);
-    add(Rect(1180, 0, 100, 1024), Test::LayerSurfaceV1::anchor_right);
+    add(QRect(320, 0, 640, 100), Test::LayerSurfaceV1::anchor_top);
+    add(QRect(320, 924, 640, 100), Test::LayerSurfaceV1::anchor_bottom);
+    add(QRect(0, 0, 100, 1024), Test::LayerSurfaceV1::anchor_left);
+    add(QRect(1180, 0, 100, 1024), Test::LayerSurfaceV1::anchor_right);
 
     auto [window, surface, shellSurface] = showWindow();
     QVERIFY(window);
@@ -1216,7 +1219,7 @@ void MoveResizeWindowTest::testRestrictedResizeRight()
     QVERIFY(surface);
 
     QCOMPARE(workspace()->activeWindow(), window);
-    RectF decorationLeft, decorationRight, decorationTop, decorationBottom;
+    QRectF decorationLeft, decorationRight, decorationTop, decorationBottom;
     window->layoutDecorationRects(decorationLeft, decorationTop, decorationRight, decorationBottom);
     QVERIFY(!decorationTop.isEmpty());
 

@@ -10,7 +10,8 @@
 
 #include "datasource.h"
 #include "drag.h"
-#include "wayland/abstract_data_source.h"
+
+#include "wayland/datadevicemanager.h"
 
 #include <QList>
 #include <QPoint>
@@ -22,41 +23,49 @@ class Window;
 
 namespace Xwl
 {
-class XwlDataSource;
+class X11Source;
+enum class DragEventReply;
 class WlVisit;
 class Dnd;
+
+using Mimes = QList<QPair<QString, xcb_atom_t>>;
 
 class XToWlDrag : public Drag
 {
     Q_OBJECT
 
 public:
-    explicit XToWlDrag(XwlDataSource *source, Dnd *dnd);
+    explicit XToWlDrag(X11Source *source, Dnd *dnd);
     ~XToWlDrag() override;
 
-    bool moveFilter(Window *target, const QPointF &position) override;
+    DragEventReply moveFilter(Window *target) override;
     bool handleClientMessage(xcb_client_message_event_t *event) override;
 
-    void setDragAndDropAction(DnDAction action);
-    DnDAction selectedDragAndDropAction();
+    void setDragAndDropAction(DataDeviceManagerInterface::DnDAction action);
+    DataDeviceManagerInterface::DnDAction selectedDragAndDropAction();
 
-    Dnd *selection() const
+    X11Source *x11Source() const
     {
-        return m_dnd;
+        return m_source;
     }
 
 private:
-    void setMimeTypes(const QStringList &offers);
+    void setOffers(const Mimes &offers);
     void setDragTarget();
-    void tryFinish();
+
+    bool checkForFinished();
 
     Dnd *const m_dnd;
-    XwlDataSource *m_source;
+    Mimes m_offers;
+
+    X11Source *m_source;
+    QList<QPair<xcb_timestamp_t, bool>> m_dataRequests;
 
     WlVisit *m_visit = nullptr;
     QList<WlVisit *> m_oldVisits;
 
-    DnDAction m_lastSelectedDragAndDropAction = DnDAction::None;
+    bool m_performed = false;
+    DataDeviceManagerInterface::DnDAction m_lastSelectedDragAndDropAction = DataDeviceManagerInterface::DnDAction::None;
 
     Q_DISABLE_COPY(XToWlDrag)
 };
@@ -80,22 +89,22 @@ public:
     {
         return m_window;
     }
-    bool isEntered() const
+    bool entered() const
     {
         return m_entered;
     }
-    bool isDropHandled() const
+    bool dropHandled() const
     {
         return m_dropHandled;
     }
-    bool isFinished() const
+    bool finished() const
     {
         return m_finished;
     }
     void sendFinished();
 
 Q_SIGNALS:
-    void entered(const QStringList &mimeTypes);
+    void offersReceived(const Mimes &offers);
     void finish(WlVisit *self);
 
 private:
@@ -105,6 +114,8 @@ private:
     bool handleLeave(xcb_client_message_event_t *event);
 
     void sendStatus();
+
+    void getMimesFromWinProperty(Mimes &offers);
 
     bool targetAcceptsAction() const;
 
@@ -121,7 +132,7 @@ private:
     uint32_t m_version = 0;
 
     xcb_atom_t m_actionAtom;
-    DnDAction m_action = DnDAction::None;
+    DataDeviceManagerInterface::DnDAction m_action = DataDeviceManagerInterface::DnDAction::None;
 
     bool m_mapped = false;
     bool m_entered = false;

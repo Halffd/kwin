@@ -74,6 +74,7 @@ public:
      * Indicates if the tabbox is shown.
      */
     bool isShown;
+    Window *lastRaisedClient, *lastRaisedClientSucc;
     int wheelAngleDelta = 0;
 
 private:
@@ -87,6 +88,8 @@ TabBoxHandlerPrivate::TabBoxHandlerPrivate(TabBoxHandler *q)
 {
     this->q = q;
     isShown = false;
+    lastRaisedClient = nullptr;
+    lastRaisedClientSucc = nullptr;
     config = TabBoxConfig();
     m_clientModel = new ClientModel(q);
 }
@@ -145,6 +148,43 @@ void TabBoxHandlerPrivate::updateHighlightWindows()
     Window *currentClient = q->client(index);
     QWindow *w = window();
 
+    if (q->isKWinCompositing()) {
+        if (lastRaisedClient) {
+            q->elevateClient(lastRaisedClient, w, false);
+        }
+        lastRaisedClient = currentClient;
+        // don't elevate desktop
+        const auto desktop = q->desktopClient();
+        if (currentClient && (!desktop || currentClient->internalId() != desktop->internalId())) {
+            q->elevateClient(currentClient, w, true);
+        }
+    } else {
+        if (lastRaisedClient) {
+            q->shadeClient(lastRaisedClient, true);
+            if (lastRaisedClientSucc) {
+                q->restack(lastRaisedClient, lastRaisedClientSucc);
+            }
+            // TODO lastRaisedClient->setMinimized( lastRaisedClientWasMinimized );
+        }
+
+        lastRaisedClient = currentClient;
+        if (lastRaisedClient) {
+            q->shadeClient(lastRaisedClient, false);
+            // TODO if ( (lastRaisedClientWasMinimized = lastRaisedClient->isMinimized()) )
+            //         lastRaisedClient->setMinimized( false );
+            QList<Window *> order = q->stackingOrder();
+            int succIdx = order.count() + 1;
+            for (int i = 0; i < order.count(); ++i) {
+                if (order.at(i) == lastRaisedClient) {
+                    succIdx = i + 1;
+                    break;
+                }
+            }
+            lastRaisedClientSucc = (succIdx < order.count()) ? order.at(succIdx) : nullptr;
+            q->raiseClient(lastRaisedClient);
+        }
+    }
+
     if (config.isShowTabBox() && w) {
         q->highlightWindows(currentClient, w);
     } else {
@@ -154,6 +194,25 @@ void TabBoxHandlerPrivate::updateHighlightWindows()
 
 void TabBoxHandlerPrivate::endHighlightWindows(bool abort)
 {
+    Window *currentClient = q->client(index);
+    if (isHighlightWindows() && q->isKWinCompositing()) {
+        const auto stackingOrder = q->stackingOrder();
+        for (Window *window : stackingOrder) {
+            if (window != currentClient) { // to not mess up with wanted ShadeActive/ShadeHover state
+                q->shadeClient(window, true);
+            }
+        }
+    }
+    QWindow *w = window();
+    if (currentClient) {
+        q->elevateClient(currentClient, w, false);
+    }
+    if (abort && lastRaisedClient && lastRaisedClientSucc) {
+        q->restack(lastRaisedClient, lastRaisedClientSucc);
+    }
+    lastRaisedClient = nullptr;
+    lastRaisedClientSucc = nullptr;
+    // highlight windows
     q->highlightWindows();
 }
 
@@ -165,14 +224,14 @@ QObject *TabBoxHandlerPrivate::createSwitcherItem()
         QStandardPaths::GenericDataLocation,
         QStringLiteral("plasma/look-and-feel/%1/contents/windowswitcher/WindowSwitcher.qml").arg(config.layoutName()));
     if (file.isNull()) {
-        QString path = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin-wayland/tabbox/") + config.layoutName(), QStandardPaths::LocateDirectory);
+        QString path = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QLatin1String("/tabbox/") + config.layoutName(), QStandardPaths::LocateDirectory);
         if (path.isEmpty()) {
             path = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin/tabbox/") + config.layoutName(), QStandardPaths::LocateDirectory);
         }
         if (path.isEmpty()) {
             // load default
             qCWarning(KWIN_TABBOX) << "Could not load window switcher package" << config.layoutName() << ". Falling back to default";
-            path = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin-wayland/tabbox/") + TabBoxConfig::defaultLayoutName(), QStandardPaths::LocateDirectory);
+            path = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QLatin1String("/tabbox/") + TabBoxConfig::defaultLayoutName(), QStandardPaths::LocateDirectory);
         }
 
         KPackage::Package pkg = KPackage::PackageLoader::self()->loadPackage(QStringLiteral("KWin/WindowSwitcher"));
@@ -291,6 +350,8 @@ void TabBoxHandler::setConfig(const TabBoxConfig &config)
 void TabBoxHandler::show()
 {
     d->isShown = true;
+    d->lastRaisedClient = nullptr;
+    d->lastRaisedClientSucc = nullptr;
     if (d->config.isShowTabBox()) {
         d->show();
     }
@@ -305,6 +366,12 @@ void TabBoxHandler::show()
 
 void TabBoxHandler::initHighlightWindows()
 {
+    if (isKWinCompositing()) {
+        const auto stack = stackingOrder();
+        for (Window *window : stack) {
+            shadeClient(window, false);
+        }
+    }
     d->updateHighlightWindows();
 }
 
@@ -433,6 +500,24 @@ Window *TabBoxHandler::client(const QModelIndex &index) const
 void TabBoxHandler::createModel(bool partialReset)
 {
     d->clientModel()->createClientList(partialReset);
+    // TODO: C++11 use lambda function
+    bool lastRaised = false;
+    bool lastRaisedSucc = false;
+    const auto clients = stackingOrder();
+    for (Window *window : clients) {
+        if (window == d->lastRaisedClient) {
+            lastRaised = true;
+        }
+        if (window == d->lastRaisedClientSucc) {
+            lastRaisedSucc = true;
+        }
+    }
+    if (d->lastRaisedClient && !lastRaised) {
+        d->lastRaisedClient = nullptr;
+    }
+    if (d->lastRaisedClientSucc && !lastRaisedSucc) {
+        d->lastRaisedClientSucc = nullptr;
+    }
 }
 
 QModelIndex TabBoxHandler::first() const

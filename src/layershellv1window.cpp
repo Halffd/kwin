@@ -36,7 +36,7 @@ static WindowType scopeToType(const QString &scope)
 }
 
 LayerShellV1Window::LayerShellV1Window(LayerSurfaceV1Interface *shellSurface,
-                                       LogicalOutput *output,
+                                       Output *output,
                                        LayerShellV1Integration *integration)
     : WaylandWindow(shellSurface->surface())
     , m_desiredOutput(output)
@@ -55,8 +55,8 @@ LayerShellV1Window::LayerShellV1Window(LayerSurfaceV1Interface *shellSurface,
     connect(shellSurface->surface(), &SurfaceInterface::aboutToBeDestroyed,
             this, &LayerShellV1Window::destroyWindow);
 
-    connect(workspace(), &Workspace::outputRemoved,
-            this, &LayerShellV1Window::handleOutputRemoved);
+    connect(output, &Output::enabledChanged,
+            this, &LayerShellV1Window::handleOutputEnabledChanged);
 
     connect(shellSurface->surface(), &SurfaceInterface::sizeChanged,
             this, &LayerShellV1Window::handleSizeChanged);
@@ -90,7 +90,7 @@ LayerSurfaceV1Interface *LayerShellV1Window::shellSurface() const
     return m_shellSurface;
 }
 
-LogicalOutput *LayerShellV1Window::desiredOutput() const
+Output *LayerShellV1Window::desiredOutput() const
 {
     return m_desiredOutput;
 }
@@ -130,9 +130,22 @@ bool LayerShellV1Window::isResizable() const
     return false;
 }
 
+bool LayerShellV1Window::takeFocus()
+{
+    if (acceptsFocus()) {
+        setActive(true);
+    }
+    return true;
+}
+
 bool LayerShellV1Window::wantsInput() const
 {
     return acceptsFocus() && readyForPainting();
+}
+
+bool LayerShellV1Window::dockWantsInput() const
+{
+    return wantsInput();
 }
 
 StrutRect LayerShellV1Window::strutRect(StrutArea area) const
@@ -191,9 +204,7 @@ void LayerShellV1Window::destroyWindow()
     }
     m_shellSurface->disconnect(this);
     m_shellSurface->surface()->disconnect(this);
-
-    disconnect(workspace(), &Workspace::outputRemoved,
-               this, &LayerShellV1Window::handleOutputRemoved);
+    m_desiredOutput->disconnect(this);
 
     markAsDeleted();
     Q_EMIT closed();
@@ -235,7 +246,7 @@ bool LayerShellV1Window::acceptsFocus() const
     return !isDeleted() && m_shellSurface->acceptsFocus();
 }
 
-void LayerShellV1Window::moveResizeInternal(const RectF &rect, MoveResizeMode mode)
+void LayerShellV1Window::moveResizeInternal(const QRectF &rect, MoveResizeMode mode)
 {
     const QSize requestedClientSize = nextFrameSizeToClientSize(rect.size()).toSize();
 
@@ -254,7 +265,7 @@ void LayerShellV1Window::moveResizeInternal(const RectF &rect, MoveResizeMode mo
     }
 
     // The surface position is updated synchronously.
-    RectF updateRect = m_frameGeometry;
+    QRectF updateRect = m_frameGeometry;
     updateRect.moveTopLeft(rect.topLeft());
     updateGeometry(updateRect);
 }
@@ -297,7 +308,7 @@ void LayerShellV1Window::handleConfigureAcknowledged(quint32 serial)
 
 void LayerShellV1Window::handleSizeChanged()
 {
-    updateGeometry(RectF(pos(), clientSizeToFrameSize(surface()->size())));
+    updateGeometry(QRectF(pos(), clientSizeToFrameSize(surface()->size())));
 }
 
 void LayerShellV1Window::handleUnmapped()
@@ -327,15 +338,15 @@ void LayerShellV1Window::handleAcceptsFocusChanged()
     }
 }
 
-void LayerShellV1Window::handleOutputRemoved(LogicalOutput *output)
+void LayerShellV1Window::handleOutputEnabledChanged()
 {
-    if (output == m_desiredOutput) {
+    if (!m_desiredOutput->isEnabled()) {
         closeWindow();
         destroyWindow();
     }
 }
 
-void LayerShellV1Window::setVirtualKeyboardGeometry(const RectF &geo)
+void LayerShellV1Window::setVirtualKeyboardGeometry(const QRectF &geo)
 {
     if (m_virtualKeyboardGeometry == geo) {
         return;

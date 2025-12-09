@@ -25,7 +25,7 @@
             <default>Operations menu</default>
         </entry>
         <entry name="CommandInactiveTitlebar1" type="String">
-            <default>Activate and raise</default>
+            <default>Activate, pass click and raise on release</default>
         </entry>
         <entry name="CommandInactiveTitlebar2" type="String">
             <default>Nothing</default>
@@ -149,6 +149,12 @@
         <entry name="DelayFocusInterval" type="Int">
             <default>300</default>
         </entry>
+        <entry name="ShadeHover" type="Bool">
+            <default>false</default>
+        </entry>
+        <entry name="ShadeHoverInterval" type="Int">
+            <default>250</default>
+        </entry>
         <entry name="ClickRaise" type="Bool">
             <default>true</default>
         </entry>
@@ -177,9 +183,6 @@
             <default>1</default>
         </entry>
         <entry name="ElectricBorderMaximize" type="Bool">
-            <default>true</default>
-        </entry>
-        <entry name="ElectricBorderAllScreenCorner" type="Bool">
             <default>true</default>
         </entry>
         <entry name="ElectricBorderTiling" type="Bool">
@@ -220,21 +223,6 @@
         <entry name="InteractiveWindowMoveEnabled" type="Bool">
             <default>true</default>
         </entry>
-        <entry name="PictureInPictureHomeCorner" type="Enum">
-            <choices name="Qt::Corner">
-                <choice name="TopLeftCorner"/>
-                <choice name="TopRightCorner"/>
-                <choice name="BottomLeftCorner"/>
-                <choice name="BottomRightCorner"/>
-            </choices>
-            <default>Qt::BottomRightCorner</default>
-        </entry>
-        <entry name="PictureInPictureMargin" type="Int">
-            <default>20</default>
-        </entry>
-        <entry name="OverlayVirtualKeyboardOnWindows" type="Bool">
-            <default>false</default>
-        </entry>
     </group>
     <group name="EdgeBarrier">
         <entry name="CornerBarrier" type="Bool">
@@ -260,6 +248,28 @@
         </entry>
         <entry name="LastFailureTimestamp" type="Int">
             <default>0</default>
+        </entry>
+        <entry name="GLTextureFilter" type="Int">
+            <default>2</default>
+            <min>-1</min>
+            <max>2</max>
+        </entry>
+        <entry name="GLStrictBinding" type="Bool">
+            <default>true</default>
+        </entry>
+        <entry name="GLLegacy" type="Bool">
+            <default>false</default>
+        </entry>
+        <entry name="HiddenPreviews" type="Int">
+            <default>5</default>
+            <min>4</min>
+            <max>6</max>
+        </entry>
+        <entry name="GLPlatformInterface" type="String">
+            <default>glx</default>
+        </entry>
+        <entry name="WindowsBlockCompositing" type="Bool">
+            <default>true</default>
         </entry>
         <entry name="AllowTearing" type="Bool">
             <default>true</default>
@@ -340,9 +350,6 @@
             <default>Combinations</default>
         </entry>
         <entry name="XwaylandEavesdropsMouse" type="Bool">
-            <default>false</default>
-        </entry>
-        <entry name="XwaylandEisNoPrompt" type="Bool">
             <default>false</default>
         </entry>
     </group>

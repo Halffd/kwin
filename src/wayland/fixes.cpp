@@ -5,6 +5,10 @@
 */
 
 #include "fixes.h"
+
+#include "config-kwin.h"
+#if HAVE_WL_FIXES
+
 #include "display.h"
 #include "qwayland-server-wayland.h"
 
@@ -48,3 +52,5 @@ FixesInterface::~FixesInterface()
 }
 
 } // namespace KWin
+
+#endif // HAVE_WL_FIXES

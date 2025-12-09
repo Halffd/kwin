@@ -37,7 +37,7 @@ Most window management stuff (layouting, movement, properties, communication bet
 
 ### Window Effects
 
-Window effects are located in `src/plugins`, one effect plugin per folder.  Folder `src/plugins/private` contains the plugin (`org.kde.kwin.private.effects`) that exposes layouting properties and `WindowHeap.qml` for QML effects.  Not everything here is an effect as exposed in the configuration UI, such as the colour picker in `src/plugins/colorpicker`.
+Window effects are located in `src/plugins`, one effect plugin per folder.  Folder `src/plugins/private` contains the plugin (`org.kde.kwin_x11.private.effects`) that exposes layouting properties and `WindowHeap.qml` for QML effects.  Not everything here is an effect as exposed in the configuration UI, such as the colour picker in `src/plugins/colorpicker`.
 
 Of note, the Effects QML engine is shared with the Scripting components (see `src/scripting`).
 
@@ -96,9 +96,13 @@ Running it from your build directory looks like this:
 source prefix.sh
 cd bin
 
-# starts nested session: with console
+# for wayland, starts nested session: with console
 
 env QT_PLUGIN_PATH="$(pwd)":"$QT_PLUGIN_PATH" dbus-run-session ./kwin_wayland --xwayland konsole
+
+# or for x11, replaces current kwin instance:
+
+env QT_PLUGIN_PATH="$(pwd)":"$QT_PLUGIN_PATH" ./kwin_x11 --replace
 
 ```
 

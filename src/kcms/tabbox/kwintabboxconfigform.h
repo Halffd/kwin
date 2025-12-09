@@ -42,6 +42,7 @@ public:
 
     enum EffectComboRole {
         LayoutPath = Qt::UserRole + 1,
+        AddonEffect, // i.e not builtin effects
     };
 
     explicit KWinTabBoxConfigForm(TabboxType type, TabBox::TabBoxSettings *config, TabBox::ShortcutSettings *shortcutsConfig, QWidget *parent = nullptr);
@@ -59,9 +60,10 @@ public:
 
 Q_SIGNALS:
     void configChanged();
-    void effectPreviewClicked();
+    void effectConfigButtonClicked();
 
 private Q_SLOTS:
+    void tabBoxToggled(bool on);
     void onFilterScreen();
     void onFilterDesktop();
     void onFilterActivites();
@@ -105,6 +107,7 @@ private:
     TabBox::ShortcutSettings *m_shortcuts = nullptr;
     bool m_showDefaultIndicator = false;
 
+    bool m_isHighlightWindowsEnabled = true;
     Ui::KWinTabBoxConfigForm *ui;
 };
 

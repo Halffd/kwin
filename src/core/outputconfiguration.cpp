@@ -11,7 +11,7 @@
 namespace KWin
 {
 
-std::shared_ptr<OutputChangeSet> OutputConfiguration::changeSet(BackendOutput *output)
+std::shared_ptr<OutputChangeSet> OutputConfiguration::changeSet(Output *output)
 {
     auto &ret = m_properties[output];
     if (!ret) {
@@ -20,7 +20,7 @@ std::shared_ptr<OutputChangeSet> OutputConfiguration::changeSet(BackendOutput *o
     return ret;
 }
 
-std::shared_ptr<OutputChangeSet> OutputConfiguration::constChangeSet(BackendOutput *output) const
+std::shared_ptr<OutputChangeSet> OutputConfiguration::constChangeSet(Output *output) const
 {
     return m_properties[output];
 }

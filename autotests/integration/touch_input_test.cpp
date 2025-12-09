@@ -61,12 +61,12 @@ void TouchInputTest::initTestCase()
 {
     qRegisterMetaType<KWin::Window *>();
     QVERIFY(waylandServer()->init(s_socketName));
-
-    kwinApp()->start();
     Test::setOutputConfig({
         QRect(0, 0, 1280, 1024),
         QRect(1280, 0, 1280, 1024),
     });
+
+    kwinApp()->start();
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 2);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -146,7 +146,7 @@ void TouchInputTest::testTouchHidesCursor()
     QCOMPARE(Cursors::self()->isCursorHidden(), true);
 
     // wheel should also show
-    Test::pointerAxisVertical(15.0, timestamp++);
+    Test::pointerAxisVertical(1.0, timestamp++);
     QCOMPARE(Cursors::self()->isCursorHidden(), false);
 }
 
@@ -352,7 +352,7 @@ void TouchInputTest::testUpdateFocusOnDecorationDestroy()
     shellSurface->xdgSurface()->ack_configure(surfaceConfigureRequestedSpy.last().at(0).value<quint32>());
     Test::render(surface.get(), QSize(1280, 1024), Qt::blue);
     QVERIFY(frameGeometryChangedSpy.wait());
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 1280, 1024));
     QCOMPARE(window->maximizeMode(), MaximizeFull);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeFull);
     QCOMPARE(window->isDecorated(), false);

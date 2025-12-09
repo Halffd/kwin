@@ -11,7 +11,7 @@ import QtQuick.Window
 import Qt5Compat.GraphicalEffects
 import org.kde.kirigami as Kirigami
 import org.kde.kwin as KWinComponents
-import org.kde.kwin.private.effects
+import org.kde.kwin_x11.private.effects
 import org.kde.plasma.components 3.0 as PC3
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.ksvg 1.0 as KSvg
@@ -30,7 +30,7 @@ ExpoCell {
 
     // no desktops is a special value which means "All Desktops"
     readonly property bool presentOnCurrentDesktop: !window.desktops.length || window.desktops.indexOf(KWinComponents.Workspace.currentDesktop) !== -1
-    readonly property bool initialHidden: window.minimized
+    readonly property bool initialHidden: window.minimized || !presentOnCurrentDesktop
     readonly property bool activeHidden: {
         if (window.skipSwitcher) {
             return true;
@@ -149,7 +149,7 @@ ExpoCell {
             }
             function restoreDND(oldGlobalRect: rect) {
                 const newGlobalRect = mapFromItem(null, oldGlobalRect);
-                // We need proper mapping for the heap geometry because they are positioned with
+                // We need proper mapping for the heap geometry becuase they are positioned with
                 // translation transformations
                 const heapRect = thumb.windowHeap.mapToItem(null, Qt.size(thumb.windowHeap.width, thumb.windowHeap.height));
                 // Disable bindings
@@ -173,7 +173,7 @@ ExpoCell {
 
             // Not using FrameSvg hover element intentionally for stylistic reasons
             Rectangle {
-                border.width: 6
+                border.width: Kirigami.Units.largeSpacing
                 border.color: Kirigami.Theme.highlightColor
                 anchors.fill: parent
                 anchors.margins: -border.width
@@ -226,7 +226,7 @@ ExpoCell {
             anchors.fill: thumbSource
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
-            text: i18nd("kwin", "Drag Down To Close")
+            text: i18nd("kwin_x11", "Drag Down To Close")
             visible: !thumb.activeHidden && touchDragHandler.active
             background: Rectangle {
                 anchors.centerIn: parent
@@ -370,7 +370,7 @@ ExpoCell {
             active: thumb.closeButtonVisible && (hoverHandler.hovered || Kirigami.Settings.tabletMode || Kirigami.Settings.hasTransientTouchInput) && thumb.window.closeable && !thumb.activeDragHandler.active && !returnAnimation.running
 
             sourceComponent: PC3.Button {
-                text: i18ndc("kwin", "@info:tooltip as in: 'close this window'", "Close window")
+                text: i18ndc("kwin_x11", "@info:tooltip as in: 'close this window'", "Close window")
                 icon.name: "window-close"
                 display: PC3.AbstractButton.IconOnly
 

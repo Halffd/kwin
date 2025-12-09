@@ -41,7 +41,7 @@ public:
     std::shared_ptr<GLTexture> texture;
 };
 
-class EGLPlatformContext : public QObject, public QPlatformOpenGLContext, public QNativeInterface::QEGLContext
+class EGLPlatformContext : public QObject, public QPlatformOpenGLContext
 {
     Q_OBJECT
 
@@ -57,10 +57,6 @@ public:
     GLuint defaultFramebufferObject(QPlatformSurface *surface) const override;
     QFunctionPointer getProcAddress(const char *procName) override;
     void swapBuffers(QPlatformSurface *surface) override;
-    EGLContext nativeContext() const override;
-    EGLConfig config() const override;
-    EGLDisplay display() const override;
-    void invalidateContext() override;
 
 private:
     void create(const QSurfaceFormat &format, ::EGLContext shareContext);
@@ -73,7 +69,6 @@ private:
     std::unordered_map<GraphicsBuffer *, std::shared_ptr<EGLRenderTarget>> m_renderTargets;
     std::vector<std::shared_ptr<EGLRenderTarget>> m_zombieRenderTargets;
     std::shared_ptr<EGLRenderTarget> m_current;
-    bool m_markedInvalid = false;
 };
 
 } // namespace QPA

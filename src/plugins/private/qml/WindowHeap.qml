@@ -9,7 +9,7 @@ import QtQuick
 import QtQuick.Window
 import org.kde.kirigami as Kirigami
 import org.kde.kwin as KWinComponents
-import org.kde.kwin.private.effects
+import org.kde.kwin_x11.private.effects
 
 FocusScope {
     id: heap
@@ -115,7 +115,7 @@ FocusScope {
         }
         function onItemDroppedOutOfScreen(pos, item, screen) {
             if (screen === targetScreen) {
-                // To actually move we need a screen number rather than an EffectScreen
+                // To actually move we neeed a screen number rather than an EffectScreen
                 KWinComponents.Workspace.sendClientToScreen(item.client, KWinComponents.Workspace.screenAt(pos));
             }
         }

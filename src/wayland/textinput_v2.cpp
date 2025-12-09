@@ -133,8 +133,10 @@ void TextInputManagerV2InterfacePrivate::zwp_text_input_manager_v2_get_text_inpu
 
     TextInputV2InterfacePrivate *textInputPrivate = TextInputV2InterfacePrivate::get(s->textInputV2());
     auto *textInputResource = textInputPrivate->add(resource->client(), id, resource->version());
-    if (textInputPrivate->focusedSurface && textInputPrivate->focusedSurface->client()->client() == resource->client()) {
-        textInputPrivate->send_enter(textInputResource->handle, textInputPrivate->focusedSerial, textInputPrivate->focusedSurface->resource());
+    // Send enter to this new text input object if the surface is already focused.
+    const quint32 serial = s->display()->nextSerial();
+    if (textInputPrivate->surface && textInputPrivate->surface->client()->client() == resource->client()) {
+        textInputPrivate->send_enter(textInputResource->handle, serial, textInputPrivate->surface->resource());
     }
 }
 
@@ -150,9 +152,8 @@ void TextInputV2InterfacePrivate::sendEnter(SurfaceInterface *newSurface, quint3
 {
     EnabledEmitter emitter(q);
     // It should be always synchronized with SeatInterface::focusedTextInputSurface.
-    Q_ASSERT(!focusedSurface && newSurface);
-    focusedSurface = newSurface;
-    focusedSerial = serial;
+    Q_ASSERT(!surface && newSurface);
+    surface = newSurface;
     const auto clientResources = textInputsForClient(newSurface->client());
     for (auto resource : clientResources) {
         send_enter(resource->handle, serial, newSurface->resource());
@@ -162,9 +163,9 @@ void TextInputV2InterfacePrivate::sendEnter(SurfaceInterface *newSurface, quint3
 void TextInputV2InterfacePrivate::sendLeave(quint32 serial, SurfaceInterface *leavingSurface)
 {
     // It should be always synchronized with SeatInterface::focusedTextInputSurface.
-    Q_ASSERT(leavingSurface && focusedSurface == leavingSurface);
+    Q_ASSERT(leavingSurface && surface == leavingSurface);
     EnabledEmitter emitter(q);
-    focusedSurface.clear();
+    surface.clear();
     const auto clientResources = textInputsForClient(leavingSurface->client());
     for (auto resource : clientResources) {
         send_leave(resource->handle, serial, leavingSurface->resource());
@@ -173,11 +174,11 @@ void TextInputV2InterfacePrivate::sendLeave(quint32 serial, SurfaceInterface *le
 
 void TextInputV2InterfacePrivate::preEdit(const QString &text, const QString &commit)
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
 
-    const auto clientResources = textInputsForClient(focusedSurface->client());
+    const auto clientResources = textInputsForClient(surface->client());
     for (auto resource : clientResources) {
         send_preedit_string(resource->handle, text, commit);
     }
@@ -185,11 +186,11 @@ void TextInputV2InterfacePrivate::preEdit(const QString &text, const QString &co
 
 void TextInputV2InterfacePrivate::preEditStyling(uint32_t index, uint32_t length, uint32_t style)
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
 
-    const auto clientResources = textInputsForClient(focusedSurface->client());
+    const auto clientResources = textInputsForClient(surface->client());
     for (auto resource : clientResources) {
         send_preedit_styling(resource->handle, index, length, style);
     }
@@ -197,10 +198,10 @@ void TextInputV2InterfacePrivate::preEditStyling(uint32_t index, uint32_t length
 
 void TextInputV2InterfacePrivate::commitString(const QString &text)
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
-    const QList<Resource *> textInputs = textInputsForClient(focusedSurface->client());
+    const QList<Resource *> textInputs = textInputsForClient(surface->client());
     for (auto resource : textInputs) {
         send_commit_string(resource->handle, text);
     }
@@ -208,11 +209,11 @@ void TextInputV2InterfacePrivate::commitString(const QString &text)
 
 void TextInputV2InterfacePrivate::keysymPressed(quint32 keysym, quint32 modifiers)
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
 
-    const QList<Resource *> textInputs = textInputsForClient(focusedSurface->client());
+    const QList<Resource *> textInputs = textInputsForClient(surface->client());
     for (auto resource : textInputs) {
         send_keysym(resource->handle, seat ? seat->timestamp().count() : 0, keysym, WL_KEYBOARD_KEY_STATE_PRESSED, modifiers);
     }
@@ -220,11 +221,11 @@ void TextInputV2InterfacePrivate::keysymPressed(quint32 keysym, quint32 modifier
 
 void TextInputV2InterfacePrivate::keysymReleased(quint32 keysym, quint32 modifiers)
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
 
-    const QList<Resource *> textInputs = textInputsForClient(focusedSurface->client());
+    const QList<Resource *> textInputs = textInputsForClient(surface->client());
     for (auto resource : textInputs) {
         send_keysym(resource->handle, seat ? seat->timestamp().count() : 0, keysym, WL_KEYBOARD_KEY_STATE_RELEASED, modifiers);
     }
@@ -232,10 +233,10 @@ void TextInputV2InterfacePrivate::keysymReleased(quint32 keysym, quint32 modifie
 
 void TextInputV2InterfacePrivate::deleteSurroundingText(quint32 beforeLength, quint32 afterLength)
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
-    const QList<Resource *> textInputs = textInputsForClient(focusedSurface->client());
+    const QList<Resource *> textInputs = textInputsForClient(surface->client());
     for (auto resource : textInputs) {
         send_delete_surrounding_text(resource->handle, beforeLength, afterLength);
     }
@@ -243,10 +244,10 @@ void TextInputV2InterfacePrivate::deleteSurroundingText(quint32 beforeLength, qu
 
 void TextInputV2InterfacePrivate::setCursorPosition(qint32 index, qint32 anchor)
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
-    const QList<Resource *> textInputs = textInputsForClient(focusedSurface->client());
+    const QList<Resource *> textInputs = textInputsForClient(surface->client());
     for (auto resource : textInputs) {
         send_cursor_position(resource->handle, index, anchor);
     }
@@ -254,7 +255,7 @@ void TextInputV2InterfacePrivate::setCursorPosition(qint32 index, qint32 anchor)
 
 void TextInputV2InterfacePrivate::setTextDirection(Qt::LayoutDirection direction)
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
     text_direction wlDirection;
@@ -272,7 +273,7 @@ void TextInputV2InterfacePrivate::setTextDirection(Qt::LayoutDirection direction
         Q_UNREACHABLE();
         break;
     }
-    const QList<Resource *> textInputs = textInputsForClient(focusedSurface->client());
+    const QList<Resource *> textInputs = textInputsForClient(surface->client());
     for (auto resource : textInputs) {
         send_text_direction(resource->handle, wlDirection);
     }
@@ -280,10 +281,10 @@ void TextInputV2InterfacePrivate::setTextDirection(Qt::LayoutDirection direction
 
 void TextInputV2InterfacePrivate::setPreEditCursor(qint32 index)
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
-    const QList<Resource *> textInputs = textInputsForClient(focusedSurface->client());
+    const QList<Resource *> textInputs = textInputsForClient(surface->client());
     for (auto resource : textInputs) {
         send_preedit_cursor(resource->handle, index);
     }
@@ -291,10 +292,10 @@ void TextInputV2InterfacePrivate::setPreEditCursor(qint32 index)
 
 void TextInputV2InterfacePrivate::sendInputPanelState()
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
-    const QList<Resource *> textInputs = textInputsForClient(focusedSurface->client());
+    const QList<Resource *> textInputs = textInputsForClient(surface->client());
     for (auto resource : textInputs) {
         send_input_panel_state(resource->handle,
                                inputPanelVisible ? ZWP_TEXT_INPUT_V2_INPUT_PANEL_VISIBILITY_VISIBLE : ZWP_TEXT_INPUT_V2_INPUT_PANEL_VISIBILITY_HIDDEN,
@@ -307,10 +308,10 @@ void TextInputV2InterfacePrivate::sendInputPanelState()
 
 void TextInputV2InterfacePrivate::sendLanguage()
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
-    const QList<Resource *> textInputs = textInputsForClient(focusedSurface->client());
+    const QList<Resource *> textInputs = textInputsForClient(surface->client());
     for (auto resource : textInputs) {
         send_language(resource->handle, language);
     }
@@ -318,10 +319,10 @@ void TextInputV2InterfacePrivate::sendLanguage()
 
 void TextInputV2InterfacePrivate::sendModifiersMap()
 {
-    if (!focusedSurface) {
+    if (!surface) {
         return;
     }
-    const QList<Resource *> textInputs = textInputsForClient(focusedSurface->client());
+    const QList<Resource *> textInputs = textInputsForClient(surface->client());
     for (auto resource : textInputs) {
         send_modifiers_map(resource->handle, modifiersMap);
     }
@@ -353,7 +354,7 @@ void TextInputV2InterfacePrivate::zwp_text_input_v2_disable(Resource *resource, 
     auto disabledSurface = SurfaceInterface::get(s);
     QObject::disconnect(disabledSurface, &SurfaceInterface::aboutToBeDestroyed, q, nullptr);
     m_enabledSurfaces.remove(disabledSurface);
-    if (disabledSurface == focusedSurface) {
+    if (disabledSurface == surface) {
         q->setInputPanelState(false, {0, 0, 0, 0});
     }
 }
@@ -530,15 +531,15 @@ void TextInputV2Interface::setModifiersMap(const QByteArray &modifiersMap)
 
 QPointer<SurfaceInterface> TextInputV2Interface::surface() const
 {
-    if (!d->focusedSurface) {
+    if (!d->surface) {
         return nullptr;
     }
 
-    if (!d->resourceMap().contains(d->focusedSurface->client()->client())) {
+    if (!d->resourceMap().contains(d->surface->client()->client())) {
         return nullptr;
     }
 
-    return d->focusedSurface;
+    return d->surface;
 }
 
 QRect TextInputV2Interface::cursorRectangle() const
@@ -548,7 +549,7 @@ QRect TextInputV2Interface::cursorRectangle() const
 
 bool TextInputV2Interface::isEnabled() const
 {
-    return d->focusedSurface && d->m_enabledSurfaces.contains(d->focusedSurface);
+    return d->surface && d->m_enabledSurfaces.contains(d->surface);
 }
 
 bool TextInputV2Interface::clientSupportsTextInput(ClientConnection *client) const

@@ -41,10 +41,12 @@ void CursorItem::setSurface(SurfaceInterface *surface, const QPointF &hotspot)
 {
     m_imageItem.reset();
 
-    if (!surface) {
-        m_surfaceItem.reset();
-    } else if (!m_surfaceItem || m_surfaceItem->surface() != surface) {
-        m_surfaceItem = std::make_unique<SurfaceItemWayland>(surface, this);
+    if (!m_surfaceItem || m_surfaceItem->surface() != surface) {
+        if (surface) {
+            m_surfaceItem = std::make_unique<SurfaceItemWayland>(surface, this);
+        } else {
+            m_surfaceItem.reset();
+        }
     }
     if (m_surfaceItem) {
         m_surfaceItem->setPosition(-hotspot);
@@ -61,17 +63,6 @@ void CursorItem::setImage(const QImage &image, const QPointF &hotspot)
     m_imageItem->setImage(image);
     m_imageItem->setPosition(-hotspot);
     m_imageItem->setSize(image.size() / image.devicePixelRatio());
-}
-
-QPointF CursorItem::hotspot() const
-{
-    if (m_surfaceItem) {
-        return -m_surfaceItem->position();
-    } else if (m_imageItem) {
-        return -m_imageItem->position();
-    } else {
-        return QPointF{};
-    }
 }
 
 } // namespace KWin

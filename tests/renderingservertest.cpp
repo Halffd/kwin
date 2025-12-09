@@ -171,7 +171,7 @@ void CompositorWindow::keyPressEvent(QKeyEvent *event)
         updateFocus();
     }
     m_seat->setTimestamp(std::chrono::milliseconds(event->timestamp()));
-    m_seat->notifyKeyboardKey(event->nativeScanCode() - 8, KWin::KeyboardKeyState::Pressed, m_seat->display()->nextSerial());
+    m_seat->notifyKeyboardKey(event->nativeScanCode() - 8, KWin::KeyboardKeyState::Pressed);
 }
 
 void CompositorWindow::keyReleaseEvent(QKeyEvent *event)
@@ -181,7 +181,7 @@ void CompositorWindow::keyReleaseEvent(QKeyEvent *event)
         return;
     }
     m_seat->setTimestamp(std::chrono::milliseconds(event->timestamp()));
-    m_seat->notifyKeyboardKey(event->nativeScanCode() - 8, KWin::KeyboardKeyState::Released, m_seat->display()->nextSerial());
+    m_seat->notifyKeyboardKey(event->nativeScanCode() - 8, KWin::KeyboardKeyState::Released);
 }
 
 void CompositorWindow::mouseMoveEvent(QMouseEvent *event)
@@ -250,10 +250,9 @@ int main(int argc, char **argv)
 
     const QSize windowSize(1024, 768);
 
-    auto fakeOutput = std::make_unique<FakeBackendOutput>();
-    fakeOutput->setPhysicalSize(QSize(269, 202));
-    fakeOutput->setMode(windowSize, 60000);
-    auto outputHandle = std::make_unique<LogicalOutput>(fakeOutput.get());
+    auto outputHandle = std::make_unique<FakeOutput>();
+    outputHandle->setPhysicalSize(QSize(269, 202));
+    outputHandle->setMode(windowSize, 60000);
 
     auto outputInterface = std::make_unique<OutputInterface>(&display, outputHandle.get());
 

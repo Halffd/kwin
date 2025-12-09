@@ -10,7 +10,6 @@
 
 #include "eglhelpers.h"
 #include "opengl/egldisplay.h"
-#include "opengl/eglutils_p.h"
 
 #include <logging.h>
 
@@ -56,7 +55,7 @@ EGLConfig configFromFormat(EglDisplay *display, const QSurfaceFormat &surfaceFor
 
     EGLint configCount;
     if (!eglChooseConfig(display->handle(), attributes.data(), nullptr, 0, &configCount)) {
-        qCWarning(KWIN_QPA) << "eglChooseConfig failed:" << getEglErrorString();
+        qCWarning(KWIN_QPA, "eglChooseConfig failed: %x", eglGetError());
         return EGL_NO_CONFIG_KHR;
     }
     if (configCount == 0) {
@@ -66,7 +65,7 @@ EGLConfig configFromFormat(EglDisplay *display, const QSurfaceFormat &surfaceFor
 
     QList<EGLConfig> configs(configCount);
     if (!eglChooseConfig(display->handle(), attributes.data(), configs.data(), configCount, &configCount)) {
-        qCWarning(KWIN_QPA) << "eglChooseConfig failed:" << getEglErrorString();
+        qCWarning(KWIN_QPA, "eglChooseConfig failed: %x", eglGetError());
         return EGL_NO_CONFIG_KHR;
     }
     if (configCount != configs.size()) {

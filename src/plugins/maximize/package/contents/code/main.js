@@ -94,9 +94,6 @@ class MaximizeEffect {
                 curve: QEasingCurve.OutCubic
             }]
         });
-
-        // Make sure all animations end on the same frame to prevent WindowForceBlurRole from being removed too early.
-        retarget(window.maximizeAnimation2, 1.0, this.duration);
     }
 
     restoreForceBlurState(window) {

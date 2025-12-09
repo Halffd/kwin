@@ -34,8 +34,5 @@
         <entry name="PixelGridZoom" type="Double">
             <default>15.0</default>
         </entry>
-        <entry name="PointerAxisGestureModifiers" type="String">
-            <default>Meta+Control</default>
-        </entry>
     </group>
 </kcfg>

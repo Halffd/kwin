@@ -212,7 +212,7 @@ bool EffectsModel::setData(const QModelIndex &index, const QVariant &value, int 
 void EffectsModel::loadBuiltInEffects(const KConfigGroup &kwinConfig)
 {
     const QString rootDirectory = QStandardPaths::locate(QStandardPaths::GenericDataLocation,
-                                                         QStringLiteral("kwin-wayland/builtin-effects"),
+                                                         KWIN_DATADIR + QStringLiteral("/builtin-effects"),
                                                          QStandardPaths::LocateDirectory);
 
     const QStringList nameFilters{QStringLiteral("*.json")};
@@ -270,7 +270,7 @@ void EffectsModel::loadBuiltInEffects(const KConfigGroup &kwinConfig)
 void EffectsModel::loadJavascriptEffects(const KConfigGroup &kwinConfig)
 {
     const QStringList prefixes{
-        QStringLiteral("kwin-wayland/effects"),
+        KWIN_DATADIR + QStringLiteral("/effects"),
         QStringLiteral("kwin/effects"),
     };
     for (const QString &prefix : prefixes) {
@@ -320,7 +320,7 @@ void EffectsModel::loadJavascriptEffects(const KConfigGroup &kwinConfig)
 
 void EffectsModel::loadPluginEffects(const KConfigGroup &kwinConfig)
 {
-    const auto pluginEffects = KPluginMetaData::findPlugins(QStringLiteral("kwin/effects/plugins"));
+    const auto pluginEffects = KPluginMetaData::findPlugins(KWIN_PLUGINDIR + QStringLiteral("/effects/plugins"));
     for (const KPluginMetaData &pluginEffect : pluginEffects) {
         if (!pluginEffect.isValid()) {
             continue;
@@ -495,6 +495,8 @@ void EffectsModel::save()
 {
     KConfigGroup kwinConfig(KSharedConfig::openConfig("kwinrc"), QStringLiteral("Plugins"));
 
+    QList<EffectData> dirtyEffects;
+
     for (EffectData &effect : m_effects) {
         if (!effect.changed) {
             continue;
@@ -509,13 +511,41 @@ void EffectsModel::save()
             ? effect.status == Status::EnabledUndeterminded
             : shouldEnable == effect.enabledByDefault;
         if (restoreToDefault) {
-            kwinConfig.deleteEntry(key, KConfig::Notify);
+            kwinConfig.deleteEntry(key);
         } else {
-            kwinConfig.writeEntry(key, shouldEnable, KConfig::Notify);
+            kwinConfig.writeEntry(key, shouldEnable);
         }
+
+        dirtyEffects.append(effect);
+    }
+
+    if (dirtyEffects.isEmpty()) {
+        return;
     }
 
     kwinConfig.sync();
+
+    OrgKdeKwinEffectsInterface interface(QStringLiteral("org.kde.KWin"),
+                                         QStringLiteral("/Effects"),
+                                         QDBusConnection::sessionBus());
+
+    if (!interface.isValid()) {
+        return;
+    }
+
+    // Unload effects first, it's need to ensure that switching between mutually exclusive
+    // effects works as expected, for example so global shortcuts are handed over, etc.
+    auto split = std::partition(dirtyEffects.begin(), dirtyEffects.end(), [](const EffectData &data) {
+        return data.status == Status::Disabled;
+    });
+
+    for (auto it = dirtyEffects.begin(); it != split; ++it) {
+        interface.unloadEffect(it->serviceName);
+    }
+
+    for (auto it = split; it != dirtyEffects.end(); ++it) {
+        interface.loadEffect(it->serviceName);
+    }
 }
 
 void EffectsModel::defaults(const QModelIndex &index)
@@ -585,9 +615,8 @@ void EffectsModel::requestConfigure(const QModelIndex &index, QQuickItem *contex
 
     const EffectData &effect = m_effects.at(index.row());
     Q_ASSERT(!effect.configModule.isEmpty());
-
     KCMultiDialog *dialog = new KCMultiDialog();
-    dialog->addModule(KPluginMetaData(QStringLiteral("kwin/effects/configs/") + effect.configModule), effect.configArgs);
+    dialog->addModule(KPluginMetaData(KWIN_PLUGINDIR + QStringLiteral("/effects/configs/") + effect.configModule), effect.configArgs);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
 
     if (context && context->window()) {

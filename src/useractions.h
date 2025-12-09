@@ -117,9 +117,14 @@ private Q_SLOTS:
 
     /**
      * Adjusts the desktop popup to the current values and the location of
-     * the Window, Wayland only.
+     * the Window.
      */
     void desktopPopupAboutToShow();
+    /**
+     * Adjusts the multipleDesktopsMenu popup to the current values and the location of
+     * the Window, Wayland only.
+     */
+    void multipleDesktopsPopupAboutToShow();
     /**
      * Adjusts the screen popup to the current values and the location of
      * the Window.
@@ -163,19 +168,17 @@ private:
      */
     void helperDialog(const QString &message);
     /**
-     * Set the global action shortcut on the action for displaying it on the menu.
-     * @param action The action to add the shortcut to
-     * @param actionName The global action name to read the action from
-     */
-    void setShortcut(QAction *action, const QString &actionName);
-    /**
      * The actual main context menu which is show when the UserActionsMenu is invoked.
      */
     QMenu *m_menu;
     /**
-     * The move to desktop sub menu, with the Wayland protocol.
+     * The move to desktop sub menu.
      */
     QMenu *m_desktopMenu;
+    /**
+     * The move to desktop sub menu, with the Wayland protocol.
+     */
+    QMenu *m_multipleDesktopsMenu;
     /**
      * The move to screen sub menu.
      */
@@ -191,6 +194,7 @@ private:
     QAction *m_resizeOperation;
     QAction *m_moveOperation;
     QAction *m_maximizeOperation;
+    QAction *m_shadeOperation;
     QAction *m_keepAboveOperation;
     QAction *m_keepBelowOperation;
     QAction *m_fullScreenOperation;
@@ -198,7 +202,6 @@ private:
     QAction *m_minimizeOperation;
     QAction *m_closeOperation;
     QAction *m_shortcutOperation;
-    QAction *m_excludeFromCapture;
     /**
      * The window for which the menu is shown.
      */

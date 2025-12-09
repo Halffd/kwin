@@ -17,7 +17,7 @@ namespace KWin
 
 class Display;
 class ExternalBrightnessDeviceV1;
-class LogicalOutput;
+class Output;
 
 class ExternalBrightnessV1 : public QObject, private QtWaylandServer::kde_external_brightness_v1
 {
@@ -52,7 +52,6 @@ public:
     std::optional<double> observedBrightness() const override;
     bool isInternal() const override;
     QByteArray edidBeginning() const override;
-    bool usesDdcCi() const override;
     int brightnessSteps() const override;
 
 private:
@@ -60,7 +59,6 @@ private:
     void kde_external_brightness_device_v1_destroy(Resource *resource) override;
     void kde_external_brightness_device_v1_set_internal(Resource *resource, uint32_t internal) override;
     void kde_external_brightness_device_v1_set_edid(Resource *resource, const QString &string) override;
-    void kde_external_brightness_device_v1_set_uses_ddc_ci(Resource *resource, uint32_t uses) override;
     void kde_external_brightness_device_v1_set_max_brightness(Resource *resource, uint32_t value) override;
     void kde_external_brightness_device_v1_set_observed_brightness(Resource *resource, uint32_t value) override;
     void kde_external_brightness_device_v1_commit(Resource *resource) override;
@@ -70,7 +68,6 @@ private:
     std::optional<uint32_t> m_observedBrightness;
     uint32_t m_maxBrightness = 1;
     bool m_internal = false;
-    bool m_usesDdcCi = false;
     bool m_done = false;
 };
 

@@ -156,13 +156,18 @@ public:
      */
     virtual void clear() = 0;
 
+Q_SIGNALS:
     /**
-     * @brief Finds the effect with a given @p name.
+     * @brief The loader emits this signal when it successfully loaded an effect.
      *
-     * If not found an invalid KPluginMetaData object is returned.
+     * @param effect The created Effect
+     * @param name The internal name of the loaded Effect
+     * @return void
      */
-    virtual KPluginMetaData findEffect(const QString &name) const = 0;
+    void effectLoaded(KWin::Effect *effect, const QString &name);
 
+protected:
+    explicit AbstractEffectLoader(QObject *parent = nullptr);
     /**
      * @brief Checks the configuration for the Effect identified by @p effectName.
      *
@@ -176,19 +181,6 @@ public:
      * @returns Flags indicating whether the Effect should be loaded and how it should be loaded
      */
     LoadEffectFlags readConfig(const QString &effectName, bool defaultValue) const;
-
-Q_SIGNALS:
-    /**
-     * @brief The loader emits this signal when it successfully loaded an effect.
-     *
-     * @param effect The created Effect
-     * @param name The internal name of the loaded Effect
-     * @return void
-     */
-    void effectLoaded(KWin::Effect *effect, const QString &name);
-
-protected:
-    explicit AbstractEffectLoader(QObject *parent = nullptr);
 
 private:
     KSharedConfig::Ptr m_config;
@@ -293,11 +285,11 @@ public:
     void clear() override;
     void queryAndLoadAll() override;
     bool loadEffect(const QString &name) override;
-    KPluginMetaData findEffect(const QString &name) const override;
     bool loadEffect(const KPluginMetaData &effect, LoadEffectFlags flags);
 
 private:
     QList<KPluginMetaData> findAllEffects() const;
+    KPluginMetaData findEffect(const QString &name) const;
     bool loadJavascriptEffect(const KPluginMetaData &effect);
     bool loadDeclarativeEffect(const KPluginMetaData &effect);
 
@@ -321,12 +313,12 @@ public:
     void queryAndLoadAll() override;
     bool loadEffect(const QString &name) override;
     bool loadEffect(const KPluginMetaData &info, LoadEffectFlags flags);
-    KPluginMetaData findEffect(const QString &name) const override;
 
     void setPluginSubDirectory(const QString &directory);
 
 private:
     QList<KPluginMetaData> findAllEffects() const;
+    KPluginMetaData findEffect(const QString &name) const;
     EffectPluginFactory *factory(const KPluginMetaData &info) const;
     QStringList m_loadedEffects;
     QString m_pluginSubDirectory;
@@ -345,7 +337,6 @@ public:
     void queryAndLoadAll() override;
     void setConfig(KSharedConfig::Ptr config) override;
     void clear() override;
-    KPluginMetaData findEffect(const QString &name) const override;
 
 private:
     QList<AbstractEffectLoader *> m_loaders;

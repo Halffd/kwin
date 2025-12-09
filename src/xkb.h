@@ -124,34 +124,14 @@ public:
     /**
      * Returns a pair of <keycode, level> for the given keysym.
      */
-    struct KeyCode {
-        xkb_keycode_t keyCode = 0;
-        uint level = 0;
-        xkb_mod_mask_t modifiers = 0;
-    };
-    std::optional<KeyCode> keycodeFromKeysym(xkb_keysym_t keysym);
+    std::optional<std::pair<int, int>> keycodeFromKeysym(xkb_keysym_t keysym);
 
     /**
      * Returns list of candidate keysyms corresponding to the given Qt key.
      *
      * Internally filters the results based on whether keyQt has the numlock modifier.
      */
-    static QList<xkb_keysym_t> keysymsFromQtKey(QKeyCombination keyQt);
-
-    /**
-     *  Create a temporary keymap with one custom keysym bound to a given keycode.
-     *  The underlying keymap used by Xkb is unchanged
-     */
-    QByteArray keymapContentsForKeysym(xkb_keycode_t newKeycode,
-                                       xkb_keysym_t customSym);
-
-    /**
-     * Create a temporary keymap with one custom keysym bound to a given keycode.
-     * The underlying keymap used in this XKb object is changed.
-     */
-    bool updateToKeymapForKeySym(xkb_keycode_t newKeycode,
-                                 xkb_keysym_t customSym);
-
+    static QList<xkb_keysym_t> keysymsFromQtKey(int keyQt);
 
 public Q_SLOTS:
     void reconfigure();
@@ -165,7 +145,6 @@ private:
     xkb_keymap *loadKeymapFromConfig();
     xkb_keymap *loadDefaultKeymap();
     xkb_keymap *loadKeymapFromLocale1();
-    xkb_keymap *createKeymapForKeysym(xkb_keycode_t newKeycode, xkb_keysym_t customSym);
     void updateKeymap(xkb_keymap *keymap);
     void createKeymapFile();
     void updateModifiers();
@@ -200,7 +179,7 @@ private:
     KConfigGroup m_configGroup;
     KSharedConfigPtr m_numLockConfig;
 
-    struct ModifierState
+    struct
     {
         xkb_mod_index_t depressed = 0;
         xkb_mod_index_t latched = 0;

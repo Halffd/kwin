@@ -3,14 +3,21 @@
     This file is part of the KDE project.
 
     SPDX-FileCopyrightText: 2018 Roman Gilg <subdiff@gmail.com>
-    SPDX-FileCopyrightText: 2025 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 #include "transfer.h"
-#include "atoms.h"
-#include "selection.h"
+
+#include "databridge.h"
 #include "xwayland.h"
+
+#include "atoms.h"
+#include "wayland/datadevice.h"
+#include "wayland/datasource.h"
+#include "wayland/seat.h"
+#include "wayland_server.h"
+#include "window.h"
+#include "workspace.h"
 
 #include <xcb/xcb_event.h>
 #include <xcb/xfixes.h>
@@ -28,18 +35,18 @@ namespace Xwl
 // in Bytes: equals 64KB
 static const uint32_t s_incrChunkSize = 63 * 1024;
 
-Transfer::Transfer(xcb_atom_t selection, FileDescriptor fd, xcb_timestamp_t timestamp, QObject *parent)
+Transfer::Transfer(xcb_atom_t selection, qint32 fd, xcb_timestamp_t timestamp, QObject *parent)
     : QObject(parent)
     , m_atom(selection)
+    , m_fd(fd)
     , m_timestamp(timestamp)
-    , m_fd(std::move(fd))
 {
 }
 
 void Transfer::createSocketNotifier(QSocketNotifier::Type type)
 {
     delete m_notifier;
-    m_notifier = new QSocketNotifier(m_fd.get(), type, this);
+    m_notifier = new QSocketNotifier(m_fd, type, this);
 }
 
 void Transfer::clearSocketNotifier()
@@ -59,14 +66,30 @@ void Transfer::timeout()
 void Transfer::endTransfer()
 {
     clearSocketNotifier();
-    m_fd.reset();
+    closeFd();
     Q_EMIT finished();
 }
 
-TransferWltoX::TransferWltoX(const xcb_selection_request_event_t &request, FileDescriptor fd, QObject *parent)
-    : Transfer(request.selection, std::move(fd), 0, parent)
+void Transfer::closeFd()
+{
+    if (m_fd < 0) {
+        return;
+    }
+    close(m_fd);
+    m_fd = -1;
+}
+
+TransferWltoX::TransferWltoX(xcb_atom_t selection, xcb_selection_request_event_t *request,
+                             qint32 fd, QObject *parent)
+    : Transfer(selection, fd, 0, parent)
     , m_request(request)
 {
+}
+
+TransferWltoX::~TransferWltoX()
+{
+    delete m_request;
+    m_request = nullptr;
 }
 
 void TransferWltoX::startTransferFromSource()
@@ -84,12 +107,13 @@ int TransferWltoX::flushSourceData()
 
     xcb_change_property(xcbConn,
                         XCB_PROP_MODE_REPLACE,
-                        m_request.requestor,
-                        m_request.property,
-                        m_request.target,
+                        m_request->requestor,
+                        m_request->property,
+                        m_request->target,
                         8,
                         m_chunks.first().first.size(),
                         m_chunks.first().first.data());
+    xcb_flush(xcbConn);
 
     m_propertyIsSet = true;
     resetTimeout();
@@ -106,24 +130,25 @@ void TransferWltoX::startIncr()
 
     uint32_t mask[] = {XCB_EVENT_MASK_PROPERTY_CHANGE};
     xcb_change_window_attributes(xcbConn,
-                                 m_request.requestor,
+                                 m_request->requestor,
                                  XCB_CW_EVENT_MASK, mask);
 
     // spec says to make the available space larger
     const uint32_t chunkSpace = 1024 + s_incrChunkSize;
     xcb_change_property(xcbConn,
                         XCB_PROP_MODE_REPLACE,
-                        m_request.requestor,
-                        m_request.property,
+                        m_request->requestor,
+                        m_request->property,
                         atoms->incr,
                         32, 1, &chunkSpace);
+    xcb_flush(xcbConn);
 
     setIncr(true);
     // first data will be flushed after the property has been deleted
     // again by the requestor
     m_flushPropertyOnDelete = true;
     m_propertyIsSet = true;
-    Selection::sendSelectionNotify(&m_request, true);
+    Q_EMIT selectionNotify(m_request, true);
 }
 
 void TransferWltoX::readWlSource()
@@ -166,7 +191,7 @@ void TransferWltoX::readWlSource()
             // non incremental transfer is to be completed now,
             // data can be transferred to X client via a single property set
             flushSourceData();
-            Selection::sendSelectionNotify(&m_request, true);
+            Q_EMIT selectionNotify(m_request, true);
             endTransfer();
         }
     } else if (m_chunks.last().second == s_incrChunkSize) {
@@ -187,8 +212,8 @@ void TransferWltoX::readWlSource()
 
 bool TransferWltoX::handlePropertyNotify(xcb_property_notify_event_t *event)
 {
-    if (event->window == m_request.requestor) {
-        if (event->state == XCB_PROPERTY_DELETE && event->atom == m_request.property) {
+    if (event->window == m_request->requestor) {
+        if (event->state == XCB_PROPERTY_DELETE && event->atom == m_request->property) {
             handlePropertyDelete();
         }
         return true;
@@ -211,15 +236,16 @@ void TransferWltoX::handlePropertyDelete()
 
             uint32_t mask[] = {0};
             xcb_change_window_attributes(xcbConn,
-                                         m_request.requestor,
+                                         m_request->requestor,
                                          XCB_CW_EVENT_MASK, mask);
 
             xcb_change_property(xcbConn,
                                 XCB_PROP_MODE_REPLACE,
-                                m_request.requestor,
-                                m_request.property,
-                                m_request.target,
+                                m_request->requestor,
+                                m_request->property,
+                                m_request->target,
                                 8, 0, nullptr);
+            xcb_flush(xcbConn);
             m_flushPropertyOnDelete = false;
             endTransfer();
         } else if (!m_chunks.isEmpty()) {
@@ -228,8 +254,10 @@ void TransferWltoX::handlePropertyDelete()
     }
 }
 
-TransferXtoWl::TransferXtoWl(xcb_atom_t selection, xcb_atom_t target, FileDescriptor fd, xcb_timestamp_t timestamp, xcb_window_t parentWindow, QObject *parent)
-    : Transfer(selection, std::move(fd), timestamp, parent)
+TransferXtoWl::TransferXtoWl(xcb_atom_t selection, xcb_atom_t target, qint32 fd,
+                             xcb_timestamp_t timestamp, xcb_window_t parentWindow,
+                             QObject *parent)
+    : Transfer(selection, fd, timestamp, parent)
 {
     // create transfer window
     xcb_connection_t *xcbConn = kwinApp()->x11Connection();
@@ -253,12 +281,14 @@ TransferXtoWl::TransferXtoWl(xcb_atom_t selection, xcb_atom_t target, FileDescri
                           target,
                           atoms->wl_selection,
                           timestamp);
+    xcb_flush(xcbConn);
 }
 
 TransferXtoWl::~TransferXtoWl()
 {
     xcb_connection_t *xcbConn = kwinApp()->x11Connection();
     xcb_destroy_window(xcbConn, m_window);
+    xcb_flush(xcbConn);
 
     delete m_receiver;
     m_receiver = nullptr;
@@ -278,6 +308,9 @@ bool TransferXtoWl::handlePropertyNotify(xcb_property_notify_event_t *event)
 bool TransferXtoWl::handleSelectionNotify(xcb_selection_notify_event_t *event)
 {
     if (event->requestor != m_window) {
+        return false;
+    }
+    if (event->selection != atom()) {
         return false;
     }
     if (event->property == XCB_ATOM_NONE) {
@@ -428,6 +461,7 @@ void TransferXtoWl::dataSourceWrite()
             xcb_delete_property(xcbConn,
                                 m_window,
                                 atoms->wl_selection);
+            xcb_flush(xcbConn);
         } else {
             // transfer complete
             endTransfer();

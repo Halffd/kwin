@@ -20,17 +20,6 @@ struct KeyboardKeyEvent;
 struct PointerAxisEvent;
 struct PointerButtonEvent;
 struct PointerMotionEvent;
-struct PointerSwipeGestureBeginEvent;
-struct PointerSwipeGestureUpdateEvent;
-struct PointerSwipeGestureEndEvent;
-struct PointerSwipeGestureCancelEvent;
-struct PointerPinchGestureBeginEvent;
-struct PointerPinchGestureUpdateEvent;
-struct PointerPinchGestureEndEvent;
-struct PointerPinchGestureCancelEvent;
-struct PointerHoldGestureBeginEvent;
-struct PointerHoldGestureEndEvent;
-struct PointerHoldGestureCancelEvent;
 struct SwitchEvent;
 struct TabletToolProximityEvent;
 struct TabletToolAxisEvent;
@@ -39,10 +28,6 @@ struct TabletToolButtonEvent;
 struct TabletPadButtonEvent;
 struct TabletPadStripEvent;
 struct TabletPadRingEvent;
-struct TabletPadDialEvent;
-struct TouchDownEvent;
-struct TouchMotionEvent;
-struct TouchUpEvent;
 
 /**
  * Base class for spying on input events inside InputRedirection.
@@ -74,24 +59,23 @@ public:
      * @param event The event information about the key event
      */
     virtual void keyboardKey(KeyboardKeyEvent *event);
+    virtual void touchDown(qint32 id, const QPointF &pos, std::chrono::microseconds time);
+    virtual void touchMotion(qint32 id, const QPointF &pos, std::chrono::microseconds time);
+    virtual void touchUp(qint32 id, std::chrono::microseconds time);
 
-    virtual void touchDown(TouchDownEvent *event);
-    virtual void touchMotion(TouchMotionEvent *event);
-    virtual void touchUp(TouchUpEvent *event);
+    virtual void pinchGestureBegin(int fingerCount, std::chrono::microseconds time);
+    virtual void pinchGestureUpdate(qreal scale, qreal angleDelta, const QPointF &delta, std::chrono::microseconds time);
+    virtual void pinchGestureEnd(std::chrono::microseconds time);
+    virtual void pinchGestureCancelled(std::chrono::microseconds time);
 
-    virtual void pinchGestureBegin(PointerPinchGestureBeginEvent *event);
-    virtual void pinchGestureUpdate(PointerPinchGestureUpdateEvent *event);
-    virtual void pinchGestureEnd(PointerPinchGestureEndEvent *event);
-    virtual void pinchGestureCancelled(PointerPinchGestureCancelEvent *event);
+    virtual void swipeGestureBegin(int fingerCount, std::chrono::microseconds time);
+    virtual void swipeGestureUpdate(const QPointF &delta, std::chrono::microseconds time);
+    virtual void swipeGestureEnd(std::chrono::microseconds time);
+    virtual void swipeGestureCancelled(std::chrono::microseconds time);
 
-    virtual void swipeGestureBegin(PointerSwipeGestureBeginEvent *event);
-    virtual void swipeGestureUpdate(PointerSwipeGestureUpdateEvent *event);
-    virtual void swipeGestureEnd(PointerSwipeGestureEndEvent *event);
-    virtual void swipeGestureCancelled(PointerSwipeGestureCancelEvent *event);
-
-    virtual void holdGestureBegin(PointerHoldGestureBeginEvent *event);
-    virtual void holdGestureEnd(PointerHoldGestureEndEvent *event);
-    virtual void holdGestureCancelled(PointerHoldGestureCancelEvent *event);
+    virtual void holdGestureBegin(int fingerCount, std::chrono::microseconds time);
+    virtual void holdGestureEnd(std::chrono::microseconds time);
+    virtual void holdGestureCancelled(std::chrono::microseconds time);
 
     virtual void switchEvent(SwitchEvent *event);
 
@@ -102,7 +86,6 @@ public:
     virtual void tabletPadButtonEvent(TabletPadButtonEvent *event);
     virtual void tabletPadStripEvent(TabletPadStripEvent *event);
     virtual void tabletPadRingEvent(TabletPadRingEvent *event);
-    virtual void tabletPadDialEvent(TabletPadDialEvent *event);
 };
 
 } // namespace KWin

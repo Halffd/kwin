@@ -26,7 +26,7 @@ class QSocketNotifier;
 
 namespace KWin
 {
-class LogicalOutput;
+class Output;
 class Application;
 
 namespace Xwl
@@ -83,7 +83,7 @@ private:
 
     void runXWaylandStartupScripts();
 
-    bool dragMoveFilter(Window *target, const QPointF &position) override;
+    DragEventReply dragMoveFilter(Window *target) override;
     AbstractDropHandler *xwlDropHandler() override;
     QSocketNotifier *m_socketNotifier = nullptr;
 

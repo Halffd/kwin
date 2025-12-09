@@ -14,8 +14,8 @@ namespace KWin
 {
 
 class Display;
-class OutputInterface;
 class SurfaceInterface;
+class Output;
 
 class ColorManagerV1 : public QObject, private QtWaylandServer::wp_color_manager_v1
 {
@@ -40,7 +40,7 @@ public:
     explicit ColorFeedbackSurfaceV1(wl_client *client, uint32_t id, uint32_t version, SurfaceInterface *surface);
     ~ColorFeedbackSurfaceV1() override;
 
-    void setPreferredColorDescription(const std::shared_ptr<ColorDescription> &descr);
+    void setPreferredColorDescription(const ColorDescription &descr);
 
 private:
     void wp_color_management_surface_feedback_v1_destroy_resource(Resource *resource) override;
@@ -49,7 +49,7 @@ private:
     void wp_color_management_surface_feedback_v1_get_preferred_parametric(Resource *resource, uint32_t image_description) override;
 
     QPointer<SurfaceInterface> m_surface;
-    std::shared_ptr<ColorDescription> m_preferred;
+    ColorDescription m_preferred;
 };
 
 class ColorSurfaceV1 : private QtWaylandServer::wp_color_management_surface_v1
@@ -106,29 +106,26 @@ private:
 class ImageDescriptionV1 : private QtWaylandServer::wp_image_description_v1
 {
 public:
-    static ImageDescriptionV1 *createReady(wl_client *client, uint32_t id, uint32_t version, const std::shared_ptr<ColorDescription> &color);
-    static ImageDescriptionV1 *createFailed(wl_client *client, uint32_t id, uint32_t version, wp_image_description_v1_cause error, const QString &message);
+    explicit ImageDescriptionV1(wl_client *client, uint32_t id, uint32_t version, const std::optional<ColorDescription> &color);
 
-    const std::optional<std::shared_ptr<ColorDescription>> &description() const;
+    const std::optional<ColorDescription> &description() const;
 
     static ImageDescriptionV1 *get(wl_resource *resource);
     static uint64_t s_idCounter;
 
 private:
-    explicit ImageDescriptionV1(wl_client *client, uint32_t id, uint32_t version, const std::optional<std::shared_ptr<ColorDescription>> &color);
-
     void wp_image_description_v1_destroy_resource(Resource *resource) override;
     void wp_image_description_v1_destroy(Resource *resource) override;
     void wp_image_description_v1_get_information(Resource *resource, uint32_t information) override;
 
-    const std::optional<std::shared_ptr<ColorDescription>> m_description;
+    const std::optional<ColorDescription> m_description;
 };
 
 class ColorManagementOutputV1 : public QObject, private QtWaylandServer::wp_color_management_output_v1
 {
     Q_OBJECT
 public:
-    explicit ColorManagementOutputV1(wl_client *client, uint32_t id, uint32_t version, OutputInterface *output);
+    explicit ColorManagementOutputV1(wl_client *client, uint32_t id, uint32_t version, Output *output);
 
 private:
     void colorDescriptionChanged();
@@ -136,7 +133,8 @@ private:
     void wp_color_management_output_v1_destroy(Resource *resource) override;
     void wp_color_management_output_v1_get_image_description(Resource *resource, uint32_t image_description) override;
 
-    QPointer<OutputInterface> m_output;
+    Output *const m_output;
+    ColorDescription m_colorDescription;
 };
 
 }

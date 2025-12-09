@@ -10,11 +10,11 @@
 #include "outputbackend.h"
 
 #include "inputbackend.h"
-#include "opengl/eglbackend.h"
 #include "opengl/egldisplay.h"
 #include "output.h"
 #include "outputconfiguration.h"
-#include "qpainter/qpainterbackend.h"
+#include "platformsupport/scenes/opengl/openglbackend.h"
+#include "platformsupport/scenes/qpainter/qpainterbackend.h"
 
 namespace KWin
 {
@@ -33,7 +33,7 @@ std::unique_ptr<InputBackend> OutputBackend::createInputBackend()
     return nullptr;
 }
 
-std::unique_ptr<EglBackend> OutputBackend::createOpenGLBackend()
+std::unique_ptr<OpenGLBackend> OutputBackend::createOpenGLBackend()
 {
     return nullptr;
 }
@@ -46,9 +46,9 @@ std::unique_ptr<QPainterBackend> OutputBackend::createQPainterBackend()
 OutputConfigurationError OutputBackend::applyOutputChanges(const OutputConfiguration &config)
 {
     const auto availableOutputs = outputs();
-    QList<BackendOutput *> toBeEnabledOutputs;
-    QList<BackendOutput *> toBeDisabledOutputs;
-    for (BackendOutput *output : availableOutputs) {
+    QList<Output *> toBeEnabledOutputs;
+    QList<Output *> toBeDisabledOutputs;
+    for (const auto &output : availableOutputs) {
         if (const auto changeset = config.constChangeSet(output)) {
             if (changeset->enabled.value_or(output->isEnabled())) {
                 toBeEnabledOutputs << output;
@@ -57,19 +57,19 @@ OutputConfigurationError OutputBackend::applyOutputChanges(const OutputConfigura
             }
         }
     }
-    for (BackendOutput *output : toBeEnabledOutputs) {
+    for (const auto &output : toBeEnabledOutputs) {
         output->applyChanges(config);
     }
-    for (BackendOutput *output : toBeDisabledOutputs) {
+    for (const auto &output : toBeDisabledOutputs) {
         output->applyChanges(config);
     }
     return OutputConfigurationError::None;
 }
 
-BackendOutput *OutputBackend::findOutput(const QString &name) const
+Output *OutputBackend::findOutput(const QString &name) const
 {
     const auto candidates = outputs();
-    for (BackendOutput *candidate : candidates) {
+    for (Output *candidate : candidates) {
         if (candidate->name() == name) {
             return candidate;
         }
@@ -77,12 +77,12 @@ BackendOutput *OutputBackend::findOutput(const QString &name) const
     return nullptr;
 }
 
-BackendOutput *OutputBackend::createVirtualOutput(const QString &name, const QString &description, const QSize &size, double scale)
+Output *OutputBackend::createVirtualOutput(const QString &name, const QString &description, const QSize &size, double scale)
 {
     return nullptr;
 }
 
-void OutputBackend::removeVirtualOutput(BackendOutput *output)
+void OutputBackend::removeVirtualOutput(Output *output)
 {
     Q_ASSERT(!output);
 }

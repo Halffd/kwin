@@ -13,7 +13,6 @@
 #include "utils/filedescriptor.h"
 
 #include <QList>
-#include <QMap>
 #include <QObject>
 #include <QProcess>
 #include <QSocketNotifier>
@@ -40,7 +39,7 @@ public:
 
     /**
      * Set file descriptors that xwayland should use for listening
-     * This is to be used in conjunction with kwin_wayland_wrapper which creates a socket externally
+     * This is to be used in conjuction with kwin_wayland_wrapper which creates a socket externally
      * That external process is responsible for setting up the DISPLAY env with a valid value.
      * Ownership of the file descriptor is not transferrred.
      */
@@ -48,20 +47,16 @@ public:
 
     /**
      * Sets the display name used by XWayland (i.e ':0')
-     * This is to be used in conjunction with kwin_wayland_wrapper to provide the name of the socket
+     * This is to be used in conjuction with kwin_wayland_wrapper to provide the name of the socket
      * created externally
      */
     void setDisplayName(const QString &displayName);
 
     /**
      * Sets the xauthority file to be used by XWayland
-     * This is to be used in conjunction with kwin_wayland_wrapper
+     * This is to be used in conjuction with kwin_wayland_wrapper
      */
     void setXauthority(const QString &xauthority);
-
-    void addEnvironmentVariables(const QMap<QString, QString> &extraEnvironment);
-
-    void passFileDescriptors(std::vector<FileDescriptor> &&fds);
 
     void enable();
     void disable();
@@ -108,8 +103,6 @@ private:
     QList<int> m_listenFds;
     QString m_displayName;
     QString m_xAuthority;
-    QMap<QString, QString> m_extraEnvironment;
-    std::vector<FileDescriptor> m_fdsToPreserve;
 
     bool m_enabled = false;
     int m_crashCount = 0;

@@ -12,13 +12,17 @@
 #include <epoxy/egl.h>
 
 #include <QObject>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
 #include <QtGui/private/qdesktopunixservices_p.h>
+#else
+#include <QtGui/private/qgenericunixservices_p.h>
+#endif
 #include <qpa/qplatformintegration.h>
 
 namespace KWin
 {
 
-class LogicalOutput;
+class Output;
 
 namespace QPA
 {
@@ -50,11 +54,11 @@ public:
     QPlatformClipboard *clipboard() const override;
     void initialize() override;
 
-    QHash<LogicalOutput *, Screen *> screens() const;
+    QHash<Output *, Screen *> screens() const;
 
 private Q_SLOTS:
-    void handleOutputEnabled(LogicalOutput *output);
-    void handleOutputDisabled(LogicalOutput *output);
+    void handleOutputEnabled(Output *output);
+    void handleOutputDisabled(Output *output);
     void handleWorkspaceCreated();
 
 private:
@@ -62,8 +66,12 @@ private:
     mutable std::unique_ptr<QPlatformAccessibility> m_accessibility;
     std::unique_ptr<QPlatformNativeInterface> m_nativeInterface;
     QPlatformPlaceholderScreen *m_dummyScreen = nullptr;
-    QHash<LogicalOutput *, Screen *> m_screens;
+    QHash<Output *, Screen *> m_screens;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     std::unique_ptr<QDesktopUnixServices> m_services;
+#else
+    std::unique_ptr<QGenericUnixServices> m_services;
+#endif
     std::unique_ptr<Clipboard> m_clipboard;
 };
 

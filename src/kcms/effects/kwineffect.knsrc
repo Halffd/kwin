@@ -57,6 +57,7 @@ Name[vi]=Hiệu ứng bàn làm việc
 Name[zh_CN]=桌面特效
 Name[zh_TW]=桌面效果
 
+AliasFor=kwineffect
 ProvidersUrl=https://autoconfig.kde.org/ocs/providers.xml
 ContentWarning=Executables
 Categories=KWin Effects Plasma 6

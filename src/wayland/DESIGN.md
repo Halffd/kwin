@@ -1,6 +1,6 @@
 # History
 
-We started out with one method of generating classes. We then ported to a new approach of using QtWaylandScanner to reduce a lot of boilerplate.
+We started out with one method of generting classes. We then ported to a new approach of using QtWaylandScanner to reduce a lot of boiler plate.
 
 New classes should use the new approach.
 

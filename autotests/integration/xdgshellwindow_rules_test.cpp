@@ -12,7 +12,6 @@
 #include "kwin_wayland_test.h"
 
 #include "core/output.h"
-#include "core/outputbackend.h"
 #include "core/outputconfiguration.h"
 #include "cursor.h"
 #include "rules.h"
@@ -188,12 +187,12 @@ void TestXdgShellWindowRules::initTestCase()
     qRegisterMetaType<KWin::Window *>();
 
     QVERIFY(waylandServer()->init(s_socketName));
-
-    kwinApp()->start();
     Test::setOutputConfig({
         QRect(0, 0, 1280, 1024),
         QRect(1280, 0, 1280, 1024),
     });
+
+    kwinApp()->start();
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 2);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -288,9 +287,8 @@ template<typename T>
 void TestXdgShellWindowRules::setWindowRule(const QString &property, const T &value, int policy)
 {
     // Initialize RuleBook with the test rule.
-    const QString ruleGroupName = QStringLiteral("test-rule");
-    m_config->group(QStringLiteral("General")).writeEntry("rules", QStringList{ruleGroupName});
-    KConfigGroup group = m_config->group(ruleGroupName);
+    m_config->group(QStringLiteral("General")).writeEntry("count", 1);
+    KConfigGroup group = m_config->group(QStringLiteral("1"));
 
     group.writeEntry(property, value);
     group.writeEntry(QStringLiteral("%1rule").arg(property), policy);
@@ -2081,7 +2079,7 @@ void TestXdgShellWindowRules::testKeepAboveForce()
     // Initially, the window should be kept above.
     QVERIFY(m_window->keepAbove());
 
-    // Any attempt to unset the keep-above should not succeed.
+    // Any attemt to unset the keep-above should not succeed.
     m_window->setKeepAbove(false);
     QVERIFY(m_window->keepAbove());
 
@@ -2204,7 +2202,7 @@ void TestXdgShellWindowRules::testKeepBelowForce()
     // Initially, the window should be kept below.
     QVERIFY(m_window->keepBelow());
 
-    // Any attempt to unset the keep-below should not succeed.
+    // Any attemt to unset the keep-below should not succeed.
     m_window->setKeepBelow(false);
     QVERIFY(m_window->keepBelow());
 
@@ -2638,7 +2636,7 @@ void TestXdgShellWindowRules::testInactiveOpacityDontAffect()
     QVERIFY(m_window->isActive());
 
     // Make the window inactive.
-    workspace()->activateWindow(nullptr);
+    workspace()->setActiveWindow(nullptr);
     QVERIFY(!m_window->isActive());
 
     // The opacity of the window should not be affected by the rule.
@@ -2656,7 +2654,7 @@ void TestXdgShellWindowRules::testInactiveOpacityForce()
     QCOMPARE(m_window->opacity(), 1.0);
 
     // Make the window inactive.
-    workspace()->activateWindow(nullptr);
+    workspace()->setActiveWindow(nullptr);
     QVERIFY(!m_window->isActive());
 
     // The opacity should be forced by the rule.
@@ -2674,7 +2672,7 @@ void TestXdgShellWindowRules::testInactiveOpacityForceTemporarily()
     QCOMPARE(m_window->opacity(), 1.0);
 
     // Make the window inactive.
-    workspace()->activateWindow(nullptr);
+    workspace()->setActiveWindow(nullptr);
     QVERIFY(!m_window->isActive());
 
     // The opacity should be forced by the rule.
@@ -2686,7 +2684,7 @@ void TestXdgShellWindowRules::testInactiveOpacityForceTemporarily()
 
     QVERIFY(m_window->isActive());
     QCOMPARE(m_window->opacity(), 1.0);
-    workspace()->activateWindow(nullptr);
+    workspace()->setActiveWindow(nullptr);
     QVERIFY(!m_window->isActive());
     QCOMPARE(m_window->opacity(), 1.0);
 
@@ -2822,7 +2820,7 @@ void TestXdgShellWindowRules::testNoBorderForceTemporarily()
 
 void TestXdgShellWindowRules::testScreenDontAffect()
 {
-    const QList<KWin::LogicalOutput *> outputs = workspace()->outputs();
+    const QList<KWin::Output *> outputs = workspace()->outputs();
 
     setWindowRule("screen", int(1), int(Rules::DontAffect));
 
@@ -2840,7 +2838,7 @@ void TestXdgShellWindowRules::testScreenDontAffect()
 
 void TestXdgShellWindowRules::testScreenApply()
 {
-    const QList<KWin::LogicalOutput *> outputs = workspace()->outputs();
+    const QList<KWin::Output *> outputs = workspace()->outputs();
 
     setWindowRule("screen", int(1), int(Rules::Apply));
 
@@ -2859,7 +2857,7 @@ void TestXdgShellWindowRules::testScreenApply()
 
 void TestXdgShellWindowRules::testScreenRemember()
 {
-    const QList<KWin::LogicalOutput *> outputs = workspace()->outputs();
+    const QList<KWin::Output *> outputs = workspace()->outputs();
 
     setWindowRule("screen", int(1), int(Rules::Remember));
 
@@ -2885,7 +2883,7 @@ void TestXdgShellWindowRules::testScreenRemember()
 
 void TestXdgShellWindowRules::testScreenForce()
 {
-    const QList<KWin::BackendOutput *> outputs = kwinApp()->outputBackend()->outputs();
+    const QList<KWin::Output *> outputs = workspace()->outputs();
 
     createTestWindow();
     QVERIFY(m_window->isActive());
@@ -2896,7 +2894,7 @@ void TestXdgShellWindowRules::testScreenForce()
     QCOMPARE(m_window->output()->name(), outputs.at(1)->name());
 
     // User should not be able to move the window to another screen.
-    m_window->sendToOutput(workspace()->findOutput(outputs.at(0)));
+    m_window->sendToOutput(outputs.at(0));
     QCOMPARE(m_window->output()->name(), outputs.at(1)->name());
 
     // Disable the output where the window is on, so the window is moved the other screen
@@ -2927,7 +2925,7 @@ void TestXdgShellWindowRules::testScreenForce()
 
 void TestXdgShellWindowRules::testScreenApplyNow()
 {
-    const QList<KWin::LogicalOutput *> outputs = workspace()->outputs();
+    const QList<KWin::Output *> outputs = workspace()->outputs();
 
     createTestWindow();
 
@@ -2950,7 +2948,7 @@ void TestXdgShellWindowRules::testScreenApplyNow()
 
 void TestXdgShellWindowRules::testScreenForceTemporarily()
 {
-    const QList<KWin::LogicalOutput *> outputs = workspace()->outputs();
+    const QList<KWin::Output *> outputs = workspace()->outputs();
 
     createTestWindow();
 

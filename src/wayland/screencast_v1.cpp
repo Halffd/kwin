@@ -5,7 +5,6 @@
 */
 
 #include "screencast_v1.h"
-#include "clientconnection.h"
 #include "display.h"
 #include "output.h"
 
@@ -16,7 +15,7 @@
 
 namespace KWin
 {
-static int s_version = 5;
+static int s_version = 4;
 
 class ScreencastStreamV1InterfacePrivate : public QtWaylandServer::zkde_screencast_stream_unstable_v1
 {
@@ -69,11 +68,6 @@ void ScreencastStreamV1Interface::sendClosed()
     if (!d->stopped) {
         d->send_closed();
     }
-}
-
-ClientConnection *ScreencastStreamV1Interface::connection() const
-{
-    return ClientConnection::get(d->resource()->client());
 }
 
 class ScreencastV1InterfacePrivate : public QtWaylandServer::zkde_screencast_unstable_v1

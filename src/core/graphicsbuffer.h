@@ -40,14 +40,6 @@ struct ShmAttributes
     uint32_t format;
 };
 
-struct SinglePixelAttributes
-{
-    uint32_t red;
-    uint32_t green;
-    uint32_t blue;
-    uint32_t alpha;
-};
-
 /**
  * The GraphicsBuffer class represents a chunk of memory containing graphics data.
  *
@@ -61,7 +53,6 @@ class KWIN_EXPORT GraphicsBuffer : public QObject
 
 public:
     explicit GraphicsBuffer(QObject *parent = nullptr);
-    ~GraphicsBuffer() override;
 
     bool isReferenced() const;
     bool isDropped() const;
@@ -89,7 +80,6 @@ public:
 
     virtual const DmaBufAttributes *dmabufAttributes() const;
     virtual const ShmAttributes *shmAttributes() const;
-    virtual const SinglePixelAttributes *singlePixelAttributes() const;
 
     /**
      * the added release point will be referenced as long as this buffer is referenced
@@ -109,7 +99,7 @@ protected:
 
 /**
  * The GraphicsBufferRef type holds a reference to a GraphicsBuffer. While the reference
- * exists, the graphics buffer cannot be destroyed and the client cannot modify it.
+ * exists, the graphics buffer cannot be destroyed and the client cannnot modify it.
  */
 class GraphicsBufferRef
 {
@@ -131,7 +121,7 @@ public:
         : m_buffer(other.m_buffer)
     {
         if (m_buffer) {
-            m_buffer->ref();
+            m_buffer->unref();
         }
     }
 

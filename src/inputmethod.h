@@ -14,7 +14,6 @@
 #include <vector>
 
 #include <QObject>
-#include <QRect>
 
 #include "input_event_spy.h"
 #include <kwin_export.h>
@@ -81,8 +80,6 @@ public:
         return m_internalContext;
     }
 
-    QRect cursorRectangle() const;
-
 Q_SIGNALS:
     void panelChanged();
     void activeChanged(bool active);
@@ -90,8 +87,6 @@ Q_SIGNALS:
     void visibleChanged();
     void availableChanged();
     void activeClientSupportsTextInputChanged();
-    void cursorRectangleChanged();
-    void activeWindowChanged();
 
 private Q_SLOTS:
     // textinput interface slots
@@ -134,7 +129,6 @@ private:
     void resetPendingPreedit();
     void refreshActive();
     void forwardKeyToEffects(bool pressed, int keyCode, int keySym);
-    void forwardKeySym(int keySym);
 
     // buffered till the preedit text is set
     struct

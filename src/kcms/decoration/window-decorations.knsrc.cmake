@@ -61,9 +61,10 @@ Name[x-test]=xxWindow Decorationsxx
 Name[zh_CN]=窗口装饰元素
 Name[zh_TW]=視窗裝飾
 
+AliasFor=window-decorations
 ProvidersUrl=https://autoconfig.kde.org/ocs/providers.xml
 ContentWarning=Executables
 Categories=Plasma 6 Window Decorations
 TargetDir=aurorae/themes
 Uncompress=archive
-AdoptionCommand=@KDE_INSTALL_FULL_LIBEXECDIR@/kwin-applywindowdecoration %f
+AdoptionCommand=@KDE_INSTALL_FULL_LIBEXECDIR@/kwin-applywindowdecoration-x11 %f

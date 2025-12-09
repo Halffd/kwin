@@ -21,7 +21,6 @@ class KTitleBarActionsConfig;
 class KWindowActionsConfig;
 class KAdvancedConfig;
 class KMovingConfig;
-class KPipConfig;
 
 class KWinOptions : public KCModule
 {
@@ -45,7 +44,6 @@ private:
     KWindowActionsConfig *mWindowActions;
     KMovingConfig *mMoving;
     KAdvancedConfig *mAdvanced;
-    KPipConfig *mPip = nullptr;
 
     KWinOptionsSettings *mSettings;
 };

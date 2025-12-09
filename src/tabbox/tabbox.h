@@ -13,7 +13,7 @@
 
 #include "input_event.h"
 #include "tabbox/tabboxhandler.h"
-
+#include "utils/common.h"
 #include <QKeySequence>
 #include <QModelIndex>
 #include <QTimer>
@@ -30,6 +30,7 @@ namespace KWin
 
 class Workspace;
 class Window;
+class X11EventFilter;
 
 namespace TabBox
 {
@@ -47,11 +48,15 @@ public:
     int activeScreen() const override;
     Window *activeClient() const override;
     QString desktopName(Window *client) const override;
+    bool isKWinCompositing() const override;
     Window *nextClientFocusChain(Window *client) const override;
     Window *firstClientFocusChain() const override;
     bool isInFocusChain(Window *client) const override;
     QList<Window *> stackingOrder() const override;
+    void elevateClient(Window *c, QWindow *tabbox, bool elevate) const override;
     void raiseClient(Window *client) const override;
+    void restack(Window *c, Window *under) override;
+    void shadeClient(Window *c, bool b) const override;
     Window *clientToAddToList(Window *client) const override;
     Window *desktopClient() const override;
     void activateAndClose() override;
@@ -252,6 +257,8 @@ private:
 
     Direction matchShortcuts(const KeyboardKeyEvent &keyEvent, const QList<QKeySequence> &forward, const QList<QKeySequence> &backward) const;
 
+    void shadeActivate(Window *c);
+
     bool toggleMode(TabBoxMode mode);
 
 private Q_SLOTS:
@@ -285,6 +292,10 @@ private:
     QList<ElectricBorder> m_borderActivate, m_borderAlternativeActivate;
     QHash<ElectricBorder, QAction *> m_touchActivate;
     QHash<ElectricBorder, QAction *> m_touchAlternativeActivate;
+
+#if KWIN_BUILD_X11
+    std::unique_ptr<X11EventFilter> m_x11EventFilter;
+#endif
 };
 
 } // namespace TabBox

@@ -16,7 +16,6 @@
 
 #include <QTime>
 #include <QTimeLine>
-#include <QTimer>
 
 namespace KWin
 {
@@ -29,7 +28,6 @@ class GLFramebuffer;
 class GLTexture;
 class GLVertexBuffer;
 class GLShader;
-class LogicalOutput;
 
 class ZoomEffect : public Effect
 {
@@ -49,7 +47,7 @@ public:
 
     void reconfigure(ReconfigureFlags flags) override;
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime) override;
-    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen) override;
+    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen) override;
     void postPaintScreen() override;
     bool isActive() const override;
     int requestedEffectChainPosition() const override;
@@ -65,7 +63,6 @@ public:
     qreal targetZoom() const;
 
 private Q_SLOTS:
-    void saveInitialZoom();
     void zoomIn();
     void zoomTo(double to);
     void zoomOut();
@@ -81,7 +78,7 @@ private Q_SLOTS:
     void slotMouseChanged(const QPointF &pos, const QPointF &old);
     void slotWindowAdded(EffectWindow *w);
     void slotWindowDamaged();
-    void slotScreenRemoved(LogicalOutput *screen);
+    void slotScreenRemoved(Output *screen);
     void setTargetZoom(double value);
 
 private:
@@ -103,7 +100,7 @@ private:
         std::unique_ptr<GLTexture> texture;
         std::unique_ptr<GLFramebuffer> framebuffer;
         QRectF viewport;
-        ColorDescription color = *ColorDescription::sRGB;
+        ColorDescription color = ColorDescription::sRGB;
     };
 
     void moveZoom(int x, int y);
@@ -112,7 +109,7 @@ private:
     void showCursor();
     void hideCursor();
     GLTexture *ensureCursorTexture();
-    OffscreenData *ensureOffscreenData(const RenderTarget &renderTarget, const RenderViewport &viewport, LogicalOutput *screen);
+    OffscreenData *ensureOffscreenData(const RenderTarget &renderTarget, const RenderViewport &viewport, Output *screen);
     void markCursorTextureDirty();
 
     GLShader *shaderForZoom(double zoom);
@@ -120,7 +117,6 @@ private:
 #if HAVE_ACCESSIBILITY
     ZoomAccessibilityIntegration *m_accessibilityIntegration = nullptr;
 #endif
-    std::unique_ptr<QTimer> m_configurationTimer;
     double m_zoom = 1.0;
     double m_targetZoom = 1.0;
     double m_sourceZoom = 1.0;
@@ -141,7 +137,7 @@ private:
     int m_yMove = 0;
     double m_moveFactor = 20.0;
     std::chrono::milliseconds m_lastPresentTime = std::chrono::milliseconds::zero();
-    std::map<LogicalOutput *, OffscreenData> m_offscreenData;
+    std::map<Output *, OffscreenData> m_offscreenData;
     std::unique_ptr<GLShader> m_pixelGridShader;
     double m_pixelGridZoom;
 };

@@ -60,12 +60,14 @@ DecoratedWindowImpl::DecoratedWindowImpl(Window *window, KDecoration3::Decorated
     connect(window, &Window::iconChanged, this, [decoratedClient, window]() {
         Q_EMIT decoratedClient->iconChanged(window->icon());
     });
+    connect(window, &Window::shadeChanged, this, &Decoration::DecoratedWindowImpl::signalShadeChange);
     connect(window, &Window::keepAboveChanged, decoratedClient, &KDecoration3::DecoratedWindow::keepAboveChanged);
     connect(window, &Window::keepBelowChanged, decoratedClient, &KDecoration3::DecoratedWindow::keepBelowChanged);
     connect(window, &Window::requestedTileChanged, decoratedClient, [this, decoratedClient]() {
         Q_EMIT decoratedClient->adjacentScreenEdgesChanged(adjacentScreenEdges());
     });
     connect(window, &Window::closeableChanged, decoratedClient, &KDecoration3::DecoratedWindow::closeableChanged);
+    connect(window, &Window::shadeableChanged, decoratedClient, &KDecoration3::DecoratedWindow::shadeableChanged);
     connect(window, &Window::minimizeableChanged, decoratedClient, &KDecoration3::DecoratedWindow::minimizeableChanged);
     connect(window, &Window::maximizeableChanged, decoratedClient, &KDecoration3::DecoratedWindow::maximizeableChanged);
 
@@ -95,9 +97,9 @@ DecoratedWindowImpl::~DecoratedWindowImpl()
     }
 }
 
-bool DecoratedWindowImpl::isShadeable() const
+void DecoratedWindowImpl::signalShadeChange()
 {
-    return false;
+    Q_EMIT decoratedWindow()->shadedChanged(m_window->isShade());
 }
 
 #define DELEGATE(type, name, clientName)   \
@@ -116,6 +118,7 @@ DELEGATE(bool, isMinimizeable, isMinimizable)
 DELEGATE2(bool, isModal)
 DELEGATE(bool, isMoveable, isMovable)
 DELEGATE(bool, isResizeable, isResizable)
+DELEGATE2(bool, isShadeable)
 DELEGATE2(bool, providesContextHelp)
 DELEGATE2(bool, isOnAllDesktops)
 DELEGATE2(QPalette, palette)
@@ -123,11 +126,6 @@ DELEGATE2(QIcon, icon)
 
 #undef DELEGATE2
 #undef DELEGATE
-
-bool DecoratedWindowImpl::isShaded() const
-{
-    return false;
-}
 
 #define DELEGATE(type, name, clientName)   \
     type DecoratedWindowImpl::name() const \
@@ -137,12 +135,9 @@ bool DecoratedWindowImpl::isShaded() const
 
 DELEGATE(bool, isKeepAbove, keepAbove)
 DELEGATE(bool, isKeepBelow, keepBelow)
+DELEGATE(bool, isShaded, isShade)
 
 #undef DELEGATE
-
-void DecoratedWindowImpl::requestToggleShade()
-{
-}
 
 #define DELEGATE(name, op)                                                \
     void DecoratedWindowImpl::name()                                      \
@@ -153,6 +148,7 @@ void DecoratedWindowImpl::requestToggleShade()
         Workspace::self()->performWindowOperation(m_window, Options::op); \
     }
 
+DELEGATE(requestToggleShade, ShadeOp)
 DELEGATE(requestToggleOnAllDesktops, OnAllDesktopsOp)
 DELEGATE(requestToggleKeepAbove, KeepAboveOp)
 DELEGATE(requestToggleKeepBelow, KeepBelowOp)

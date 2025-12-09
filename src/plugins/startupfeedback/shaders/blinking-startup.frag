@@ -1,5 +1,3 @@
-#include "colormanagement.glsl"
-
 uniform sampler2D sampler;
 uniform vec4 geometryColor;
 
@@ -11,6 +9,5 @@ void main()
     if (tex.a != 1.0) {
         tex = geometryColor;
     }
-    tex = sourceEncodingToNitsInDestinationColorspace(tex);
-    gl_FragColor = nitsToDestinationEncoding(tex);
+    gl_FragColor = tex;
 }

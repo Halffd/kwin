@@ -2,7 +2,7 @@
     "KPlugin": {
         "Category": "Appearance",
         "Description": "Make modal dialogs smoothly fly in and out when they are shown or hidden",
-        "Description[ar]": "اجعل الحوارات الـ... تطير داخلةً وخارجةً عند إظهارها أو إخفائها",
+        "Description[ar]": "اجعل الحوارات التطير داخلةً وخارجةً عند إظهارها أو إخفائها",
         "Description[az]": "Modal pəncərələr rəvan şəkildə uçuşla göstərilir və ya gizlədilir",
         "Description[be]": "Мадальныя дыялогавыя вокны плаўна з'яўляюцца з бацькоўскіх акон і знікаюць у іх, калі яны паказваюцца або хаваюцца",
         "Description[bg]": "Създаване на модални диалогови прозорци, които плавно се прелистват, когато се показват или скриват",
@@ -46,7 +46,7 @@
         "Description[tr]": "Kipsel iletişim kutuları gösterilirken veya gizlenirken pürüzsüzce uçmalarını sağlar",
         "Description[uk]": "Плавне влітання або відлітання вікон під час їх появи або приховування",
         "Description[vi]": "Làm các hộp thoại chế độ bay vào và ra một cách êm dịu khi chúng hiện ra và biến mất",
-        "Description[zh_CN]": "对话框显示/隐藏时绘制过渡动画",
+        "Description[zh_CN]": "对话框显示/隐藏时绘制过渡动效",
         "Description[zh_TW]": "讓情境對話框在顯示或隱藏的時候平滑地飛入或飛出",
         "EnabledByDefault": false,
         "License": "GPL",

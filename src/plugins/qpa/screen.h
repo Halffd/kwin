@@ -14,7 +14,7 @@
 
 namespace KWin
 {
-class LogicalOutput;
+class Output;
 
 namespace QPA
 {
@@ -26,7 +26,7 @@ class Screen : public QObject, public QPlatformScreen
     Q_OBJECT
 
 public:
-    Screen(LogicalOutput *output, Integration *integration);
+    Screen(Output *output, Integration *integration);
     ~Screen() override;
 
     QString name() const override;
@@ -43,7 +43,7 @@ private Q_SLOTS:
     void handleGeometryChanged();
 
 private:
-    QPointer<LogicalOutput> m_output;
+    QPointer<Output> m_output;
     std::unique_ptr<PlatformCursor> m_cursor;
     Integration *m_integration;
 };

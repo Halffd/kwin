@@ -79,10 +79,9 @@ int main(int argc, char **argv)
     new CompositorInterface(&display, &display);
     new XdgShellInterface(&display, &display);
 
-    auto fakeOutput = std::make_unique<FakeBackendOutput>();
-    fakeOutput->setMode(QSize(1024, 768), 60000);
-    fakeOutput->setPhysicalSize(QSize(10, 10));
-    auto outputHandle = std::make_unique<LogicalOutput>(fakeOutput.get());
+    auto outputHandle = std::make_unique<FakeOutput>();
+    outputHandle->setMode(QSize(1024, 768), 60000);
+    outputHandle->setPhysicalSize(QSize(10, 10));
 
     auto outputInterface = std::make_unique<OutputInterface>(&display, outputHandle.get());
 

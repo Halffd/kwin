@@ -13,17 +13,6 @@ set(tileseditor_SOURCES
 
 kwin_add_builtin_effect(tileseditor ${tileseditor_SOURCES})
 
-ecm_add_qml_module(tileseditor
-    URI org.kde.kwin.tileseditor
-    RESOURCES qml/layouts.svg
-    QML_FILES
-        qml/Main.qml
-        qml/ResizeCorner.qml
-        qml/ResizeHandle.qml
-        qml/TileDelegate.qml
-    QT_NO_PLUGIN
-)
-
 target_link_libraries(tileseditor PRIVATE
     kwin
 
@@ -32,4 +21,6 @@ target_link_libraries(tileseditor PRIVATE
     KF6::I18n
 
     Qt::Quick
-)
+    )
+
+install(DIRECTORY qml DESTINATION ${KDE_INSTALL_DATADIR}/${KWIN_DATADIR}/effects/tileseditor)

@@ -37,6 +37,9 @@ static const QSet<QString> s_blacklist{
     QStringLiteral("ksmserver ksmserver"),
     QStringLiteral("ksmserver-logout-greeter ksmserver-logout-greeter"),
     QStringLiteral("ksplashqml ksplashqml"),
+    // Spectacle needs to be blacklisted in order to stay out of its own screenshots.
+    QStringLiteral("spectacle spectacle"), // x11
+    QStringLiteral("spectacle org.kde.spectacle"), // wayland
 };
 
 GlideEffect::GlideEffect()
@@ -73,7 +76,7 @@ void GlideEffect::reconfigure(ReconfigureFlags flags)
     m_outParams.opacity.to = GlideConfig::outOpacity();
 }
 
-void GlideEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
+void GlideEffect::prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
 {
     auto animationIt = m_animations.find(w);
     if (animationIt != m_animations.end()) {
@@ -81,7 +84,7 @@ void GlideEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePai
         data.setTransformed();
     }
 
-    effects->prePaintWindow(view, w, data, presentTime);
+    effects->prePaintWindow(w, data, presentTime);
 }
 
 void GlideEffect::apply(EffectWindow *window, int mask, WindowPaintData &data, WindowQuadList &quads)
@@ -155,10 +158,9 @@ void GlideEffect::apply(EffectWindow *window, int mask, WindowPaintData &data, W
     data.multiplyOpacity(interpolate(params.opacity.from, params.opacity.to, t));
 }
 
-void GlideEffect::postPaintScreen()
+void GlideEffect::postPaintWindow(EffectWindow *w)
 {
-    for (auto animationIt = m_animations.begin(); animationIt != m_animations.end();) {
-        EffectWindow *w = animationIt->first;
+    if (auto animationIt = m_animations.find(w); animationIt != m_animations.end()) {
         w->addRepaintFull();
 
         if (animationIt->second.timeLine.done()) {
@@ -169,7 +171,7 @@ void GlideEffect::postPaintScreen()
         }
     }
 
-    effects->postPaintScreen();
+    effects->postPaintWindow(w);
 }
 
 bool GlideEffect::isActive() const
@@ -198,9 +200,11 @@ void GlideEffect::windowAdded(EffectWindow *w)
     }
 
     const void *addGrab = w->data(WindowAddedGrabRole).value<void *>();
-    if (addGrab) {
+    if (addGrab && addGrab != this) {
         return;
     }
+
+    w->setData(WindowAddedGrabRole, QVariant::fromValue(static_cast<void *>(this)));
 
     GlideAnimation &animation = m_animations[w];
     animation.timeLine.reset();
@@ -216,7 +220,7 @@ void GlideEffect::windowAdded(EffectWindow *w)
 void GlideEffect::windowClosed(EffectWindow *w)
 {
     const void *closeGrab = w->data(WindowClosedGrabRole).value<void *>();
-    if (closeGrab) {
+    if (closeGrab && closeGrab != this) {
         return;
     }
     if (effects->activeFullScreenEffect() || !isGlideWindow(w) || !w->isVisible() || w->skipsCloseAnimation()) {
@@ -227,6 +231,8 @@ void GlideEffect::windowClosed(EffectWindow *w)
         }
         return;
     }
+
+    w->setData(WindowClosedGrabRole, QVariant::fromValue(static_cast<void *>(this)));
 
     GlideAnimation &animation = m_animations[w];
     animation.deletedRef = EffectWindowDeletedRef(w);
@@ -242,6 +248,10 @@ void GlideEffect::windowClosed(EffectWindow *w)
 void GlideEffect::windowDataChanged(EffectWindow *w, int role)
 {
     if (role != WindowAddedGrabRole && role != WindowClosedGrabRole) {
+        return;
+    }
+
+    if (w->data(role).value<void *>() == this) {
         return;
     }
 

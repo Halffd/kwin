@@ -19,17 +19,10 @@ class KWIN_EXPORT IdleDetector : public QObject
     Q_OBJECT
 
 public:
-    enum class OperatingMode {
-        FollowsInhibitors,
-        IgnoresInhibitors,
-    };
-
-    explicit IdleDetector(std::chrono::milliseconds timeout, OperatingMode mode, QObject *parent = nullptr);
+    explicit IdleDetector(std::chrono::milliseconds timeout, QObject *parent = nullptr);
     ~IdleDetector() override;
 
     void activity();
-
-    OperatingMode mode() const;
 
     bool isInhibited() const;
     void setInhibited(bool inhibited);
@@ -49,7 +42,6 @@ private:
     std::chrono::milliseconds m_timeout;
     bool m_isIdle = false;
     bool m_isInhibited = false;
-    OperatingMode m_mode = OperatingMode::FollowsInhibitors;
 };
 
 } // namespace KWin

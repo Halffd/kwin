@@ -47,17 +47,14 @@ class KeyboardShortcutsInhibitManagerV1Interface;
 class XdgDecorationManagerV1Interface;
 class XWaylandKeyboardGrabManagerV1Interface;
 class ContentTypeManagerV1Interface;
-class DrmLeaseManagerV1;
 class TearingControlManagerV1Interface;
 class XwaylandShellV1Interface;
 class OutputOrderV1Interface;
 class XdgDialogWmV1Interface;
 class ExternalBrightnessV1;
-class XdgToplevelTagManagerV1;
-class PointerWarpV1;
 
 class Window;
-class LogicalOutput;
+class Output;
 class XdgActivationV1Integration;
 class XdgPopupWindow;
 class XdgSurfaceWindow;
@@ -67,10 +64,6 @@ class ColorManagerV1;
 class LinuxDrmSyncObjV1Interface;
 class RenderBackend;
 class AlphaModifierManagerV1;
-class FifoManagerV1;
-class SinglePixelBufferManagerV1;
-class ColorRepresentationManagerV1;
-class BackendOutput;
 
 class KWIN_EXPORT WaylandServer : public QObject
 {
@@ -189,7 +182,10 @@ public:
 
     ClientConnection *xWaylandConnection() const;
     ClientConnection *inputMethodConnection() const;
-    ClientConnection *screenLockerClientConnection() const;
+    ClientConnection *screenLockerClientConnection() const
+    {
+        return m_screenLockerClientConnection;
+    }
 
     /**
      * Struct containing information for a created Wayland connection through a
@@ -224,7 +220,6 @@ public:
 
     LinuxDrmSyncObjV1Interface *linuxSyncObj() const;
     ExternalBrightnessV1 *externalBrightness() const;
-    PointerWarpV1 *pointerWarp() const;
 
     void setRenderBackend(RenderBackend *backend);
 
@@ -242,10 +237,10 @@ private:
     void registerXdgToplevelWindow(XdgToplevelWindow *window);
     void registerXdgPopupWindow(XdgPopupWindow *window);
     void registerWindow(Window *window);
-    void handleOutputAdded(BackendOutput *output);
-    void handleOutputRemoved(BackendOutput *output);
-    void handleOutputEnabled(LogicalOutput *output);
-    void handleOutputDisabled(LogicalOutput *output);
+    void handleOutputAdded(Output *output);
+    void handleOutputRemoved(Output *output);
+    void handleOutputEnabled(Output *output);
+    void handleOutputDisabled(Output *output);
 
     class LockScreenPresentationWatcher : public QObject
     {
@@ -253,7 +248,7 @@ private:
         LockScreenPresentationWatcher(WaylandServer *server);
 
     private:
-        QSet<LogicalOutput *> m_signaledOutputs;
+        QSet<Output *> m_signaledOutputs;
     };
 
     Display *m_display = nullptr;
@@ -278,7 +273,7 @@ private:
     QPointer<ClientConnection> m_xwaylandConnection;
     InputMethodV1Interface *m_inputMethod = nullptr;
     QPointer<ClientConnection> m_inputMethodServerConnection;
-    QPointer<ClientConnection> m_screenLockerClientConnection;
+    ClientConnection *m_screenLockerClientConnection = nullptr;
     XdgForeignV2Interface *m_XdgForeign = nullptr;
     XdgActivationV1Integration *m_xdgActivationIntegration = nullptr;
 #if KWIN_BUILD_X11
@@ -290,19 +285,13 @@ private:
     PresentationTime *m_presentationTime = nullptr;
     LinuxDrmSyncObjV1Interface *m_linuxDrmSyncObj = nullptr;
     QList<Window *> m_windows;
-    QHash<LogicalOutput *, OutputInterface *> m_waylandOutputs;
-    QHash<BackendOutput *, OutputDeviceV2Interface *> m_waylandOutputDevices;
-    DrmLeaseManagerV1 *m_leaseManager = nullptr;
+    QHash<Output *, OutputInterface *> m_waylandOutputs;
+    QHash<Output *, OutputDeviceV2Interface *> m_waylandOutputDevices;
     OutputOrderV1Interface *m_outputOrder = nullptr;
     ColorManagerV1 *m_colorManager = nullptr;
     XdgDialogWmV1Interface *m_xdgDialogWm = nullptr;
     ExternalBrightnessV1 *m_externalBrightness = nullptr;
     AlphaModifierManagerV1 *m_alphaModifierManager = nullptr;
-    FifoManagerV1 *m_fifoManager = nullptr;
-    SinglePixelBufferManagerV1 *m_singlePixelBuffer = nullptr;
-    XdgToplevelTagManagerV1 *m_toplevelTag = nullptr;
-    ColorRepresentationManagerV1 *m_colorRepresentation = nullptr;
-    PointerWarpV1 *m_pointerWarp = nullptr;
     KWIN_SINGLETON(WaylandServer)
 };
 

@@ -91,6 +91,7 @@ public:
     XdgActivationV1InterfacePrivate(Display *display, XdgActivationV1Interface *q)
         : QtWaylandServer::xdg_activation_v1(*display, s_version)
         , q(q)
+        , m_display(display)
     {
     }
 
@@ -102,11 +103,12 @@ protected:
 public:
     XdgActivationV1Interface::CreatorFunction m_creator;
     XdgActivationV1Interface *const q;
+    Display *const m_display;
 };
 
 void XdgActivationV1InterfacePrivate::xdg_activation_v1_get_activation_token(Resource *resource, uint32_t id)
 {
-    new XdgActivationTokenV1Interface(m_creator, ClientConnection::get(resource->client()), id);
+    new XdgActivationTokenV1Interface(m_creator, m_display->getConnection(resource->client()), id);
 }
 
 void XdgActivationV1InterfacePrivate::xdg_activation_v1_activate(Resource *resource, const QString &token, struct ::wl_resource *surface)

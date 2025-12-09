@@ -12,7 +12,6 @@
 #include "core/rendertarget.h"
 #include "core/renderviewport.h"
 #include "effect/effect.h"
-#include "opengl/eglcontext.h"
 #include "opengl/glframebuffer.h"
 #include "scene/itemrenderer.h"
 #include "scene/windowitem.h"
@@ -67,7 +66,7 @@ WindowThumbnailSource::~WindowThumbnailSource()
         return;
     }
     if (!QOpenGLContext::currentContext()) {
-        Compositor::self()->scene()->openglContext()->makeCurrent();
+        Compositor::self()->scene()->makeOpenGLContextCurrent();
     }
     m_offscreenTarget.reset();
     m_offscreenTexture.reset();
@@ -141,7 +140,7 @@ void WindowThumbnailSource::update()
     // shared across contexts. Unfortunately, this also introduces a latency of 1
     // frame, which is not ideal, but it is acceptable for things such as thumbnails.
     const int mask = Scene::PAINT_WINDOW_TRANSFORMED;
-    Compositor::self()->scene()->renderer()->renderItem(offscreenRenderTarget, offscreenViewport, m_handle->windowItem(), mask, infiniteRegion(), WindowPaintData{}, {}, {});
+    Compositor::self()->scene()->renderer()->renderItem(offscreenRenderTarget, offscreenViewport, m_handle->windowItem(), mask, infiniteRegion(), WindowPaintData{});
     GLFramebuffer::popFramebuffer();
 
     // The fence is needed to avoid the case where qtquick renderer starts using
@@ -250,12 +249,6 @@ void WindowThumbnailItem::releaseResources()
     }
 }
 
-void WindowThumbnailItem::invalidateSceneGraph()
-{
-    delete m_provider;
-    m_provider = nullptr;
-}
-
 void WindowThumbnailItem::itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &value)
 {
     if (change == QQuickItem::ItemSceneChange) {
@@ -297,25 +290,34 @@ void WindowThumbnailItem::updateSource()
 
 QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::UpdatePaintNodeData *)
 {
-    if (!m_source) {
-        return oldNode;
-    }
+    if (Compositor::compositing()) {
+        if (!m_source) {
+            return oldNode;
+        }
 
-    auto [texture, acquireFence] = m_source->acquire();
-    if (!texture) {
-        return oldNode;
-    }
+        auto [texture, acquireFence] = m_source->acquire();
+        if (!texture) {
+            return oldNode;
+        }
 
-    // Wait for rendering commands to the offscreen texture complete if there are any.
-    if (acquireFence) {
-        glWaitSync(acquireFence, 0, GL_TIMEOUT_IGNORED);
-        glDeleteSync(acquireFence);
-    }
+        // Wait for rendering commands to the offscreen texture complete if there are any.
+        if (acquireFence) {
+            glWaitSync(acquireFence, 0, GL_TIMEOUT_IGNORED);
+            glDeleteSync(acquireFence);
+        }
 
-    if (!m_provider) {
-        m_provider = new ThumbnailTextureProvider(window());
+        if (!m_provider) {
+            m_provider = new ThumbnailTextureProvider(window());
+        }
+        m_provider->setTexture(texture);
+    } else {
+        if (!m_provider) {
+            m_provider = new ThumbnailTextureProvider(window());
+        }
+
+        const QImage placeholderImage = fallbackImage();
+        m_provider->setTexture(window()->createTextureFromImage(placeholderImage));
     }
-    m_provider->setTexture(texture);
 
     QSGImageNode *node = static_cast<QSGImageNode *>(oldNode);
     if (!node) {
@@ -388,10 +390,30 @@ void WindowThumbnailItem::updateImplicitSize()
     setImplicitSize(frameSize.width(), frameSize.height());
 }
 
+QImage WindowThumbnailItem::fallbackImage() const
+{
+    if (m_client) {
+        return m_client->icon().pixmap(window(), boundingRect().size().toSize()).toImage();
+    }
+    return QImage();
+}
+
+static QRectF centeredSize(const QRectF &boundingRect, const QSizeF &size)
+{
+    const QSizeF scaled = size.scaled(boundingRect.size(), Qt::KeepAspectRatio);
+    const qreal x = boundingRect.x() + (boundingRect.width() - scaled.width()) / 2;
+    const qreal y = boundingRect.y() + (boundingRect.height() - scaled.height()) / 2;
+    return QRectF(QPointF(x, y), scaled);
+}
+
 QRectF WindowThumbnailItem::paintedRect() const
 {
     if (!m_client) {
         return QRectF();
+    }
+    if (!Compositor::compositing()) {
+        const QSizeF iconSize = m_client->icon().actualSize(window(), boundingRect().size().toSize());
+        return centeredSize(boundingRect(), iconSize);
     }
 
     const QRectF visibleGeometry = m_client->visibleGeometry();

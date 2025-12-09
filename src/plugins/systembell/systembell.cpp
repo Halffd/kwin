@@ -24,10 +24,6 @@
 
 #include <canberra.h>
 
-#include <chrono>
-
-using namespace std::literals;
-
 Q_LOGGING_CATEGORY(KWIN_SYSTEMBELL, "kwin_effect_systembell", QtWarningMsg)
 
 static void ensureResources()
@@ -79,38 +75,30 @@ SystemBellEffect::SystemBellEffect()
         }
     }
 
-    if (!s_systemBellRemoveTimer) {
-        s_systemBellRemoveTimer = new QTimer(QCoreApplication::instance());
-        s_systemBellRemoveTimer->setSingleShot(true);
-        s_systemBellRemoveTimer->callOnTimeout([]() {
-            s_systemBell->remove();
-            s_systemBell = nullptr;
-        });
-    }
-    s_systemBellRemoveTimer->stop();
-    if (!s_systemBell) {
-        s_systemBell = new XdgSystemBellV1Interface(waylandServer()->display(), s_systemBellRemoveTimer);
-        connect(s_systemBell, &XdgSystemBellV1Interface::ringSurface, this, [this](SurfaceInterface *surface) {
-            triggerWindow(effects->findWindow(surface));
-        });
-        connect(s_systemBell, &XdgSystemBellV1Interface::ring, this, [this](ClientConnection *client) {
-            if (effects->activeWindow()) {
-                if (effects->activeWindow()->surface() && effects->activeWindow()->surface()->client() == client) {
-                    triggerWindow(effects->activeWindow());
+    if (waylandServer()) {
+        if (!s_systemBellRemoveTimer) {
+            s_systemBellRemoveTimer = new QTimer(QCoreApplication::instance());
+            s_systemBellRemoveTimer->setSingleShot(true);
+            s_systemBellRemoveTimer->callOnTimeout([]() {
+                s_systemBell->remove();
+                s_systemBell = nullptr;
+            });
+        }
+        s_systemBellRemoveTimer->stop();
+        if (!s_systemBell) {
+            s_systemBell = new XdgSystemBellV1Interface(waylandServer()->display(), s_systemBellRemoveTimer);
+            connect(s_systemBell, &XdgSystemBellV1Interface::ringSurface, this, [this](SurfaceInterface *surface) {
+                triggerWindow(effects->findWindow(surface));
+            });
+            connect(s_systemBell, &XdgSystemBellV1Interface::ring, this, [this](ClientConnection *client) {
+                if (effects->activeWindow()) {
+                    if (effects->activeWindow()->surface() && effects->activeWindow()->surface()->client() == client) {
+                        triggerWindow(effects->activeWindow());
+                    }
                 }
-            }
-        });
+            });
+        }
     }
-
-    m_audioThrottleTimer.setInterval(100ms);
-    m_audioThrottleTimer.setSingleShot(true);
-
-    // The Web Content Accessibility Guidelines (WCAG) recommend that any
-    // element that flashes in the screen must have a maximum period of
-    // 3Hz to avoid the risk of Photosensitivity Seizures.
-    // 3Hz is 333ms, double that to account for the window un-inverting, and round up
-    m_visualThrottleTimer.setInterval(700ms);
-    m_visualThrottleTimer.setSingleShot(true);
 }
 
 SystemBellEffect::~SystemBellEffect()
@@ -197,12 +185,6 @@ void SystemBellEffect::triggerScreen()
     if (m_visibleBell) {
         m_allWindows = true;
 
-        if (m_visualThrottleTimer.isActive()) {
-            return;
-        }
-
-        m_visualThrottleTimer.start();
-
         const auto windows = effects->stackingOrder();
         for (EffectWindow *window : windows) {
             flash(window);
@@ -237,12 +219,6 @@ void SystemBellEffect::triggerWindow(EffectWindow *window)
     }
 
     if (m_visibleBell) {
-        if (m_visualThrottleTimer.isActive()) {
-            return;
-        }
-
-        m_visualThrottleTimer.start();
-
         m_windows.append(window);
         flash(window);
 
@@ -277,12 +253,6 @@ bool SystemBellEffect::perform(Feature feature, const QVariantList &arguments)
 
 void SystemBellEffect::playAudibleBell()
 {
-    if (m_audioThrottleTimer.isActive()) {
-        return;
-    }
-
-    m_audioThrottleTimer.start();
-
     if (m_customBell) {
         ca_context_play(m_caContext,
                         0,

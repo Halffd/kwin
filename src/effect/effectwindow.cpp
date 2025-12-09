@@ -239,7 +239,7 @@ void EffectWindow::unrefWindow()
     d->m_window->unref();
 }
 
-LogicalOutput *EffectWindow::screen() const
+Output *EffectWindow::screen() const
 {
     return d->m_window->output();
 }
@@ -374,7 +374,7 @@ QByteArray EffectWindow::readProperty(long atom, long type, int format) const
             len *= 2;
             continue;
         }
-        return prop.toByteArray(format, type).value_or(QByteArray());
+        return prop.toByteArray(format, type);
     }
 #endif
     return {};

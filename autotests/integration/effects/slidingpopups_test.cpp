@@ -11,6 +11,7 @@
 #include "kwin_wayland_test.h"
 #include "wayland_server.h"
 #include "workspace.h"
+#include "x11window.h"
 
 #include <KConfigGroup>
 
@@ -18,6 +19,9 @@
 #include <KWayland/Client/registry.h>
 #include <KWayland/Client/slide.h>
 #include <KWayland/Client/surface.h>
+
+#include <netwm.h>
+#include <xcb/xcb_icccm.h>
 
 using namespace KWin;
 static const QString s_socketName = QStringLiteral("wayland_test_effects_slidingpopups-0");
@@ -30,6 +34,8 @@ private Q_SLOTS:
     void init();
     void cleanup();
 
+    void testWithOtherEffect_data();
+    void testWithOtherEffect();
     void testWithOtherEffectWayland_data();
     void testWithOtherEffectWayland();
 };
@@ -44,6 +50,10 @@ void SlidingPopupsTest::initTestCase()
     qRegisterMetaType<KWin::Window *>();
     qRegisterMetaType<KWin::Effect *>();
     QVERIFY(waylandServer()->init(s_socketName));
+    Test::setOutputConfig({
+        QRect(0, 0, 1280, 1024),
+        QRect(1280, 0, 1280, 1024),
+    });
 
     // disable all effects - we don't want to have it interact with the rendering
     auto config = KSharedConfig::openConfig(QString(), KConfig::SimpleConfig);
@@ -63,10 +73,6 @@ void SlidingPopupsTest::initTestCase()
     qputenv("KWIN_COMPOSE", QByteArrayLiteral("O2"));
     qputenv("KWIN_EFFECTS_FORCE_ANIMATIONS", "1");
     kwinApp()->start();
-    Test::setOutputConfig({
-        QRect(0, 0, 1280, 1024),
-        QRect(1280, 0, 1280, 1024),
-    });
 }
 
 void SlidingPopupsTest::init()
@@ -82,6 +88,132 @@ void SlidingPopupsTest::cleanup()
         effects->unloadEffect(effect);
         QVERIFY(!effects->isEffectLoaded(effect));
     }
+}
+
+void SlidingPopupsTest::testWithOtherEffect_data()
+{
+    QTest::addColumn<QStringList>("effectsToLoad");
+
+    QTest::newRow("fade, slide") << QStringList{QStringLiteral("fade"), QStringLiteral("slidingpopups")};
+    QTest::newRow("slide, fade") << QStringList{QStringLiteral("slidingpopups"), QStringLiteral("fade")};
+    QTest::newRow("scale, slide") << QStringList{QStringLiteral("scale"), QStringLiteral("slidingpopups")};
+    QTest::newRow("slide, scale") << QStringList{QStringLiteral("slidingpopups"), QStringLiteral("scale")};
+
+    if (effects->compositingType() & KWin::OpenGLCompositing) {
+        QTest::newRow("glide, slide") << QStringList{QStringLiteral("glide"), QStringLiteral("slidingpopups")};
+        QTest::newRow("slide, glide") << QStringList{QStringLiteral("slidingpopups"), QStringLiteral("glide")};
+        QTest::newRow("wobblywindows, slide") << QStringList{QStringLiteral("wobblywindows"), QStringLiteral("slidingpopups")};
+        QTest::newRow("slide, wobblywindows") << QStringList{QStringLiteral("slidingpopups"), QStringLiteral("wobblywindows")};
+        QTest::newRow("fallapart, slide") << QStringList{QStringLiteral("fallapart"), QStringLiteral("slidingpopups")};
+        QTest::newRow("slide, fallapart") << QStringList{QStringLiteral("slidingpopups"), QStringLiteral("fallapart")};
+    }
+}
+
+void SlidingPopupsTest::testWithOtherEffect()
+{
+    // this test verifies that slidingpopups effect grabs the window added role
+    // independently of the sequence how the effects are loaded.
+    // see BUG 336866
+    // find the effectsloader
+    auto effectloader = effects->findChild<AbstractEffectLoader *>();
+    QVERIFY(effectloader);
+    QSignalSpy effectLoadedSpy(effectloader, &AbstractEffectLoader::effectLoaded);
+
+    Effect *slidingPoupus = nullptr;
+    Effect *otherEffect = nullptr;
+    QFETCH(QStringList, effectsToLoad);
+    for (const QString &effectName : effectsToLoad) {
+        QVERIFY(!effects->isEffectLoaded(effectName));
+        QVERIFY(effects->loadEffect(effectName));
+        QVERIFY(effects->isEffectLoaded(effectName));
+
+        QCOMPARE(effectLoadedSpy.count(), 1);
+        Effect *effect = effectLoadedSpy.first().first().value<Effect *>();
+        if (effectName == QStringLiteral("slidingpopups")) {
+            slidingPoupus = effect;
+        } else {
+            otherEffect = effect;
+        }
+        effectLoadedSpy.clear();
+    }
+    QVERIFY(slidingPoupus);
+    QVERIFY(otherEffect);
+
+    QVERIFY(!slidingPoupus->isActive());
+    QVERIFY(!otherEffect->isActive());
+
+    QSignalSpy windowAddedSpy(effects, &EffectsHandler::windowAdded);
+
+    // create an xcb window
+    Test::XcbConnectionPtr c = Test::createX11Connection();
+    QVERIFY(!xcb_connection_has_error(c.get()));
+    const QRect windowGeometry(0, 0, 100, 200);
+    xcb_window_t windowId = xcb_generate_id(c.get());
+    xcb_create_window(c.get(), XCB_COPY_FROM_PARENT, windowId, rootWindow(),
+                      windowGeometry.x(),
+                      windowGeometry.y(),
+                      windowGeometry.width(),
+                      windowGeometry.height(),
+                      0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
+    xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
+    xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
+    xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
+    NETWinInfo winInfo(c.get(), windowId, rootWindow(), NET::Properties(), NET::Properties2());
+    winInfo.setWindowType(NET::Normal);
+
+    // and get the slide atom
+    const QByteArray effectAtomName = QByteArrayLiteral("_KDE_SLIDE");
+    xcb_intern_atom_cookie_t atomCookie = xcb_intern_atom_unchecked(c.get(), false, effectAtomName.length(), effectAtomName.constData());
+    const int size = 2;
+    int32_t data[size];
+    data[0] = 0;
+    data[1] = 0;
+    UniqueCPtr<xcb_intern_atom_reply_t> atom(xcb_intern_atom_reply(c.get(), atomCookie, nullptr));
+    QVERIFY(atom != nullptr);
+    xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atom->atom, atom->atom, 32, size, data);
+
+    xcb_map_window(c.get(), windowId);
+    xcb_flush(c.get());
+
+    // we should get a window for it
+    QSignalSpy windowCreatedSpy(workspace(), &Workspace::windowAdded);
+    QVERIFY(windowCreatedSpy.wait());
+    X11Window *window = windowCreatedSpy.first().first().value<X11Window *>();
+    QVERIFY(window);
+    QCOMPARE(window->window(), windowId);
+    QVERIFY(window->isNormalWindow());
+
+    // sliding popups should be active
+    QCOMPARE(windowAddedSpy.count(), 1);
+    QTRY_VERIFY(slidingPoupus->isActive());
+    QVERIFY(!otherEffect->isActive());
+
+    // wait till effect ends
+    QTRY_VERIFY(!slidingPoupus->isActive());
+    QTRY_VERIFY(!otherEffect->isActive());
+
+    // and destroy the window again
+    xcb_unmap_window(c.get(), windowId);
+    xcb_flush(c.get());
+
+    QSignalSpy closedSpy(window, &X11Window::closed);
+
+    QSignalSpy windowDeletedSpy(effects, &EffectsHandler::windowDeleted);
+    QVERIFY(closedSpy.wait());
+
+    // again we should have the sliding popups active
+    QVERIFY(slidingPoupus->isActive());
+    QVERIFY(!otherEffect->isActive());
+
+    QVERIFY(windowDeletedSpy.wait());
+
+    QCOMPARE(windowDeletedSpy.count(), 1);
+    QVERIFY(!slidingPoupus->isActive());
+    QVERIFY(!otherEffect->isActive());
+    xcb_destroy_window(c.get(), windowId);
+    c.reset();
 }
 
 void SlidingPopupsTest::testWithOtherEffectWayland_data()
@@ -176,7 +308,7 @@ void SlidingPopupsTest::testWithOtherEffectWayland()
     shellSurface.reset();
     surface.reset();
 
-    QSignalSpy windowClosedSpy(window, &Window::closed);
+    QSignalSpy windowClosedSpy(window, &X11Window::closed);
 
     QSignalSpy windowDeletedSpy(effects, &EffectsHandler::windowDeleted);
     QVERIFY(windowClosedSpy.wait());

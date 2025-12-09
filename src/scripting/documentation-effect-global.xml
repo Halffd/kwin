@@ -2,7 +2,7 @@
 <doxygen xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="compound.xsd" version="1.7.6.1">
     <!--  Documentation for global KWin effect methods. In doxygen XML format as this can be converted to MediaWiki    -->
     <!--  Use script and XSLT from kde:scratch/graesslin/kwin-scripting-api-generator to generate the documentation    -->
-    <!--  This xml is not meant to be doxygen compliant    -->
+    <!--  This xml is not meant to be doxygen complient    -->
     <compounddef>
         <compoundname>Global</compoundname>
         <briefdescription>Methods and properties added to the global JavaScript object.</briefdescription>
@@ -120,7 +120,7 @@ For convenience you can pass a single quint64 as well.
                 <argsstring>(int duration)</argsstring>
                 <name>animationTime</name>
                 <read></read>
-                <detaileddescription>Adjusts the passed in duration to the global animation time factor.</detaileddescription>
+                <detaileddescription>Adjusts the passed in duration to the global animation time facator.</detaileddescription>
             </memberdef>
             <memberdef kind="function">
                 <type>Q_SCRIPTABLE int</type>

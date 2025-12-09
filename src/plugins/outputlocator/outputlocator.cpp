@@ -19,13 +19,13 @@
 namespace KWin
 {
 
-static QString outputName(const LogicalOutput *screen)
+static QString outputName(const Output *screen)
 {
     const auto screens = effects->screens();
-    const bool shouldShowSerialNumber = std::any_of(screens.cbegin(), screens.cend(), [screen](const LogicalOutput *other) {
+    const bool shouldShowSerialNumber = std::any_of(screens.cbegin(), screens.cend(), [screen](const Output *other) {
         return other != screen && other->manufacturer() == screen->manufacturer() && other->model() == screen->model();
     });
-    const bool shouldShowConnector = shouldShowSerialNumber && std::any_of(screens.cbegin(), screens.cend(), [screen](const LogicalOutput *other) {
+    const bool shouldShowConnector = shouldShowSerialNumber && std::any_of(screens.cbegin(), screens.cend(), [screen](const Output *other) {
         return other != screen && other->serialNumber() == screen->serialNumber();
     });
 
@@ -55,6 +55,7 @@ static QString outputName(const LogicalOutput *screen)
 
 OutputLocatorEffect::OutputLocatorEffect(QObject *parent)
     : Effect(parent)
+    , m_qmlUrl(QUrl::fromLocalFile(QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QLatin1String("/effects/outputlocator/qml/OutputLabel.qml"))))
 {
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/org/kde/KWin/Effect/OutputLocator1"),
                                                  QStringLiteral("org.kde.KWin.Effect.OutputLocator1"),
@@ -78,7 +79,7 @@ void OutputLocatorEffect::show()
     const auto screens = effects->screens();
     for (const auto screen : screens) {
         auto scene = new OffscreenQuickScene();
-        scene->loadFromModule(QStringLiteral("org.kde.kwin.outputlocator"), QStringLiteral("OutputLabel"), {{QStringLiteral("outputName"), outputName(screen)}, {QStringLiteral("resolution"), screen->pixelSize()}, {QStringLiteral("scale"), screen->scale()}});
+        scene->setSource(m_qmlUrl, {{QStringLiteral("outputName"), outputName(screen)}, {QStringLiteral("resolution"), screen->pixelSize()}, {QStringLiteral("scale"), screen->scale()}});
         QRectF geometry(0, 0, scene->rootItem()->implicitWidth(), scene->rootItem()->implicitHeight());
         geometry.moveCenter(screen->geometry().center());
         scene->setGeometry(geometry.toRect());
@@ -104,12 +105,18 @@ void OutputLocatorEffect::hide()
     effects->addRepaint(repaintRegion);
 }
 
-void OutputLocatorEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen)
+void OutputLocatorEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, KWin::Output *screen)
 {
-    effects->paintScreen(renderTarget, viewport, mask, deviceRegion, screen);
-
-    if (auto it = m_scenesByScreens.find(screen); it != m_scenesByScreens.end()) {
-        effects->renderOffscreenQuickView(renderTarget, viewport, it->second.get());
+    effects->paintScreen(renderTarget, viewport, mask, region, screen);
+    // On X11 all screens are painted at once
+    if (effects->waylandDisplay()) {
+        if (auto it = m_scenesByScreens.find(screen); it != m_scenesByScreens.end()) {
+            effects->renderOffscreenQuickView(renderTarget, viewport, it->second.get());
+        }
+    } else {
+        for (const auto &[screen, scene] : m_scenesByScreens) {
+            effects->renderOffscreenQuickView(renderTarget, viewport, scene.get());
+        }
     }
 }
 }

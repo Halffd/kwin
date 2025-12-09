@@ -34,7 +34,7 @@ class ServerSideDecorationInterface;
 class ServerSideDecorationPaletteInterface;
 class XdgDialogV1Interface;
 class XdgToplevelDecorationV1Interface;
-class LogicalOutput;
+class Output;
 class Tile;
 
 class XdgSurfaceConfigure
@@ -49,7 +49,7 @@ public:
     };
     Q_DECLARE_FLAGS(ConfigureFlags, ConfigureFlag)
 
-    RectF bounds;
+    QRectF bounds;
     Gravity gravity;
     qreal serial;
     ConfigureFlags flags;
@@ -65,13 +65,13 @@ public:
     ~XdgSurfaceWindow() override;
 
     WindowType windowType() const override;
-    RectF frameRectToBufferRect(const RectF &rect) const override;
+    QRectF frameRectToBufferRect(const QRectF &rect) const override;
     void destroyWindow() override;
 
     void installPlasmaShellSurface(PlasmaShellSurfaceInterface *shellSurface);
 
 protected:
-    void moveResizeInternal(const RectF &rect, MoveResizeMode mode) override;
+    void moveResizeInternal(const QRectF &rect, MoveResizeMode mode) override;
 
     virtual XdgSurfaceConfigure *sendRoleConfigure() const = 0;
     virtual void handleRoleCommit();
@@ -94,7 +94,7 @@ private:
     bool haveNextWindowGeometry() const;
     void setHaveNextWindowGeometry();
     void resetHaveNextWindowGeometry();
-    void maybeUpdateMoveResizeGeometry(const RectF &rect);
+    void maybeUpdateMoveResizeGeometry(const QRectF &rect);
 
     XdgSurfaceInterface *m_shellSurface;
     QTimer *m_configureTimer;
@@ -102,7 +102,7 @@ private:
     QQueue<XdgSurfaceConfigure *> m_configureEvents;
     std::unique_ptr<XdgSurfaceConfigure> m_lastAcknowledgedConfigure;
     std::optional<quint32> m_lastAcknowledgedConfigureSerial;
-    RectF m_windowGeometry;
+    QRectF m_windowGeometry;
     bool m_haveNextWindowGeometry = false;
 };
 
@@ -115,29 +115,6 @@ public:
     QPointer<Tile> tile = nullptr;
 };
 
-class XdgToplevelSessionData
-{
-public:
-    static std::optional<XdgToplevelSessionData> parse(const QVariant &variant);
-    static QVariant save(const Window *window);
-
-    std::optional<QString> outputLayoutId;
-    std::optional<QPointF> position;
-    std::optional<QSizeF> size;
-    std::optional<bool> keepAbove;
-    std::optional<bool> keepBelow;
-    std::optional<bool> skipSwitcher;
-    std::optional<bool> skipPager;
-    std::optional<bool> skipTaskbar;
-    std::optional<MaximizeMode> maximizeMode;
-    std::optional<bool> fullscreen;
-    std::optional<bool> minimized;
-    std::optional<DecorationPolicy> decorationPolicy;
-    std::optional<QStringList> desktops;
-    std::optional<QStringList> activities;
-    std::optional<QString> shortcut;
-};
-
 class XdgToplevelWindow final : public XdgSurfaceWindow
 {
     Q_OBJECT
@@ -145,6 +122,12 @@ class XdgToplevelWindow final : public XdgSurfaceWindow
     enum class PingReason {
         CloseWindow,
         FocusWindow,
+    };
+
+    enum class DecorationMode {
+        None,
+        Client,
+        Server,
     };
 
 public:
@@ -168,18 +151,20 @@ public:
     bool isMinimizable() const override;
     bool isPlaceable() const override;
     bool isTransient() const override;
-    DecorationPolicy decorationPolicy() const override;
-    void setDecorationPolicy(DecorationPolicy policy) override;
+    bool userCanSetNoBorder() const override;
+    bool noBorder() const override;
+    void setNoBorder(bool set) override;
     KDecoration3::Decoration *nextDecoration() const override;
     void invalidateDecoration() override;
     QString preferredColorScheme() const override;
     bool supportsWindowRules() const override;
     void applyWindowRules() override;
-    void takeFocus() override;
+    bool takeFocus() override;
     bool wantsInput() const override;
+    bool dockWantsInput() const override;
     void setFullScreen(bool set) override;
     void closeWindow() override;
-    void maximize(MaximizeMode mode, const RectF &restore = RectF()) override;
+    void maximize(MaximizeMode mode, const QRectF &restore = QRectF()) override;
 
     void installAppMenu(AppMenuInterface *appMenu);
     void installServerDecoration(ServerSideDecorationInterface *decoration);
@@ -193,6 +178,7 @@ protected:
     void handleRolePrecommit() override;
     void handleRoleDestroyed() override;
     void doMinimize() override;
+    void doInteractiveResizeSync(const QRectF &rect) override;
     void doSetActive() override;
     void doSetFullScreen();
     void doSetMaximized();
@@ -207,11 +193,11 @@ protected:
 
 private:
     void handleWindowTitleChanged();
-    void handleAppIdChanged();
+    void handleWindowClassChanged();
     void handleWindowMenuRequested(SeatInterface *seat,
                                    const QPoint &surfacePos, quint32 serial);
     void handleMoveRequested(SeatInterface *seat, quint32 serial);
-    void handleResizeRequested(SeatInterface *seat, Gravity anchor, quint32 serial);
+    void handleResizeRequested(SeatInterface *seat, XdgToplevelInterface::ResizeAnchor anchor, quint32 serial);
     void handleStatesAcknowledged(const XdgToplevelInterface::States &states);
     void handleMaximizeRequested();
     void handleUnmaximizeRequested();
@@ -229,20 +215,8 @@ private:
     void updateMaximizeMode(MaximizeMode maximizeMode);
     void updateFullScreenMode(bool set);
     void sendPing(PingReason reason);
-    QPointF initialPosition(const std::optional<XdgToplevelSessionData> &session) const;
-    QSizeF initialSize(const std::optional<XdgToplevelSessionData> &session) const;
-    bool initialKeepAbove(const std::optional<XdgToplevelSessionData> &session) const;
-    bool initialKeepBelow(const std::optional<XdgToplevelSessionData> &session) const;
-    bool initialSkipSwitcher(const std::optional<XdgToplevelSessionData> &session) const;
-    bool initialSkipPager(const std::optional<XdgToplevelSessionData> &session) const;
-    bool initialSkipTaskbar(const std::optional<XdgToplevelSessionData> &session) const;
-    bool initialMinimizeMode(const std::optional<XdgToplevelSessionData> &session) const;
-    DecorationPolicy initialDecorationPolicy(const std::optional<XdgToplevelSessionData> &session) const;
-    MaximizeMode initialMaximizeMode(const std::optional<XdgToplevelSessionData> &session) const;
-    bool initialFullScreenMode(const std::optional<XdgToplevelSessionData> &session) const;
-    QVector<VirtualDesktop *> initialDesktops(const std::optional<XdgToplevelSessionData> &session) const;
-    QString initialShortcut(const std::optional<XdgToplevelSessionData> &session) const;
-    QStringList initialActivities(const std::optional<XdgToplevelSessionData> &session) const;
+    MaximizeMode initialMaximizeMode() const;
+    bool initialFullScreenMode() const;
     DecorationMode preferredDecorationMode() const;
     void configureDecoration();
     void configureXdgDecoration(DecorationMode decorationMode);
@@ -267,12 +241,12 @@ private:
     MaximizeMode m_requestedMaximizeMode = MaximizeRestore;
     QSizeF m_minimumSize = QSizeF(0, 0);
     QSizeF m_maximumSize = QSizeF(0, 0);
-    DecorationPolicy m_decorationPolicy = DecorationPolicy::PreferredByClient;
     bool m_isFullScreen = false;
     bool m_isRequestedFullScreen = false;
     bool m_isInitialized = false;
+    bool m_userNoBorder = false;
     bool m_isTransient = false;
-    QPointer<LogicalOutput> m_fullScreenRequestedOutput;
+    QPointer<Output> m_fullScreenRequestedOutput;
     std::shared_ptr<KDecoration3::Decoration> m_nextDecoration;
     std::shared_ptr<KDecoration3::DecorationState> m_nextDecorationState;
     std::unique_ptr<KillPrompt> m_killPrompt;
@@ -290,13 +264,15 @@ public:
     void popupDone() override;
     bool isPopupWindow() const override;
     bool isTransient() const override;
-    bool isPlaceable() const override;
     bool isResizable() const override;
     bool isMovable() const override;
     bool isMovableAcrossScreens() const override;
+    bool hasTransientPlacementHint() const override;
+    QRectF transientPlacement() const override;
     bool isCloseable() const override;
     void closeWindow() override;
     bool wantsInput() const override;
+    bool takeFocus() override;
 
 protected:
     bool acceptsFocus() const override;
@@ -311,12 +287,11 @@ private:
     void handleRepositionRequested(quint32 token);
     void initialize();
     void updateRelativePlacement();
-    RectF transientPlacement() const;
     void relayout();
 
     XdgPopupInterface *m_shellSurface;
     bool m_haveExplicitGrab = false;
-    RectF m_relativePlacement;
+    QRectF m_relativePlacement;
 };
 
 } // namespace KWin

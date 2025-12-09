@@ -16,7 +16,6 @@
 namespace KWin
 {
 class XdgToplevelDecorationV1Interface;
-class XXPipV1Interface;
 
 class XdgShellInterfacePrivate : public QtWaylandServer::xdg_wm_base
 {
@@ -86,21 +85,19 @@ protected:
     void xdg_positioner_set_parent_configure(Resource *resource, uint32_t serial) override;
 };
 
-class XdgSurfaceCommit
+struct XdgSurfaceCommit
 {
-public:
     std::optional<QRect> windowGeometry;
     std::optional<quint32> acknowledgedConfigure;
 };
 
-class XdgToplevelCommit : public SurfaceAttachedState<XdgToplevelCommit>, public XdgSurfaceCommit
+struct XdgToplevelCommit : XdgSurfaceCommit
 {
-public:
     std::optional<QSize> minimumSize;
     std::optional<QSize> maximumSize;
 };
 
-class XdgPopupCommit : public SurfaceAttachedState<XdgPopupCommit>, public XdgSurfaceCommit
+struct XdgPopupCommit : XdgSurfaceCommit
 {
 };
 
@@ -119,7 +116,6 @@ public:
     XdgShellInterface *shell = nullptr;
     QPointer<XdgToplevelInterface> toplevel;
     QPointer<XdgPopupInterface> popup;
-    QPointer<XXPipV1Interface> pip;
     QPointer<SurfaceInterface> surface;
     QRect windowGeometry;
     bool firstBufferAttached = false;
@@ -137,12 +133,12 @@ protected:
     void xdg_surface_ack_configure(Resource *resource, uint32_t serial) override;
 };
 
-class XdgToplevelInterfacePrivate : public SurfaceExtension<XdgToplevelInterfacePrivate, XdgToplevelCommit>, public QtWaylandServer::xdg_toplevel
+class XdgToplevelInterfacePrivate : public SurfaceExtension<XdgToplevelCommit>, public QtWaylandServer::xdg_toplevel
 {
 public:
     XdgToplevelInterfacePrivate(XdgToplevelInterface *toplevel, XdgSurfaceInterface *surface);
 
-    void apply(XdgToplevelCommit *commit);
+    void apply(XdgToplevelCommit *commit) override;
     void reset();
 
     static XdgToplevelInterfacePrivate *get(XdgToplevelInterface *toplevel);
@@ -152,12 +148,8 @@ public:
     QPointer<XdgToplevelInterface> parentXdgToplevel;
     QPointer<XdgToplevelDecorationV1Interface> decoration;
     XdgSurfaceInterface *xdgSurface;
-    XdgToplevelSessionV1Interface *session = nullptr;
-
-    QString title;
-    QString appId;
-    QString tag;
-    QString description;
+    QString windowTitle;
+    QString windowClass;
     QSize minimumSize = QSize(0, 0);
     QSize maximumSize = QSize(0, 0);
     QIcon customIcon; // managed externally by the xdg_toplevel_icon interface
@@ -180,14 +172,14 @@ protected:
     void xdg_toplevel_set_minimized(Resource *resource) override;
 };
 
-class XdgPopupInterfacePrivate : public SurfaceExtension<XdgPopupInterfacePrivate, XdgPopupCommit>, public QtWaylandServer::xdg_popup
+class XdgPopupInterfacePrivate : public SurfaceExtension<XdgPopupCommit>, public QtWaylandServer::xdg_popup
 {
 public:
     static XdgPopupInterfacePrivate *get(XdgPopupInterface *popup);
 
     XdgPopupInterfacePrivate(XdgPopupInterface *popup, XdgSurfaceInterface *surface);
 
-    void apply(XdgPopupCommit *commit);
+    void apply(XdgPopupCommit *commit) override;
     void reset();
 
     XdgPopupInterface *q;

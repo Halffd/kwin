@@ -28,7 +28,6 @@
 #include "inputmethod.h"
 #include "inputpanelv1window.h"
 #include "keyboard_input.h"
-#include "opengl/eglcontext.h"
 #include "opengl/glshader.h"
 #include "opengl/glshadermanager.h"
 #include "opengl/gltexture.h"
@@ -54,7 +53,7 @@
 #include "tabbox/tabbox.h"
 #endif
 #if KWIN_BUILD_SCREENLOCKER
-#include <KScreenLocker/KsldApp>
+#include "screenlockerwatcher.h"
 #endif
 
 #include <KDecoration3/Decoration>
@@ -89,7 +88,7 @@ static QByteArray readWindowProperty(xcb_window_t win, xcb_atom_t atom, xcb_atom
             len *= 2;
             continue;
         }
-        return prop.toByteArray(format, type).value_or(QByteArray());
+        return prop.toByteArray(format, type);
     }
 }
 
@@ -111,15 +110,6 @@ static xcb_atom_t registerSupportProperty(const QByteArray &propertyName)
     xcb_change_property(c, XCB_PROP_MODE_REPLACE, kwinApp()->x11RootWindow(), atomReply->atom, atomReply->atom, 8, 1, &dummy);
     // TODO: add to _NET_SUPPORTED
     return atomReply->atom;
-}
-
-static void unregisterSupportProperty(xcb_atom_t atom)
-{
-    auto c = kwinApp()->x11Connection();
-    if (!c) {
-        return;
-    }
-    xcb_delete_property(c, kwinApp()->x11RootWindow(), atom);
 }
 #endif
 
@@ -148,10 +138,6 @@ EffectsHandler::EffectsHandler(Compositor *compositor, WorkspaceScene *scene)
         effectsChanged();
     });
     m_effectLoader->setConfig(kwinApp()->config());
-
-    m_configWatcher = KConfigWatcher::create(kwinApp()->config());
-    connect(m_configWatcher.get(), &KConfigWatcher::configChanged, this, &EffectsHandler::configChanged);
-
     new EffectsAdaptor(this);
     QDBusConnection dbus = QDBusConnection::sessionBus();
     dbus.registerObject(QStringLiteral("/Effects"), this);
@@ -193,7 +179,7 @@ EffectsHandler::EffectsHandler(Compositor *compositor, WorkspaceScene *scene)
     });
     connect(vds, &VirtualDesktopManager::desktopAdded, this, &EffectsHandler::desktopAdded);
     connect(vds, &VirtualDesktopManager::desktopRemoved, this, &EffectsHandler::desktopRemoved);
-    connect(vds, &VirtualDesktopManager::desktopMoved, this, &EffectsHandler::desktopMoved);
+    connect(Cursors::self()->mouse(), &Cursor::mouseChanged, this, &EffectsHandler::mouseChanged);
     connect(ws, &Workspace::geometryChanged, this, &EffectsHandler::virtualScreenSizeChanged);
     connect(ws, &Workspace::geometryChanged, this, &EffectsHandler::virtualScreenGeometryChanged);
 #if KWIN_BUILD_ACTIVITIES
@@ -214,44 +200,9 @@ EffectsHandler::EffectsHandler(Compositor *compositor, WorkspaceScene *scene)
 #endif
     connect(workspace()->screenEdges(), &ScreenEdges::approaching, this, &EffectsHandler::screenEdgeApproaching);
 #if KWIN_BUILD_SCREENLOCKER
-    connect(ScreenLocker::KSldApp::self(), &ScreenLocker::KSldApp::lockStateChanged, this, [this] {
-        const bool locked = ScreenLocker::KSldApp::self()->lockState() == ScreenLocker::KSldApp::Locked;
-        Q_EMIT screenLockingChanged(locked);
-    });
-
-    connect(ScreenLocker::KSldApp::self(), &ScreenLocker::KSldApp::aboutToLock, this, &EffectsHandler::screenAboutToLock);
+    connect(kwinApp()->screenLockerWatcher(), &ScreenLockerWatcher::locked, this, &EffectsHandler::screenLockingChanged);
+    connect(kwinApp()->screenLockerWatcher(), &ScreenLockerWatcher::aboutToLock, this, &EffectsHandler::screenAboutToLock);
 #endif
-
-    m_cursor.position = input()->globalPointer();
-    m_cursor.buttons = input()->qtButtonStates();
-    m_cursor.modifiers = input()->keyboardModifiers();
-
-    connect(input(), &InputRedirection::globalPointerChanged, this, [this]() {
-        const QPointF oldPos = m_cursor.position;
-        m_cursor.position = input()->globalPointer();
-
-        Q_EMIT mouseChanged(m_cursor.position, oldPos,
-                            m_cursor.buttons, m_cursor.buttons,
-                            m_cursor.modifiers, m_cursor.modifiers);
-    });
-
-    connect(input(), &InputRedirection::pointerButtonStateChanged, this, [this]() {
-        const Qt::MouseButtons oldButtons = m_cursor.buttons;
-        m_cursor.buttons = input()->qtButtonStates();
-
-        Q_EMIT mouseChanged(m_cursor.position, m_cursor.position,
-                            m_cursor.buttons, oldButtons,
-                            m_cursor.modifiers, m_cursor.modifiers);
-    });
-
-    connect(input(), &InputRedirection::keyboardModifiersChanged, this, [this]() {
-        const Qt::KeyboardModifiers oldModifiers = m_cursor.modifiers;
-        m_cursor.modifiers = input()->keyboardModifiers();
-
-        Q_EMIT mouseChanged(m_cursor.position, m_cursor.position,
-                            m_cursor.buttons, m_cursor.buttons,
-                            m_cursor.modifiers, oldModifiers);
-    });
 
 #if KWIN_BUILD_X11
     connect(kwinApp(), &Application::x11ConnectionChanged, this, [this]() {
@@ -261,6 +212,7 @@ EffectsHandler::EffectsHandler(Compositor *compositor, WorkspaceScene *scene)
             if (atom == XCB_ATOM_NONE) {
                 continue;
             }
+            m_compositor->keepSupportProperty(atom);
             m_managedProperties.insert(*it, atom);
             registerPropertyType(atom, true);
         }
@@ -290,8 +242,6 @@ EffectsHandler::EffectsHandler(Compositor *compositor, WorkspaceScene *scene)
     }
 
     connect(Cursors::self()->mouse(), &Cursor::cursorChanged, this, &EffectsHandler::cursorShapeChanged);
-
-    connect(scene, &WorkspaceScene::viewRemoved, this, &EffectsHandler::viewRemoved);
 
     reconfigure();
 }
@@ -324,7 +274,7 @@ bool EffectsHandler::isOpenGLCompositing() const
     return compositing_type & OpenGLCompositing;
 }
 
-EglContext *EffectsHandler::openglContext() const
+OpenGlContext *EffectsHandler::openglContext() const
 {
     return m_scene->openglContext();
 }
@@ -367,13 +317,13 @@ void EffectsHandler::prePaintScreen(ScreenPrePaintData &data, std::chrono::milli
     // no special final code
 }
 
-void EffectsHandler::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen)
+void EffectsHandler::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
 {
     if (m_currentPaintScreenIterator != m_activeEffects.constEnd()) {
-        (*m_currentPaintScreenIterator++)->paintScreen(renderTarget, viewport, mask, deviceRegion, screen);
+        (*m_currentPaintScreenIterator++)->paintScreen(renderTarget, viewport, mask, region, screen);
         --m_currentPaintScreenIterator;
     } else {
-        m_scene->finalPaintScreen(renderTarget, viewport, mask, deviceRegion, screen);
+        m_scene->finalPaintScreen(renderTarget, viewport, mask, region, screen);
     }
 }
 
@@ -386,23 +336,32 @@ void EffectsHandler::postPaintScreen()
     // no special final code
 }
 
-void EffectsHandler::prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
+void EffectsHandler::prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
 {
     if (m_currentPaintWindowIterator != m_activeEffects.constEnd()) {
-        (*m_currentPaintWindowIterator++)->prePaintWindow(view, w, data, presentTime);
+        (*m_currentPaintWindowIterator++)->prePaintWindow(w, data, presentTime);
         --m_currentPaintWindowIterator;
     }
     // no special final code
 }
 
-void EffectsHandler::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data)
+void EffectsHandler::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &region, WindowPaintData &data)
 {
     if (m_currentPaintWindowIterator != m_activeEffects.constEnd()) {
-        (*m_currentPaintWindowIterator++)->paintWindow(renderTarget, viewport, w, mask, deviceRegion, data);
+        (*m_currentPaintWindowIterator++)->paintWindow(renderTarget, viewport, w, mask, region, data);
         --m_currentPaintWindowIterator;
     } else {
-        m_scene->finalPaintWindow(renderTarget, viewport, w, mask, deviceRegion, data);
+        m_scene->finalPaintWindow(renderTarget, viewport, w, mask, region, data);
     }
+}
+
+void EffectsHandler::postPaintWindow(EffectWindow *w)
+{
+    if (m_currentPaintWindowIterator != m_activeEffects.constEnd()) {
+        (*m_currentPaintWindowIterator++)->postPaintWindow(w);
+        --m_currentPaintWindowIterator;
+    }
+    // no special final code
 }
 
 Effect *EffectsHandler::provides(Effect::Feature ef)
@@ -415,19 +374,19 @@ Effect *EffectsHandler::provides(Effect::Feature ef)
     return nullptr;
 }
 
-void EffectsHandler::drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data)
+void EffectsHandler::drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &region, WindowPaintData &data)
 {
     if (m_currentDrawWindowIterator != m_activeEffects.constEnd()) {
-        (*m_currentDrawWindowIterator++)->drawWindow(renderTarget, viewport, w, mask, deviceRegion, data);
+        (*m_currentDrawWindowIterator++)->drawWindow(renderTarget, viewport, w, mask, region, data);
         --m_currentDrawWindowIterator;
     } else {
-        m_scene->finalDrawWindow(renderTarget, viewport, w, mask, deviceRegion, data);
+        m_scene->finalDrawWindow(renderTarget, viewport, w, mask, region, data);
     }
 }
 
-void EffectsHandler::renderWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data)
+void EffectsHandler::renderWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &region, WindowPaintData &data)
 {
-    m_scene->finalDrawWindow(renderTarget, viewport, w, mask, deviceRegion, data);
+    m_scene->finalDrawWindow(renderTarget, viewport, w, mask, region, data);
 }
 
 bool EffectsHandler::hasDecorationShadows() const
@@ -491,15 +450,28 @@ bool EffectsHandler::grabKeyboard(Effect *effect)
     if (keyboard_grab_effect != nullptr) {
         return false;
     }
+    if (!doGrabKeyboard()) {
+        return false;
+    }
     keyboard_grab_effect = effect;
+    return true;
+}
+
+bool EffectsHandler::doGrabKeyboard()
+{
     return true;
 }
 
 void EffectsHandler::ungrabKeyboard()
 {
     Q_ASSERT(keyboard_grab_effect != nullptr);
+    doUngrabKeyboard();
     keyboard_grab_effect = nullptr;
     input()->keyboard()->update();
+}
+
+void EffectsHandler::doUngrabKeyboard()
+{
 }
 
 void EffectsHandler::grabbedKeyboardEvent(QKeyEvent *e)
@@ -518,7 +490,11 @@ void EffectsHandler::startMouseInterception(Effect *effect, Qt::CursorShape shap
     if (m_grabbedMouseEffects.size() != 1) {
         return;
     }
+    doStartMouseInterception(shape);
+}
 
+void EffectsHandler::doStartMouseInterception(Qt::CursorShape shape)
+{
     input()->pointer()->setEffectsOverrideCursor(shape);
 
     // We want to allow global shortcuts to be triggered when moving a
@@ -540,8 +516,13 @@ void EffectsHandler::stopMouseInterception(Effect *effect)
     }
     m_grabbedMouseEffects.removeAll(effect);
     if (m_grabbedMouseEffects.isEmpty()) {
-        input()->pointer()->removeEffectsOverrideCursor();
+        doStopMouseInterception();
     }
+}
+
+void EffectsHandler::doStopMouseInterception()
+{
+    input()->pointer()->removeEffectsOverrideCursor();
 }
 
 bool EffectsHandler::isMouseInterception() const
@@ -644,7 +625,7 @@ bool EffectsHandler::tabletPadButtonEvent(uint button, bool pressed, std::chrono
     return false;
 }
 
-bool EffectsHandler::tabletPadStripEvent(int number, qreal position, bool isFinger, std::chrono::microseconds time, InputDevice *device)
+bool EffectsHandler::tabletPadStripEvent(int number, int position, bool isFinger, std::chrono::microseconds time, InputDevice *device)
 {
     // TODO: reverse call order?
     for (auto it = loaded_effects.constBegin(); it != loaded_effects.constEnd(); ++it) {
@@ -655,22 +636,11 @@ bool EffectsHandler::tabletPadStripEvent(int number, qreal position, bool isFing
     return false;
 }
 
-bool EffectsHandler::tabletPadRingEvent(int number, qreal position, bool isFinger, std::chrono::microseconds time, InputDevice *device)
+bool EffectsHandler::tabletPadRingEvent(int number, int position, bool isFinger, std::chrono::microseconds time, InputDevice *device)
 {
     // TODO: reverse call order?
     for (auto it = loaded_effects.constBegin(); it != loaded_effects.constEnd(); ++it) {
         if (it->second->tabletPadRingEvent(number, position, isFinger, device)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool EffectsHandler::tabletPadDialEvent(int number, double delta, std::chrono::microseconds time, InputDevice *device)
-{
-    // TODO: reverse call order?
-    for (auto it = loaded_effects.constBegin(); it != loaded_effects.constEnd(); ++it) {
-        if (it->second->tabletPadDialEvent(number, delta, device)) {
             return true;
         }
     }
@@ -735,6 +705,7 @@ xcb_atom_t EffectsHandler::announceSupportProperty(const QByteArray &propertyNam
     if (atom == XCB_ATOM_NONE) {
         return atom;
     }
+    m_compositor->keepSupportProperty(atom);
     m_managedProperties.insert(propertyName, atom);
     registerPropertyType(atom, true);
     return atom;
@@ -759,7 +730,7 @@ void EffectsHandler::removeSupportProperty(const QByteArray &propertyName, Effec
     const xcb_atom_t atom = m_managedProperties.take(propertyName);
     registerPropertyType(atom, false);
     m_propertiesForEffects.remove(propertyName);
-    unregisterSupportProperty(atom);
+    m_compositor->removeSupportProperty(atom); // delayed removal
 }
 #endif
 
@@ -811,7 +782,7 @@ void EffectsHandler::windowToDesktops(EffectWindow *w, const QList<VirtualDeskto
     window->setDesktops(desktops);
 }
 
-void EffectsHandler::windowToScreen(EffectWindow *w, LogicalOutput *screen)
+void EffectsHandler::windowToScreen(EffectWindow *w, Output *screen)
 {
     auto window = w->window();
     if (window->isClient() && !window->isDesktop() && !window->isDock()) {
@@ -934,7 +905,7 @@ double EffectsHandler::animationTimeFactor() const
 EffectWindow *EffectsHandler::findWindow(WId id) const
 {
 #if KWIN_BUILD_X11
-    if (X11Window *w = Workspace::self()->findClient(id)) {
+    if (X11Window *w = Workspace::self()->findClient(Predicate::WindowMatch, id)) {
         return w->effectWindow();
     }
     if (X11Window *w = Workspace::self()->findUnmanaged(id)) {
@@ -945,8 +916,10 @@ EffectWindow *EffectsHandler::findWindow(WId id) const
 }
 EffectWindow *EffectsHandler::findWindow(SurfaceInterface *surf) const
 {
-    if (Window *w = waylandServer()->findWindow(surf)) {
-        return w->effectWindow();
+    if (waylandServer()) {
+        if (Window *w = waylandServer()->findWindow(surf)) {
+            return w->effectWindow();
+        }
     }
     return nullptr;
 }
@@ -1053,32 +1026,32 @@ void EffectsHandler::addRepaintFull()
     m_compositor->scene()->addRepaintFull();
 }
 
-void EffectsHandler::addRepaint(const QRect &logicalRegion)
+void EffectsHandler::addRepaint(const QRect &r)
 {
-    m_compositor->scene()->addLogicalRepaint(logicalRegion);
+    m_compositor->scene()->addRepaint(r);
 }
 
-void EffectsHandler::addRepaint(const QRectF &logicalRegion)
+void EffectsHandler::addRepaint(const QRectF &r)
 {
-    m_compositor->scene()->addLogicalRepaint(logicalRegion.toAlignedRect());
+    m_compositor->scene()->addRepaint(r.toAlignedRect());
 }
 
-void EffectsHandler::addRepaint(const QRegion &logicalRegion)
+void EffectsHandler::addRepaint(const QRegion &r)
 {
-    m_compositor->scene()->addLogicalRepaint(logicalRegion);
+    m_compositor->scene()->addRepaint(r);
 }
 
 void EffectsHandler::addRepaint(int x, int y, int w, int h)
 {
-    m_compositor->scene()->addLogicalRepaint(x, y, w, h);
+    m_compositor->scene()->addRepaint(x, y, w, h);
 }
 
-LogicalOutput *EffectsHandler::activeScreen() const
+Output *EffectsHandler::activeScreen() const
 {
     return workspace()->activeOutput();
 }
 
-QRectF EffectsHandler::clientArea(clientAreaOption opt, const LogicalOutput *screen, const VirtualDesktop *desktop) const
+QRectF EffectsHandler::clientArea(clientAreaOption opt, const Output *screen, const VirtualDesktop *desktop) const
 {
     return Workspace::self()->clientArea(opt, screen, desktop);
 }
@@ -1091,7 +1064,7 @@ QRectF EffectsHandler::clientArea(clientAreaOption opt, const EffectWindow *effe
 
 QRectF EffectsHandler::clientArea(clientAreaOption opt, const QPoint &p, const VirtualDesktop *desktop) const
 {
-    const LogicalOutput *output = Workspace::self()->outputAt(p);
+    const Output *output = Workspace::self()->outputAt(p);
     return Workspace::self()->clientArea(opt, output, desktop);
 }
 
@@ -1130,6 +1103,18 @@ bool EffectsHandler::checkInputWindowEvent(QWheelEvent *e)
         effect->windowInputMouseEvent(e);
     }
     return true;
+}
+
+void EffectsHandler::checkInputWindowStacking()
+{
+    if (m_grabbedMouseEffects.isEmpty()) {
+        return;
+    }
+    doCheckInputWindowStacking();
+}
+
+void EffectsHandler::doCheckInputWindowStacking()
+{
 }
 
 QPointF EffectsHandler::cursorPos() const
@@ -1362,7 +1347,10 @@ bool EffectsHandler::blocksDirectScanout() const
 
 Display *EffectsHandler::waylandDisplay() const
 {
-    return waylandServer()->display();
+    if (waylandServer()) {
+        return waylandServer()->display();
+    }
+    return nullptr;
 }
 
 QVariant EffectsHandler::kwinOption(KWinOption kwopt)
@@ -1408,7 +1396,7 @@ QString EffectsHandler::supportInformation(const QString &name) const
 bool EffectsHandler::isScreenLocked() const
 {
 #if KWIN_BUILD_SCREENLOCKER
-    return ScreenLocker::KSldApp::self()->lockState() == ScreenLocker::KSldApp::Locked;
+    return kwinApp()->screenLockerWatcher()->isLocked();
 #else
     return false;
 #endif
@@ -1427,17 +1415,12 @@ QString EffectsHandler::debug(const QString &name, const QString &parameter) con
 
 bool EffectsHandler::makeOpenGLContextCurrent()
 {
-    if (!isOpenGLCompositing()) {
-        return false;
-    }
-    return m_scene->openglContext()->makeCurrent();
+    return m_scene->makeOpenGLContextCurrent();
 }
 
 void EffectsHandler::doneOpenGLContextCurrent()
 {
-    if (isOpenGLCompositing()) {
-        m_scene->openglContext()->doneCurrent();
-    }
+    m_scene->doneOpenGLContextCurrent();
 }
 
 bool EffectsHandler::animationsSupported() const
@@ -1585,20 +1568,20 @@ SessionState EffectsHandler::sessionState() const
     return Workspace::self()->sessionManager()->state();
 }
 
-QList<LogicalOutput *> EffectsHandler::screens() const
+QList<Output *> EffectsHandler::screens() const
 {
     return Workspace::self()->outputs();
 }
 
-LogicalOutput *EffectsHandler::screenAt(const QPoint &point) const
+Output *EffectsHandler::screenAt(const QPoint &point) const
 {
     return Workspace::self()->outputAt(point);
 }
 
-LogicalOutput *EffectsHandler::findScreen(const QString &name) const
+Output *EffectsHandler::findScreen(const QString &name) const
 {
     const auto outputs = Workspace::self()->outputs();
-    for (LogicalOutput *screen : outputs) {
+    for (Output *screen : outputs) {
         if (screen->name() == name) {
             return screen;
         }
@@ -1606,7 +1589,7 @@ LogicalOutput *EffectsHandler::findScreen(const QString &name) const
     return nullptr;
 }
 
-LogicalOutput *EffectsHandler::findScreen(int screenId) const
+Output *EffectsHandler::findScreen(int screenId) const
 {
     return Workspace::self()->outputs().value(screenId);
 }
@@ -1645,44 +1628,6 @@ bool EffectsHandler::isInputPanelOverlay() const
 QQmlEngine *EffectsHandler::qmlEngine() const
 {
     return Scripting::self()->qmlEngine();
-}
-
-void EffectsHandler::configChanged(const KConfigGroup &group, const QByteArrayList &names)
-{
-    if (group.name() != QLatin1String("Plugins")) {
-        return;
-    }
-
-    QStringList toLoad;
-    QStringList toUnload;
-
-    for (const QByteArray &key : names) {
-        if (!key.endsWith("Enabled")) {
-            continue;
-        }
-        const QString effectName = QString::fromUtf8(key).replace(QStringLiteral("Enabled"), QString());
-        auto md = m_effectLoader->findEffect(effectName);
-
-        if (md.isValid()) {
-            const auto result = m_effectLoader->readConfig(effectName, md.isEnabledByDefault());
-
-            if (result.testFlag(LoadEffectFlag::Load)) {
-                toLoad << effectName;
-            } else {
-                toUnload << effectName;
-            }
-        }
-    }
-
-    // Unload effects first, it's need to ensure that switching between mutually exclusive
-    // effects works as expected, for example so global shortcuts are handed over, etc.
-    for (const QString &effect : std::as_const(toUnload)) {
-        unloadEffect(effect);
-    }
-
-    for (const QString &effect : std::as_const(toLoad)) {
-        loadEffect(effect);
-    }
 }
 
 EffectsHandler *effects = nullptr;

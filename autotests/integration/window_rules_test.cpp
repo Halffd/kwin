@@ -39,12 +39,12 @@ void WindowRuleTest::initTestCase()
 {
     qRegisterMetaType<KWin::Window *>();
     QVERIFY(waylandServer()->init(s_socketName));
-
-    kwinApp()->start();
     Test::setOutputConfig({
         QRect(0, 0, 1280, 1024),
         QRect(1280, 0, 1280, 1024),
     });
+
+    kwinApp()->start();
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 2);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -95,7 +95,8 @@ void WindowRuleTest::testApplyInitialMaximizeVert()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, XCB_CW_EVENT_MASK, values);
-    xcb_size_hints_t hints{};
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
@@ -132,10 +133,9 @@ void WindowRuleTest::testApplyInitialMaximizeVert()
 void WindowRuleTest::testWindowClassChange()
 {
     KSharedConfig::Ptr config = KSharedConfig::openConfig(QString(), KConfig::SimpleConfig);
-    const QString ruleGroupName = QStringLiteral("above-test-rule");
-    config->group(QStringLiteral("General")).writeEntry("rules", QStringList({ruleGroupName}));
+    config->group(QStringLiteral("General")).writeEntry("count", 1);
 
-    auto group = config->group(ruleGroupName);
+    auto group = config->group(QStringLiteral("1"));
     group.writeEntry("above", true);
     group.writeEntry("aboverule", 2);
     group.writeEntry("wmclass", "org.kde.foo");
@@ -160,7 +160,8 @@ void WindowRuleTest::testWindowClassChange()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, XCB_CW_EVENT_MASK, values);
-    xcb_size_hints_t hints{};
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);

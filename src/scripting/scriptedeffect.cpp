@@ -132,22 +132,6 @@ AnimationSettings animationSettingsFromObject(const QJSValue &object)
         settings.shader = shader.toUInt();
     }
 
-    typedef QMap<AnimationEffect::MetaType, QString> MetaTypeMap;
-    static MetaTypeMap metaTypes({{AnimationEffect::SourceAnchor, QStringLiteral("sourceAnchor")},
-                                  {AnimationEffect::TargetAnchor, QStringLiteral("targetAnchor")},
-                                  {AnimationEffect::RelativeSourceX, QStringLiteral("relativeSourceX")},
-                                  {AnimationEffect::RelativeSourceY, QStringLiteral("relativeSourceY")},
-                                  {AnimationEffect::RelativeTargetX, QStringLiteral("relativeTargetX")},
-                                  {AnimationEffect::RelativeTargetY, QStringLiteral("relativeTargetY")},
-                                  {AnimationEffect::Axis, QStringLiteral("axis")}});
-
-    for (auto it = metaTypes.constBegin(); it != metaTypes.constEnd(); ++it) {
-        QJSValue metaVal = object.property(*it);
-        if (metaVal.isNumber()) {
-            AnimationEffect::setMetaData(it.key(), metaVal.toInt(), settings.metaData);
-        }
-    }
-
     return settings;
 }
 
@@ -174,7 +158,7 @@ static KWin::FPx2 fpx2FromScriptValue(const QJSValue &value)
 ScriptedEffect *ScriptedEffect::create(const KPluginMetaData &effect)
 {
     const QString name = effect.pluginId();
-    QString scriptFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin-wayland/effects/") + name + QLatin1String("/contents/code/main.js"));
+    QString scriptFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QLatin1String("/effects/") + name + QLatin1String("/contents/code/main.js"));
     if (scriptFile.isEmpty()) {
         scriptFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin/effects/") + name + QLatin1String("/contents/code/main.js"));
         if (scriptFile.isEmpty()) {
@@ -240,7 +224,7 @@ bool ScriptedEffect::init(const QString &effectName, const QString &pathToScript
     m_scriptFile = pathToScript;
 
     // does the effect contain an KConfigXT file?
-    QString kconfigXTFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin-wayland/effects/") + m_effectName + QLatin1String("/contents/config/main.xml"));
+    QString kconfigXTFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QLatin1String("/effects/") + m_effectName + QLatin1String("/contents/config/main.xml"));
     if (kconfigXTFile.isNull()) {
         kconfigXTFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin/effects/") + m_effectName + QLatin1String("/contents/config/main.xml"));
     }
@@ -403,6 +387,24 @@ QJSValue ScriptedEffect::animate_helper(const QJSValue &object, AnimationType an
                     s.shader = settings.at(0).shader;
                 }
 
+                s.metaData = 0;
+                typedef QMap<AnimationEffect::MetaType, QString> MetaTypeMap;
+                static MetaTypeMap metaTypes({{AnimationEffect::SourceAnchor, QStringLiteral("sourceAnchor")},
+                                              {AnimationEffect::TargetAnchor, QStringLiteral("targetAnchor")},
+                                              {AnimationEffect::RelativeSourceX, QStringLiteral("relativeSourceX")},
+                                              {AnimationEffect::RelativeSourceY, QStringLiteral("relativeSourceY")},
+                                              {AnimationEffect::RelativeTargetX, QStringLiteral("relativeTargetX")},
+                                              {AnimationEffect::RelativeTargetY, QStringLiteral("relativeTargetY")},
+                                              {AnimationEffect::Axis, QStringLiteral("axis")}});
+
+                for (auto it = metaTypes.constBegin(),
+                          end = metaTypes.constEnd();
+                     it != end; ++it) {
+                    QJSValue metaVal = value.property(*it);
+                    if (metaVal.isNumber()) {
+                        AnimationEffect::setMetaData(it.key(), metaVal.toInt(), s.metaData);
+                    }
+                }
                 if (s.type == ShaderUniform && s.shader) {
                     auto uniformProperty = value.property(QStringLiteral("uniform")).toString();
                     auto shader = findShader(s.shader.value());
@@ -725,7 +727,7 @@ bool ScriptedEffect::registerRealtimeScreenEdge(int edge, const QJSValue &callba
                 }
             }
         });
-        effects->registerRealtimeTouchBorder(static_cast<KWin::ElectricBorder>(edge), triggerAction, [this](ElectricBorder border, const QPointF &deltaProgress, LogicalOutput *screen) {
+        effects->registerRealtimeTouchBorder(static_cast<KWin::ElectricBorder>(edge), triggerAction, [this](ElectricBorder border, const QPointF &deltaProgress, Output *screen) {
             auto it = realtimeScreenEdgeCallbacks().constFind(border);
             if (it != realtimeScreenEdgeCallbacks().constEnd()) {
                 for (const QJSValue &callback : it.value()) {
@@ -798,7 +800,7 @@ uint ScriptedEffect::addFragmentShader(ShaderTrait traits, const QString &fragme
 
     QString fragment;
     if (!fragmentShaderFile.isEmpty()) {
-        fragment = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin-wayland/effects/") + m_effectName + QLatin1String("/contents/shaders/") + fragmentShaderFile);
+        fragment = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QLatin1String("/effects/") + m_effectName + QLatin1String("/contents/shaders/") + fragmentShaderFile);
         if (fragment.isEmpty()) {
             fragment = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin/effects/") + m_effectName + QLatin1String("/contents/shaders/") + fragmentShaderFile);
         }

@@ -33,16 +33,21 @@ GlobalShortcut::GlobalShortcut(Shortcut &&sc, QAction *action)
     , m_action(action)
 {
     if (auto swipeGesture = std::get_if<RealtimeFeedbackSwipeShortcut>(&sc)) {
-        m_swipeGesture = std::make_unique<SwipeGesture>(swipeGesture->fingerCount);
+        m_swipeGesture = std::make_unique<SwipeGesture>();
         m_swipeGesture->setDirection(swipeGesture->direction);
+        m_swipeGesture->setMinimumDelta(QPointF(200, 200));
+        m_swipeGesture->setMaximumFingerCount(swipeGesture->fingerCount);
+        m_swipeGesture->setMinimumFingerCount(swipeGesture->fingerCount);
         QObject::connect(m_swipeGesture.get(), &SwipeGesture::triggered, m_action, &QAction::trigger, Qt::QueuedConnection);
         QObject::connect(m_swipeGesture.get(), &SwipeGesture::cancelled, m_action, &QAction::trigger, Qt::QueuedConnection);
         if (swipeGesture->progressCallback) {
             QObject::connect(m_swipeGesture.get(), &SwipeGesture::progress, swipeGesture->progressCallback);
         }
     } else if (auto pinchGesture = std::get_if<RealtimeFeedbackPinchShortcut>(&sc)) {
-        m_pinchGesture = std::make_unique<PinchGesture>(pinchGesture->fingerCount);
+        m_pinchGesture = std::make_unique<PinchGesture>();
         m_pinchGesture->setDirection(pinchGesture->direction);
+        m_pinchGesture->setMaximumFingerCount(pinchGesture->fingerCount);
+        m_pinchGesture->setMinimumFingerCount(pinchGesture->fingerCount);
         QObject::connect(m_pinchGesture.get(), &PinchGesture::triggered, m_action, &QAction::trigger, Qt::QueuedConnection);
         QObject::connect(m_pinchGesture.get(), &PinchGesture::cancelled, m_action, &QAction::trigger, Qt::QueuedConnection);
         if (pinchGesture->scaleCallback) {
@@ -94,14 +99,16 @@ GlobalShortcutsManager::~GlobalShortcutsManager()
 void GlobalShortcutsManager::init()
 {
 #if KWIN_BUILD_GLOBALSHORTCUTS
-    qputenv("KGLOBALACCELD_PLATFORM", QByteArrayLiteral("org.kde.kwin"));
-    m_kglobalAccel = std::make_unique<KGlobalAccelD>();
-    if (!m_kglobalAccel->init()) {
-        qCDebug(KWIN_CORE) << "Init of kglobalaccel failed";
-        m_kglobalAccel.reset();
-    } else {
-        m_kglobalAccelInterface = m_kglobalAccel->interface();
-        qCDebug(KWIN_CORE) << "KGlobalAcceld inited";
+    if (kwinApp()->shouldUseWaylandForCompositing()) {
+        qputenv("KGLOBALACCELD_PLATFORM", QByteArrayLiteral("org.kde.kwin"));
+        m_kglobalAccel = std::make_unique<KGlobalAccelD>();
+        if (!m_kglobalAccel->init()) {
+            qCDebug(KWIN_CORE) << "Init of kglobalaccel failed";
+            m_kglobalAccel.reset();
+        } else {
+            m_kglobalAccelInterface = m_kglobalAccel->interface();
+            qCDebug(KWIN_CORE) << "KGlobalAcceld inited";
+        }
     }
 #endif
 }
@@ -211,7 +218,6 @@ bool GlobalShortcutsManager::processKey(Qt::KeyboardModifiers mods, int keyQt, K
             // trying the variants
             if (check(mods | Qt::ShiftModifier, keyQt, state)) {
                 return true;
-
             }
             if (check(mods | Qt::ShiftModifier, Qt::Key_Tab, state)) {
                 return true;
@@ -223,16 +229,17 @@ bool GlobalShortcutsManager::processKey(Qt::KeyboardModifiers mods, int keyQt, K
 }
 
 template<typename ShortcutKind, typename... Args>
-GlobalShortcut *match(QList<GlobalShortcut> &shortcuts, Args... args)
+bool match(QList<GlobalShortcut> &shortcuts, Args... args)
 {
     for (auto &sc : shortcuts) {
         if (std::holds_alternative<ShortcutKind>(sc.shortcut())) {
             if (std::get<ShortcutKind>(sc.shortcut()) == ShortcutKind{args...}) {
-                return &sc;
+                sc.invoke();
+                return true;
             }
         }
     }
-    return nullptr;
+    return false;
 }
 
 // TODO(C++20): use ranges for a nicer way of filtering by shortcut type
@@ -248,14 +255,10 @@ bool GlobalShortcutsManager::processPointerPressed(Qt::KeyboardModifiers mods, Q
                                   Q_ARG(Qt::MouseButtons, pointerButtons));
     }
 #endif
-    GlobalShortcut *shortcut = match<PointerButtonShortcut>(m_shortcuts, mods, pointerButtons);
-    if (shortcut) {
-        shortcut->invoke();
-    }
-    return shortcut != nullptr;
+    return match<PointerButtonShortcut>(m_shortcuts, mods, pointerButtons);
 }
 
-bool GlobalShortcutsManager::processAxis(Qt::KeyboardModifiers mods, PointerAxisDirection axis, qreal delta)
+bool GlobalShortcutsManager::processAxis(Qt::KeyboardModifiers mods, PointerAxisDirection axis)
 {
 #if KWIN_BUILD_GLOBALSHORTCUTS
     // currently only used to better support modifier only shortcuts
@@ -267,11 +270,7 @@ bool GlobalShortcutsManager::processAxis(Qt::KeyboardModifiers mods, PointerAxis
                                   Q_ARG(int, axis));
     }
 #endif
-    GlobalShortcut *shortcut = match<PointerAxisShortcut>(m_shortcuts, mods, axis);
-    if (shortcut && std::abs(delta) >= 1.0f) {
-        shortcut->invoke();
-    }
-    return shortcut != nullptr;
+    return match<PointerAxisShortcut>(m_shortcuts, mods, axis);
 }
 
 void GlobalShortcutsManager::processSwipeStart(DeviceType device, uint fingerCount)

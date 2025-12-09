@@ -63,7 +63,7 @@ void TestUtils::testSealedRamFile()
     data = mmap(nullptr, file.size(), PROT_WRITE, MAP_PRIVATE, file.fd(), 0);
     QVERIFY(data != MAP_FAILED);
 #else
-    QSKIP("Sealing requires memfd support.");
+    QSKIP("Sealing requires memfd suport.");
 #endif
 }
 

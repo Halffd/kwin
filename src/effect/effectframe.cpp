@@ -34,7 +34,7 @@ EffectFrameQuickScene::EffectFrameQuickScene(EffectFrameStyle style, bool static
         break;
     }
 
-    const QString defaultPath = QStringLiteral("kwin-wayland/frames/plasma/frame_%1.qml").arg(name);
+    const QString defaultPath = KWIN_DATADIR + QStringLiteral("/frames/plasma/frame_%1.qml").arg(name);
     // TODO read from kwinApp()->config() "QmlPath" like Outline/OnScreenNotification
     // *if* someone really needs this to be configurable.
     const QString path = QStandardPaths::locate(QStandardPaths::GenericDataLocation, defaultPath);
@@ -308,7 +308,7 @@ void EffectFrame::setPosition(const QPoint &point)
     m_view->setPosition(point);
 }
 
-void EffectFrame::render(const RenderTarget &renderTarget, const RenderViewport &viewport, const QRegion &deviceRegion, double opacity, double frameOpacity)
+void EffectFrame::render(const RenderTarget &renderTarget, const RenderViewport &viewport, const QRegion &region, double opacity, double frameOpacity)
 {
     if (!m_view->rootItem()) {
         return;

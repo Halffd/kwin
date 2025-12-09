@@ -18,8 +18,12 @@ namespace KWin
 {
 
 class GraphicsBuffer;
-class LogicalOutput;
+class Output;
+class OverlayWindow;
 class OutputLayer;
+class SurfacePixmap;
+class SurfacePixmapX11;
+class SurfaceTexture;
 class PresentationFeedback;
 class RenderLoop;
 class DrmDevice;
@@ -76,7 +80,7 @@ public:
 
     void presented(std::chrono::nanoseconds timestamp, PresentationMode mode);
 
-    void addFeedback(std::shared_ptr<PresentationFeedback> &&feedback);
+    void addFeedback(std::unique_ptr<PresentationFeedback> &&feedback);
 
     void setContentType(ContentType type);
     std::optional<ContentType> contentType() const;
@@ -84,6 +88,8 @@ public:
     void setPresentationMode(PresentationMode mode);
     PresentationMode presentationMode() const;
 
+    void setDamage(const QRegion &region);
+    QRegion damage() const;
     void addRenderTimeQuery(std::unique_ptr<RenderTimeQuery> &&query);
 
     std::chrono::steady_clock::time_point targetPageflipTime() const;
@@ -103,9 +109,10 @@ private:
     const std::chrono::nanoseconds m_refreshDuration;
     const std::chrono::steady_clock::time_point m_targetPageflipTime;
     const std::chrono::nanoseconds m_predictedRenderTime;
-    std::vector<std::shared_ptr<PresentationFeedback>> m_feedbacks;
+    std::vector<std::unique_ptr<PresentationFeedback>> m_feedbacks;
     std::optional<ContentType> m_contentType;
     PresentationMode m_presentationMode = PresentationMode::VSync;
+    QRegion m_damage;
     std::vector<std::unique_ptr<RenderTimeQuery>> m_renderTimeQueries;
     bool m_presented = false;
     std::optional<double> m_brightness;
@@ -121,15 +128,22 @@ class KWIN_EXPORT RenderBackend : public QObject
 
 public:
     virtual CompositingType compositingType() const = 0;
+    virtual OverlayWindow *overlayWindow() const;
 
     virtual bool checkGraphicsReset();
 
-    virtual QList<OutputLayer *> compatibleOutputLayers(BackendOutput *output) = 0;
+    virtual OutputLayer *primaryLayer(Output *output) = 0;
+    virtual OutputLayer *cursorLayer(Output *output);
+    virtual bool present(Output *output, const std::shared_ptr<OutputFrame> &frame) = 0;
+    virtual void repairPresentation(Output *output);
 
     virtual DrmDevice *drmDevice() const;
 
     virtual bool testImportBuffer(GraphicsBuffer *buffer);
     virtual QHash<uint32_t, QList<uint64_t>> supportedFormats() const;
+
+    virtual std::unique_ptr<SurfaceTexture> createSurfaceTextureX11(SurfacePixmapX11 *pixmap);
+    virtual std::unique_ptr<SurfaceTexture> createSurfaceTextureWayland(SurfacePixmap *pixmap);
 };
 
 } // namespace KWin

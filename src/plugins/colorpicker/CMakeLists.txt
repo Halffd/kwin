@@ -3,7 +3,6 @@
 
 set(colorpicker_SOURCES
     colorpicker.cpp
-    colorpickerlayer.cpp
     main.cpp
 )
 

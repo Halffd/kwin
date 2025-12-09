@@ -8,9 +8,7 @@
 */
 
 #include <QObject>
-#include <QPointer>
 #include <QRect>
-#include <QWindow>
 #include <qpa/qplatforminputcontext.h>
 
 namespace KWin
@@ -56,7 +54,7 @@ Q_SIGNALS:
     void hideInputPanelRequested();
 
 private:
-    int indexFromWayland(const QString &text, int length, int base);
+    int indexFromWayland(const QString &text, int lenght, int base);
     QString m_surroundingText;
     int m_cursor;
     int m_cursorPos;
@@ -64,7 +62,6 @@ private:
     uint32_t m_contentHint = 0;
     uint32_t m_contentPurpose = 0;
     QRect m_cursorRect;
-    QPointer<QWindow> m_focusWindow;
 };
 
 }

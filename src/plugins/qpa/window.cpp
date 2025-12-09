@@ -117,12 +117,16 @@ void Window::lower()
 
 void Window::setGeometry(const QRect &rect)
 {
-    if (m_handle) {
-        m_handle->moveResize(rect);
-        return;
+    const QRect oldGeometry = geometry();
+    QPlatformWindow::setGeometry(rect);
+
+    if (window()->isVisible() && rect.isValid()) {
+        QWindowSystemInterface::handleGeometryChange(window(), geometry());
     }
 
-    QWindowSystemInterface::handleGeometryChange(window(), rect);
+    if (isExposed() && oldGeometry.size() != rect.size()) {
+        QWindowSystemInterface::handleExposeEvent(window(), QRect(QPoint(), rect.size()));
+    }
 }
 
 WId Window::winId() const

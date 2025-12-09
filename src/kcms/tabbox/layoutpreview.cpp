@@ -3,53 +3,22 @@
     This file is part of the KDE project.
 
     SPDX-FileCopyrightText: 2009, 2011 Martin Gräßlin <mgraesslin@kde.org>
-    SPDX-FileCopyrightText: 2025 Ismael Asensio <isma.af@gmail.com>
 
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 // own
 #include "layoutpreview.h"
 
-#include <KLocalizedQmlContext>
+#include <KConfigGroup>
+#include <KDesktopFile>
 #include <KLocalizedString>
-#include <QCommandLineParser>
+#include <QApplication>
 #include <QDebug>
-#include <QGuiApplication>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QScreen>
-
-int main(int argc, char **argv)
-{
-    QCoreApplication::setAttribute(Qt::AA_DisableSessionManager, true);
-    QGuiApplication app(argc, argv);
-
-    auto parser = std::make_unique<QCommandLineParser>();
-    parser->setApplicationDescription(i18n("Launch an interactive preview for a tabbox switcher"));
-    parser->addPositionalArgument(QStringLiteral("path"), i18n("Path to the Window Switcher QML main file"));
-    parser->addOption(QCommandLineOption(QStringLiteral("show-desktop"), i18n("Show also a thumbnail for the desktop")));
-    parser->addHelpOption();
-
-    parser->process(app);
-
-    if (parser->positionalArguments().isEmpty()) {
-        parser->showHelp(-1);
-    }
-
-    const QString path = parser->positionalArguments().first();
-    const bool showDesktop = parser->isSet(QStringLiteral("show-desktop"));
-
-    auto preview = new KWin::TabBox::LayoutPreview(path, showDesktop);
-    if (!preview->isLoaded()) {
-        return -1;
-    }
-
-    QObject::connect(preview, &QObject::destroyed, [&app]() {
-        app.exit();
-    });
-
-    return app.exec();
-}
+#include <QStandardPaths>
+#include <QStringLiteral>
 
 namespace KWin
 {
@@ -61,23 +30,16 @@ LayoutPreview::LayoutPreview(const QString &path, bool showDesktopThumbnail, QOb
     , m_item(nullptr)
 {
     QQmlEngine *engine = new QQmlEngine(this);
-    engine->setProperty("_kirigamiTheme", QStringLiteral("KirigamiPlasmaStyle"));
-    KLocalization::setupLocalizedContext(engine);
     QQmlComponent *component = new QQmlComponent(engine, this);
-
     qmlRegisterType<WindowThumbnailItem>("org.kde.kwin", 3, 0, "WindowThumbnail");
     qmlRegisterType<SwitcherItem>("org.kde.kwin", 3, 0, "TabBoxSwitcher");
     qmlRegisterType<DesktopBackground>("org.kde.kwin", 3, 0, "DesktopBackground");
     qmlRegisterAnonymousType<QAbstractItemModel>("org.kde.kwin", 3);
-
     component->loadUrl(QUrl::fromLocalFile(path));
     if (component->isError()) {
-        qWarning() << "Error loading tabbox preview:" << component->errorString();
-        return;
+        qDebug() << component->errorString();
     }
-
     QObject *item = component->create();
-
     auto findSwitcher = [item]() -> SwitcherItem * {
         if (!item) {
             return nullptr;
@@ -89,13 +51,11 @@ LayoutPreview::LayoutPreview(const QString &path, bool showDesktopThumbnail, QOb
         }
         return item->findChild<SwitcherItem *>();
     };
-
     if (SwitcherItem *switcher = findSwitcher()) {
         m_item = switcher;
         static_cast<ExampleClientModel *>(switcher->model())->showDesktopThumbnail(showDesktopThumbnail);
         switcher->setVisible(true);
     }
-
     auto findWindow = [item]() -> QQuickWindow * {
         if (!item) {
             return nullptr;
@@ -105,7 +65,6 @@ LayoutPreview::LayoutPreview(const QString &path, bool showDesktopThumbnail, QOb
         }
         return item->findChild<QQuickWindow *>();
     };
-
     if (QQuickWindow *w = findWindow()) {
         w->setKeyboardGrabEnabled(true);
         w->installEventFilter(this);
@@ -135,11 +94,6 @@ bool LayoutPreview::eventFilter(QObject *object, QEvent *event)
         deleteLater();
     }
     return QObject::eventFilter(object, event);
-}
-
-bool LayoutPreview::isLoaded() const
-{
-    return m_item != nullptr;
 }
 
 ExampleClientModel::ExampleClientModel(QObject *parent)
@@ -174,7 +128,7 @@ void ExampleClientModel::init()
 
 void ExampleClientModel::showDesktopThumbnail(bool showDesktop)
 {
-    const ThumbnailInfo desktopThumbnail = ThumbnailInfo{WindowThumbnailItem::Desktop, i18n("Peek at Desktop"), QStringLiteral("desktop")};
+    const ThumbnailInfo desktopThumbnail = ThumbnailInfo{WindowThumbnailItem::Desktop, i18n("Show Desktop"), QStringLiteral("desktop")};
     const int desktopIndex = m_thumbnails.indexOf(desktopThumbnail);
     if (showDesktop == (desktopIndex >= 0)) {
         return;

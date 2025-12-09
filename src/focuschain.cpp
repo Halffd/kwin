@@ -41,7 +41,7 @@ Window *FocusChain::getForActivation(VirtualDesktop *desktop) const
     return getForActivation(desktop, workspace()->activeOutput());
 }
 
-Window *FocusChain::getForActivation(VirtualDesktop *desktop, LogicalOutput *output) const
+Window *FocusChain::getForActivation(VirtualDesktop *desktop, Output *output) const
 {
     auto it = m_desktopFocusChains.constFind(desktop);
     if (it == m_desktopFocusChains.constEnd()) {
@@ -51,7 +51,7 @@ Window *FocusChain::getForActivation(VirtualDesktop *desktop, LogicalOutput *out
     for (int i = chain.size() - 1; i >= 0; --i) {
         auto tmp = chain.at(i);
         // TODO: move the check into Window
-        if (tmp->isShown() && tmp->isOnCurrentActivity()
+        if (!tmp->isShade() && tmp->isShown() && tmp->isOnCurrentActivity()
             && (!m_separateScreenFocus || tmp->output() == output)) {
             return tmp;
         }
@@ -247,7 +247,7 @@ Window *FocusChain::nextMostRecentlyUsed(Window *reference) const
 // copied from activation.cpp
 bool FocusChain::isUsableFocusCandidate(Window *c, Window *prev) const
 {
-    return c != prev && c->isShown() && c->isOnCurrentDesktop() && c->isOnCurrentActivity() && (!m_separateScreenFocus || c->isOnOutput(prev ? prev->output() : workspace()->activeOutput()));
+    return c != prev && !c->isShade() && c->isShown() && c->isOnCurrentDesktop() && c->isOnCurrentActivity() && (!m_separateScreenFocus || c->isOnOutput(prev ? prev->output() : workspace()->activeOutput()));
 }
 
 Window *FocusChain::nextForDesktop(Window *reference, VirtualDesktop *desktop) const

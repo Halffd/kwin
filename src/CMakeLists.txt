@@ -1,4 +1,10 @@
-set(KWIN_KILLER_BIN ${CMAKE_INSTALL_FULL_LIBEXECDIR}/kwin_killer_helper)
+ecm_setup_version(${PROJECT_VERSION}
+                  VARIABLE_PREFIX KWIN
+                  PACKAGE_VERSION_FILE "${CMAKE_CURRENT_BINARY_DIR}/KWinX11ConfigVersion.cmake"
+                  SOVERSION 6
+)
+
+set(KWIN_KILLER_BIN ${CMAKE_INSTALL_FULL_LIBEXECDIR}/kwin_killer_helper_x11)
 
 configure_file(config-kwin.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config-kwin.h)
 
@@ -17,26 +23,27 @@ if (KWIN_BUILD_KCMS)
 endif()
 
 add_library(kwin SHARED)
-target_include_directories(kwin INTERFACE "$<INSTALL_INTERFACE:${KDE_INSTALL_INCLUDEDIR}/kwin>")
+target_include_directories(kwin INTERFACE "$<INSTALL_INTERFACE:${KDE_INSTALL_INCLUDEDIR}/kwin-x11>")
 set_target_properties(kwin PROPERTIES
    VERSION ${PROJECT_VERSION}
    SOVERSION 6
+   OUTPUT_NAME "kwin-x11"
 )
 
 target_compile_definitions(kwin PRIVATE
-    -DTRANSLATION_DOMAIN=\"kwin\"
+    -DTRANSLATION_DOMAIN=\"kwin_x11\"
 )
 
 target_sources(kwin PRIVATE
     3rdparty/xcursor.c
-    a11ykeyboardmonitor.cpp
     activation.cpp
     appmenu.cpp
     client_machine.cpp
     colors/colordevice.cpp
     colors/colormanager.cpp
     compositor.cpp
-    core/backendoutput.cpp
+    compositor_wayland.cpp
+    core/brightnessdevice.cpp
     core/colorlut3d.cpp
     core/colorpipeline.cpp
     core/colorpipelinestage.cpp
@@ -54,9 +61,11 @@ target_sources(kwin PRIVATE
     core/outputbackend.cpp
     core/outputconfiguration.cpp
     core/outputlayer.cpp
-    core/rect.cpp
+    core/overlaywindow.cpp
     core/renderbackend.cpp
     core/renderjournal.cpp
+    core/renderlayer.cpp
+    core/renderlayerdelegate.cpp
     core/renderloop.cpp
     core/rendertarget.cpp
     core/renderviewport.cpp
@@ -120,7 +129,6 @@ target_sources(kwin PRIVATE
     onscreennotification.cpp
     opengl/abstract_opengl_context_attribute_builder.cpp
     opengl/egl_context_attribute_builder.cpp
-    opengl/eglbackend.cpp
     opengl/eglcontext.cpp
     opengl/egldisplay.cpp
     opengl/eglimagetexture.cpp
@@ -137,6 +145,7 @@ target_sources(kwin PRIVATE
     opengl/glutils.cpp
     opengl/glvertexbuffer.cpp
     opengl/icc_shader.cpp
+    opengl/openglcontext.cpp
     options.cpp
     osd.cpp
     outline.cpp
@@ -149,15 +158,15 @@ target_sources(kwin PRIVATE
     pluginmanager.cpp
     pointer_input.cpp
     popup_input_filter.cpp
-    qpainter/qpainterbackend.cpp
-    qpainter/qpainterswapchain.cpp
-    renderloopdrivenqanimationdriver.cpp
     resources.qrc
     rulebooksettings.cpp
     rules.cpp
     scene/borderoutline.cpp
     scene/borderradius.cpp
+    scene/cursordelegate_opengl.cpp
+    scene/cursordelegate_qpainter.cpp
     scene/cursoritem.cpp
+    scene/cursorscene.cpp
     scene/decorationitem.cpp
     scene/dndiconitem.cpp
     scene/imageitem.cpp
@@ -175,8 +184,9 @@ target_sources(kwin PRIVATE
     scene/surfaceitem_wayland.cpp
     scene/windowitem.cpp
     scene/workspacescene.cpp
+    scene/workspacescene_opengl.cpp
+    scene/workspacescene_qpainter.cpp
     screenedge.cpp
-    screenedgegestures.cpp
     scripting/dbuscall.cpp
     scripting/desktopbackgrounditem.cpp
     scripting/gesturehandler.cpp
@@ -217,8 +227,6 @@ target_sources(kwin PRIVATE
     xdgshellintegration.cpp
     xdgshellwindow.cpp
     xkb.cpp
-    xxpipv1integration.cpp
-    xxpipv1window.cpp
 )
 
 target_link_libraries(kwin
@@ -231,7 +239,6 @@ target_link_libraries(kwin
         KF6::CoreAddons
         KF6::WindowSystem
         epoxy::epoxy
-        Libdrm::Libdrm
 
     PRIVATE
         Qt::Concurrent
@@ -260,6 +267,8 @@ target_link_libraries(kwin
         Threads::Threads
         lcms2::lcms2
         PkgConfig::libdisplayinfo
+        Libdrm::Libdrm
+        gbm::gbm
 )
 
 if (TARGET K::KGlobalAccelD)
@@ -271,22 +280,29 @@ if (KWIN_BUILD_X11)
         PRIVATE
             atoms.cpp
             events.cpp
+            compositor_x11.cpp
             group.cpp
+            moving_client_x11_filter.cpp
             netinfo.cpp
             rootinfo_filter.cpp
+            scene/surfaceitem_x11.cpp
             syncalarmx11filter.cpp
+            was_user_interaction_x11_filter.cpp
             window_property_notify_x11_filter.cpp
             x11eventfilter.cpp
+            x11syncmanager.cpp
             x11window.cpp
     )
     target_link_libraries(kwin
         PRIVATE
             XCB::COMPOSITE
+            XCB::CURSOR
+            XCB::DAMAGE
+            XCB::GLX
             XCB::ICCCM
             XCB::KEYSYMS
             XCB::RANDR
             XCB::RENDER
-            XCB::RES
             XCB::SHAPE
             XCB::SHM
             XCB::SYNC
@@ -323,6 +339,7 @@ qt_add_dbus_interface(kwin_dbus_SRCS org.freedesktop.DBus.Properties.xml dbuspro
 
 if (KWIN_BUILD_SCREENLOCKER)
     qt_add_dbus_interface(kwin_dbus_SRCS ${KSCREENLOCKER_DBUS_INTERFACES_DIR}/kf6_org.freedesktop.ScreenSaver.xml screenlocker_interface)
+    qt_add_dbus_interface(kwin_dbus_SRCS ${KSCREENLOCKER_DBUS_INTERFACES_DIR}/org.kde.screensaver.xml kscreenlocker_interface)
 endif()
 
 qt_add_dbus_interface(kwin_dbus_SRCS org.kde.kappmenu.xml appmenu_interface)
@@ -332,10 +349,10 @@ target_sources(kwin PRIVATE
 )
 
 add_subdirectory(backends)
+add_subdirectory(platformsupport)
 add_subdirectory(plugins)
 add_subdirectory(utils)
 add_subdirectory(wayland)
-add_subdirectory(wayland-client)
 
 if (KWIN_BUILD_X11)
     add_subdirectory(xwayland)
@@ -347,6 +364,7 @@ if (KWIN_BUILD_ACTIVITIES)
 endif()
 
 if (KWIN_BUILD_SCREENLOCKER)
+    target_sources(kwin PRIVATE screenlockerwatcher.cpp)
     target_link_libraries(kwin PRIVATE PW::KScreenLocker)
 endif()
 
@@ -360,6 +378,10 @@ if (KWIN_BUILD_TABBOX)
         tabbox/tabboxhandler.cpp
     )
     add_subdirectory(tabbox/switchers)
+
+    if (KWIN_BUILD_X11)
+        target_sources(kwin PRIVATE tabbox/x11_filter.cpp)
+    endif()
 endif()
 
 qt_generate_dbus_interface(virtualkeyboard_dbus.h org.kde.kwin.VirtualKeyboard.xml OPTIONS -A)
@@ -367,81 +389,49 @@ qt_generate_dbus_interface(tabletmodemanager.h org.kde.KWin.TabletModeManager.xm
 
 generate_export_header(kwin EXPORT_FILE_NAME kwin_export.h)
 
-install(TARGETS kwin EXPORT KWinTargets ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
-
-ecm_qt_declare_logging_category(kwin
-    HEADER outputconfiglogging.h
-    IDENTIFIER KWIN_OUTPUT_CONFIG
-    CATEGORY_NAME kwin_output_config
-)
-
-add_executable(kwin_wayland main_wayland.cpp)
-
-if(TARGET PkgConfig::libsystemd)
-    ecm_qt_declare_logging_category(kwin_wayland
-        HEADER watchdoglogging.h
-        IDENTIFIER KWIN_WATCHDOG
-        CATEGORY_NAME kwin_watchdog
-        DEFAULT_SEVERITY Info
+if (KWIN_BUILD_X11 AND KWIN_BUILD_X11_BACKEND)
+    add_executable(kwin_x11 main_x11.cpp)
+    target_link_libraries(kwin_x11
+        KWinX11Platform
+        kwin
+        KF6::GlobalAccel
     )
-
-    target_sources(kwin_wayland PRIVATE watchdog.cpp)
-    target_link_libraries(kwin_wayland PkgConfig::libsystemd)
+    target_compile_definitions(kwin_x11 PRIVATE
+        -DTRANSLATION_DOMAIN=\"kwin_x11\"
+    )
+    kcoreaddons_target_static_plugins(kwin_x11 NAMESPACE "${KWIN_PLUGINDIR}/effects/plugins")
+    install(TARGETS kwin_x11 ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 endif()
 
-target_link_libraries(kwin_wayland
-    kwin
-    KF6::Crash
-    KF6::I18n
-)
-if (KWIN_BUILD_X11)
-    target_link_libraries(kwin_wayland KWinXwaylandServerModule)
-endif()
-target_compile_definitions(kwin_wayland PRIVATE
-    -DTRANSLATION_DOMAIN=\"kwin\"
-)
-kcoreaddons_target_static_plugins(kwin_wayland NAMESPACE "kwin/effects/plugins")
-
-install(TARGETS kwin_wayland ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
-
-target_link_libraries(kwin_wayland
-    KWinQpaPlugin
-    KF6WindowSystemKWinPlugin
-    KF6IdleTimeKWinPlugin
-)
-
-if (TARGET KF6GlobalAccelKWinPlugin)
-    target_link_libraries(kwin_wayland KF6GlobalAccelKWinPlugin)
-endif()
+install(TARGETS kwin EXPORT KWinX11Targets ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 
 add_custom_target(
-    KWinDBusInterfaces
+    KWinX11DBusInterfaces
     ALL
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/org.kde.kwin.VirtualKeyboard.xml
             ${CMAKE_CURRENT_BINARY_DIR}/org.kde.KWin.TabletModeManager.xml
 )
 
-install(FILES kwin.kcfg DESTINATION ${KDE_INSTALL_KCFGDIR})
 if (KWIN_BUILD_NOTIFICATIONS)
-    install(FILES kwin.notifyrc DESTINATION ${KDE_INSTALL_KNOTIFYRCDIR})
+    install(FILES kwin-x11.notifyrc DESTINATION ${KDE_INSTALL_KNOTIFYRCDIR})
 endif()
-install(
-    FILES
-        org.kde.KWin.VirtualDesktopManager.xml
-        org.kde.KWin.xml
-        org.kde.kwin.Compositing.xml
-        org.kde.kwin.Effects.xml
-        org.kde.KWin.Plugins.xml
-        ${CMAKE_CURRENT_BINARY_DIR}/org.kde.kwin.VirtualKeyboard.xml
-        ${CMAKE_CURRENT_BINARY_DIR}/org.kde.KWin.TabletModeManager.xml
-    DESTINATION
-        ${KDE_INSTALL_DBUSINTERFACEDIR}
-)
 
-install(EXPORT KWinTargets DESTINATION "${KDE_INSTALL_CMAKEPACKAGEDIR}/KWin" FILE KWinTargets.cmake NAMESPACE KWin:: )
+function(export_dbus_interface file path)
+    install(FILES ${path} DESTINATION ${KDE_INSTALL_DBUSINTERFACEDIR} RENAME "kwin_x11_${file}")
+endfunction()
+
+export_dbus_interface(org.kde.KWin.VirtualDesktopManager.xml org.kde.KWin.VirtualDesktopManager.xml)
+export_dbus_interface(org.kde.KWin.xml org.kde.KWin.xml)
+export_dbus_interface(org.kde.kwin.Compositing.xml org.kde.kwin.Compositing.xml)
+export_dbus_interface(org.kde.kwin.Effects.xml org.kde.kwin.Effects.xml)
+export_dbus_interface(org.kde.KWin.Plugins.xml org.kde.KWin.Plugins.xml)
+export_dbus_interface(org.kde.kwin.VirtualKeyboard.xml ${CMAKE_CURRENT_BINARY_DIR}/org.kde.kwin.VirtualKeyboard.xml)
+export_dbus_interface(org.kde.KWin.TabletModeManager.xml ${CMAKE_CURRENT_BINARY_DIR}/org.kde.KWin.TabletModeManager.xml)
+
+install(EXPORT KWinX11Targets DESTINATION "${KDE_INSTALL_CMAKEPACKAGEDIR}/KWinX11" FILE KWinX11Targets.cmake NAMESPACE KWinX11:: )
 
 if (KWIN_BUILD_X11)
-    install(FILES atoms.h DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin COMPONENT Devel)
+    install(FILES atoms.h DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin-x11 COMPONENT Devel)
 endif()
 
 install(FILES
@@ -460,11 +450,11 @@ install(FILES
     gestures.h
     globalshortcuts.h
     group.h
-    idle_inhibition.h
     idledetector.h
-    input.h
+    idle_inhibition.h
     input_event.h
     input_event_spy.h
+    input.h
     inputmethod.h
     inputpanelv1integration.h
     inputpanelv1window.h
@@ -495,15 +485,15 @@ install(FILES
     rulebooksettings.h
     rules.h
     screenedge.h
-    screenedgegestures.h
+    screenlockerwatcher.h
     shadow.h
     sm.h
     tablet_input.h
     tabletmodemanager.h
     touch_input.h
     useractions.h
-    virtualdesktops.h
     virtualdesktopsdbustypes.h
+    virtualdesktops.h
     virtualkeyboard_dbus.h
     wayland_server.h
     waylandshellintegration.h
@@ -516,10 +506,9 @@ install(FILES
     xdgshellintegration.h
     xdgshellwindow.h
     xkb.h
-    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin COMPONENT Devel)
+    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin-x11 COMPONENT Devel)
 
 install(FILES
-    core/backendoutput.h
     core/colorlut3d.h
     core/colorpipeline.h
     core/colorpipelinestage.h
@@ -537,10 +526,12 @@ install(FILES
     core/outputbackend.h
     core/outputconfiguration.h
     core/outputlayer.h
+    core/overlaywindow.h
     core/pixelgrid.h
-    core/rect.h
     core/renderbackend.h
     core/renderjournal.h
+    core/renderlayer.h
+    core/renderlayerdelegate.h
     core/renderloop.h
     core/renderloop_p.h
     core/rendertarget.h
@@ -550,7 +541,7 @@ install(FILES
     core/session_logind.h
     core/session_noop.h
     core/shmgraphicsbufferallocator.h
-    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin/core COMPONENT Devel)
+    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin-x11/core COMPONENT Devel)
 
 install(FILES
     utils/c_ptr.h
@@ -561,14 +552,12 @@ install(FILES
     utils/edid.h
     utils/executable_path.h
     utils/filedescriptor.h
-    utils/gravity.h
     utils/kernel.h
     utils/memorymap.h
     utils/orientationsensor.h
     utils/ramfile.h
     utils/realtime.h
     utils/resource.h
-    utils/serial.h
     utils/serviceutils.h
     utils/softwarevsyncmonitor.h
     utils/subsurfacemonitor.h
@@ -576,7 +565,7 @@ install(FILES
     utils/version.h
     utils/vsyncmonitor.h
     utils/xcbutils.h
-    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin/utils COMPONENT Devel)
+    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin-x11/utils COMPONENT Devel)
 
 install(FILES
     effect/animationeffect.h
@@ -590,7 +579,7 @@ install(FILES
     effect/quickeffect.h
     effect/timeline.h
     effect/xcb.h
-    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin/effect COMPONENT Devel)
+    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin-x11/effect COMPONENT Devel)
 
 install(FILES
     opengl/abstract_opengl_context_attribute_builder.h
@@ -612,13 +601,17 @@ install(FILES
     opengl/gltexture_p.h
     opengl/glutils.h
     opengl/glvertexbuffer.h
-    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin/opengl COMPONENT Devel
+    opengl/openglcontext.h
+    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin-x11/opengl COMPONENT Devel
 )
 
 install(FILES
     scene/borderoutline.h
     scene/borderradius.h
+    scene/cursordelegate_opengl.h
+    scene/cursordelegate_qpainter.h
     scene/cursoritem.h
+    scene/cursorscene.h
     scene/decorationitem.h
     scene/dndiconitem.h
     scene/imageitem.h
@@ -634,9 +627,25 @@ install(FILES
     scene/surfaceitem.h
     scene/surfaceitem_internal.h
     scene/surfaceitem_wayland.h
+    scene/surfaceitem_x11.h
     scene/windowitem.h
     scene/workspacescene.h
-    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin/scene COMPONENT Devel
+    scene/workspacescene_opengl.h
+    scene/workspacescene_qpainter.h
+    DESTINATION ${KDE_INSTALL_INCLUDEDIR}/kwin-x11/scene COMPONENT Devel
 )
 
-ecm_generate_qdoc(kwin kwin.qdocconf)
+set(CMAKECONFIG_INSTALL_DIR "${KDE_INSTALL_CMAKEPACKAGEDIR}/KWinX11")
+
+install(FILES  "${CMAKE_CURRENT_BINARY_DIR}/KWinX11Config.cmake"
+               "${CMAKE_CURRENT_BINARY_DIR}/KWinX11ConfigVersion.cmake"
+        DESTINATION "${CMAKECONFIG_INSTALL_DIR}"
+        COMPONENT Devel )
+
+configure_package_config_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/KWinX11Config.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/KWinX11Config.cmake"
+  INSTALL_DESTINATION  ${CMAKECONFIG_INSTALL_DIR}
+)
+
+install(EXPORT KWinX11Targets DESTINATION "${CMAKECONFIG_INSTALL_DIR}" FILE KWinX11Targets.cmake NAMESPACE KWinX11:: )

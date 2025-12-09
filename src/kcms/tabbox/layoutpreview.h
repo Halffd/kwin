@@ -30,7 +30,6 @@ public:
     ~LayoutPreview() override;
 
     bool eventFilter(QObject *object, QEvent *event) override;
-    bool isLoaded() const;
 
 private:
     SwitcherItem *m_item;

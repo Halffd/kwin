@@ -17,8 +17,8 @@
 
 // if you enable it and run kwin in a terminal from the session it manages,
 // be sure to redirect the output of kwin in a file or
-// you'll probably get deadlocks.
-//#define VERBOSE_MODE
+// you'll propably get deadlocks.
+// #define VERBOSE_MODE
 
 #if defined COMPUTE_STATS && !defined VERBOSE_MODE
 #ifdef __GNUC__
@@ -235,7 +235,7 @@ void WobblyWindowsEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::
 
 static const std::chrono::milliseconds integrationStep(10);
 
-void WobblyWindowsEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
+void WobblyWindowsEffect::prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
 {
     auto infoIt = windows.find(w);
     if (infoIt != windows.end()) {
@@ -251,7 +251,7 @@ void WobblyWindowsEffect::prePaintWindow(RenderView *view, EffectWindow *w, Wind
         }
     }
 
-    effects->prePaintWindow(view, w, data, presentTime);
+    effects->prePaintWindow(w, data, presentTime);
 }
 
 void WobblyWindowsEffect::apply(EffectWindow *w, int mask, WindowPaintData &data, WindowQuadList &quads)
@@ -459,7 +459,7 @@ void WobblyWindowsEffect::stepMovedResized(EffectWindow *w)
         }
     }
 
-    // constrain the middle of the window, so that any asymmetry wont cause it to drift off-center
+    // constrain the middle of the window, so that any asymetry wont cause it to drift off-center
     for (unsigned int j = 1; j < wwi.height - 1; ++j) {
         for (unsigned int i = 1; i < wwi.width - 1; ++i) {
             wwi.constraint[j * wwi.width + i] = true;

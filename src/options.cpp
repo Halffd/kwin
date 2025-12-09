@@ -38,6 +38,8 @@ Options::Options(QObject *parent)
     , m_autoRaise(false)
     , m_autoRaiseInterval(0)
     , m_delayFocusInterval(0)
+    , m_shadeHover(false)
+    , m_shadeHoverInterval(0)
     , m_separateScreenFocus(true)
     , m_placement(PlacementNone)
     , m_activationDesktopPolicy(Options::defaultActivationDesktopPolicy())
@@ -48,14 +50,21 @@ Options::Options(QObject *parent)
     , m_edgeBarrier(0)
     , m_cornerBarrier(0)
     , m_rollOverDesktops(false)
-    , m_focusStealingPreventionLevel(FocusStealingPreventionLevel::None)
+    , m_focusStealingPreventionLevel(0)
     , m_killPingTimeout(0)
     , m_xwaylandCrashPolicy(Options::defaultXwaylandCrashPolicy())
     , m_xwaylandMaxCrashCount(Options::defaultXwaylandMaxCrashCount())
     , m_xwaylandEavesdrops(Options::defaultXwaylandEavesdrops())
     , m_xwaylandEavesdropsMouse(Options::defaultXwaylandEavesdropsMouse())
-    , m_xwaylandEisNoPrompt(Options::defaultXwaylandEisNoPrompt())
     , m_compositingMode(Options::defaultCompositingMode())
+    , m_useCompositing(Options::defaultUseCompositing())
+    , m_hiddenPreviews(Options::defaultHiddenPreviews())
+    , m_glSmoothScale(Options::defaultGlSmoothScale())
+    , m_glStrictBinding(Options::defaultGlStrictBinding())
+    , m_glStrictBindingFollowsDriver(Options::defaultGlStrictBindingFollowsDriver())
+    , m_glPreferBufferSwap(Options::defaultGlPreferBufferSwap())
+    , m_glPlatformInterface(Options::defaultGlPlatformInterface())
+    , m_windowsBlockCompositing(true)
     , OpTitlebarDblClick(Options::defaultOperationTitlebarDblClick())
     , CmdActiveTitlebar1(Options::defaultCommandActiveTitlebar1())
     , CmdActiveTitlebar2(Options::defaultCommandActiveTitlebar2())
@@ -157,15 +166,6 @@ void Options::setXwaylandEavesdropsMouse(bool eavesdropsMouse)
     Q_EMIT xwaylandEavesdropsChanged();
 }
 
-void Options::setXWaylandEisNoPrompt(bool doNotPrompt)
-{
-    if (m_xwaylandEisNoPrompt == doNotPrompt) {
-        return;
-    }
-    m_xwaylandEisNoPrompt = doNotPrompt;
-    Q_EMIT xwaylandEisNoPromptChanged();
-}
-
 void Options::setClickRaise(bool clickRaise)
 {
     if (m_autoRaise) {
@@ -217,6 +217,24 @@ void Options::setDelayFocusInterval(int delayFocusInterval)
     }
     m_delayFocusInterval = delayFocusInterval;
     Q_EMIT delayFocusIntervalChanged();
+}
+
+void Options::setShadeHover(bool shadeHover)
+{
+    if (m_shadeHover == shadeHover) {
+        return;
+    }
+    m_shadeHover = shadeHover;
+    Q_EMIT shadeHoverChanged();
+}
+
+void Options::setShadeHoverInterval(int shadeHoverInterval)
+{
+    if (m_shadeHoverInterval == shadeHoverInterval) {
+        return;
+    }
+    m_shadeHoverInterval = shadeHoverInterval;
+    Q_EMIT shadeHoverIntervalChanged();
 }
 
 void Options::setSeparateScreenFocus(bool separateScreenFocus)
@@ -309,15 +327,15 @@ void Options::setRollOverDesktops(bool rollOverDesktops)
     Q_EMIT rollOverDesktopsChanged(m_rollOverDesktops);
 }
 
-void Options::setFocusStealingPreventionLevel(FocusStealingPreventionLevel focusStealingPreventionLevel)
+void Options::setFocusStealingPreventionLevel(int focusStealingPreventionLevel)
 {
     if (!focusPolicyIsReasonable()) {
-        focusStealingPreventionLevel = FocusStealingPreventionLevel::None;
+        focusStealingPreventionLevel = 0;
     }
-    if (m_focusStealingPreventionLevel == FocusStealingPreventionLevel(focusStealingPreventionLevel)) {
+    if (m_focusStealingPreventionLevel == focusStealingPreventionLevel) {
         return;
     }
-    m_focusStealingPreventionLevel = std::max(FocusStealingPreventionLevel::None, std::min(FocusStealingPreventionLevel::Extreme, focusStealingPreventionLevel));
+    m_focusStealingPreventionLevel = std::max(0, std::min(4, focusStealingPreventionLevel));
     Q_EMIT focusStealingPreventionLevelChanged();
 }
 
@@ -528,15 +546,6 @@ void Options::setElectricBorderCornerRatio(float electricBorderCornerRatio)
     Q_EMIT electricBorderCornerRatioChanged();
 }
 
-void Options::setElectricBorderAllScreenCorner(bool electricBorderAllScreenCorner)
-{
-    if (electric_border_all_screen_corner == electricBorderAllScreenCorner) {
-        return;
-    }
-    electric_border_all_screen_corner = electricBorderAllScreenCorner;
-    Q_EMIT electricBorderAllScreenCornerChanged();
-}
-
 void Options::setBorderlessMaximizedWindows(bool borderlessMaximizedWindows)
 {
     if (borderless_maximized_windows == borderlessMaximizedWindows) {
@@ -562,6 +571,69 @@ void Options::setCompositingMode(int compositingMode)
     }
     m_compositingMode = static_cast<CompositingType>(compositingMode);
     Q_EMIT compositingModeChanged();
+}
+
+void Options::setUseCompositing(bool useCompositing)
+{
+    if (m_useCompositing == useCompositing) {
+        return;
+    }
+    m_useCompositing = useCompositing;
+    Q_EMIT useCompositingChanged();
+}
+
+void Options::setHiddenPreviews(int hiddenPreviews)
+{
+    if (m_hiddenPreviews == static_cast<HiddenPreviews>(hiddenPreviews)) {
+        return;
+    }
+    m_hiddenPreviews = static_cast<HiddenPreviews>(hiddenPreviews);
+    Q_EMIT hiddenPreviewsChanged();
+}
+
+void Options::setGlSmoothScale(int glSmoothScale)
+{
+    if (m_glSmoothScale == glSmoothScale) {
+        return;
+    }
+    m_glSmoothScale = glSmoothScale;
+    Q_EMIT glSmoothScaleChanged();
+}
+
+void Options::setGlStrictBinding(bool glStrictBinding)
+{
+    if (m_glStrictBinding == glStrictBinding) {
+        return;
+    }
+    m_glStrictBinding = glStrictBinding;
+    Q_EMIT glStrictBindingChanged();
+}
+
+void Options::setGlStrictBindingFollowsDriver(bool glStrictBindingFollowsDriver)
+{
+    if (m_glStrictBindingFollowsDriver == glStrictBindingFollowsDriver) {
+        return;
+    }
+    m_glStrictBindingFollowsDriver = glStrictBindingFollowsDriver;
+    Q_EMIT glStrictBindingFollowsDriverChanged();
+}
+
+void Options::setWindowsBlockCompositing(bool value)
+{
+    if (m_windowsBlockCompositing == value) {
+        return;
+    }
+    m_windowsBlockCompositing = value;
+    Q_EMIT windowsBlockCompositingChanged();
+}
+
+void Options::setGlPreferBufferSwap(char glPreferBufferSwap)
+{
+    if (m_glPreferBufferSwap == (GlSwapStrategy)glPreferBufferSwap) {
+        return;
+    }
+    m_glPreferBufferSwap = (GlSwapStrategy)glPreferBufferSwap;
+    Q_EMIT glPreferBufferSwapChanged();
 }
 
 bool Options::allowTearing() const
@@ -590,43 +662,41 @@ void Options::setInteractiveWindowMoveEnabled(bool set)
     }
 }
 
-Qt::Corner Options::pictureInPictureHomeCorner() const
+void Options::setGlPlatformInterface(OpenGLPlatformInterface interface)
 {
-    return m_pictureInPictureHomeCorner;
-}
-
-void Options::setPictureInPictureHomeCorner(Qt::Corner corner)
-{
-    if (m_pictureInPictureHomeCorner != corner) {
-        m_pictureInPictureHomeCorner = corner;
-        Q_EMIT pictureInPictureHomeCornerChanged();
+    // check environment variable
+    const QByteArray envOpenGLInterface(qgetenv("KWIN_OPENGL_INTERFACE"));
+    if (!envOpenGLInterface.isEmpty()) {
+        if (qstrcmp(envOpenGLInterface, "egl") == 0) {
+            qCDebug(KWIN_CORE) << "Forcing EGL native interface through environment variable";
+            interface = EglPlatformInterface;
+        } else if (qstrcmp(envOpenGLInterface, "glx") == 0) {
+            qCDebug(KWIN_CORE) << "Forcing GLX native interface through environment variable";
+            interface = GlxPlatformInterface;
+        }
     }
-}
-
-int Options::pictureInPictureMargin() const
-{
-    return m_pictureInPictureMargin;
-}
-
-void Options::setPictureInPictureMargin(int margin)
-{
-    if (m_pictureInPictureMargin != margin) {
-        m_pictureInPictureMargin = margin;
-        Q_EMIT pictureInPictureMarginChanged();
+    if (kwinApp()->shouldUseWaylandForCompositing() && interface == GlxPlatformInterface) {
+        // Glx is impossible on Wayland, enforce egl
+        qCDebug(KWIN_CORE) << "Forcing EGL native interface for Wayland mode";
+        interface = EglPlatformInterface;
     }
-}
-
-bool Options::overlayVirtualKeyboardOnWindows() const
-{
-    return m_overlayVirtualKeyboardOnWindows;
-}
-
-void Options::setOverlayVirtualKeyboardOnWindows(bool overlay)
-{
-    if (overlay != m_overlayVirtualKeyboardOnWindows) {
-        m_overlayVirtualKeyboardOnWindows = overlay;
-        Q_EMIT overlayVirtualKeyboardOnWindowsChanged();
+#if !HAVE_GLX
+    qCDebug(KWIN_CORE) << "Forcing EGL native interface as compiled without GLX support";
+    interface = EglPlatformInterface;
+#endif
+    if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGLES) {
+        qCDebug(KWIN_CORE) << "Forcing EGL native interface as Qt uses OpenGL ES";
+        interface = EglPlatformInterface;
+    } else if (qstrcmp(qgetenv("KWIN_COMPOSE"), "O2ES") == 0) {
+        qCDebug(KWIN_CORE) << "Forcing EGL native interface as OpenGL ES requested through KWIN_COMPOSE environment variable.";
+        interface = EglPlatformInterface;
     }
+
+    if (m_glPlatformInterface == interface) {
+        return;
+    }
+    m_glPlatformInterface = interface;
+    Q_EMIT glPlatformInterfaceChanged();
 }
 
 void Options::reparseConfiguration()
@@ -676,6 +746,7 @@ void Options::loadConfig()
 
     // Compositing
     config = KConfigGroup(m_settings->config(), QStringLiteral("Compositing"));
+    bool useCompositing = false;
     CompositingType compositingMode = NoCompositing;
     QString compositingBackend = config.readEntry("Backend", "OpenGL");
     if (compositingBackend == "QPainter") {
@@ -689,10 +760,20 @@ void Options::loadConfig()
         case 'O':
             qCDebug(KWIN_CORE) << "Compositing forced to OpenGL mode by environment variable";
             compositingMode = OpenGLCompositing;
+            useCompositing = true;
             break;
         case 'Q':
             qCDebug(KWIN_CORE) << "Compositing forced to QPainter mode by environment variable";
             compositingMode = QPainterCompositing;
+            useCompositing = true;
+            break;
+        case 'N':
+            if (getenv("KDE_FAILSAFE")) {
+                qCDebug(KWIN_CORE) << "Compositing disabled forcefully by KDE failsafe mode";
+            } else {
+                qCDebug(KWIN_CORE) << "Compositing disabled forcefully by environment variable";
+            }
+            compositingMode = NoCompositing;
             break;
         default:
             qCDebug(KWIN_CORE) << "Unknown KWIN_COMPOSE mode set, ignoring";
@@ -700,6 +781,57 @@ void Options::loadConfig()
         }
     }
     setCompositingMode(compositingMode);
+    setUseCompositing(useCompositing || config.readEntry("Enabled", Options::defaultUseCompositing()));
+
+    setGlSmoothScale(std::clamp(config.readEntry("GLTextureFilter", Options::defaultGlSmoothScale()), -1, 2));
+    setGlStrictBindingFollowsDriver(!config.hasKey("GLStrictBinding"));
+    if (!isGlStrictBindingFollowsDriver()) {
+        setGlStrictBinding(config.readEntry("GLStrictBinding", Options::defaultGlStrictBinding()));
+    }
+
+    char c = 0;
+    const QString s = config.readEntry("GLPreferBufferSwap", QString(QLatin1Char(Options::defaultGlPreferBufferSwap())));
+    if (!s.isEmpty()) {
+        c = s.at(0).toLatin1();
+    }
+    if (c != 'a' && c != 'c' && c != 'p' && c != 'e') {
+        c = Options::defaultGlPreferBufferSwap();
+    }
+    setGlPreferBufferSwap(c);
+
+    if (kwinApp()->operationMode() == Application::OperationModeX11) {
+        HiddenPreviews previews = Options::defaultHiddenPreviews();
+        // 4 - off, 5 - shown, 6 - always, other are old values
+        int hps = config.readEntry("HiddenPreviews", 5);
+        if (hps == 4) {
+            previews = HiddenPreviewsNever;
+        } else if (hps == 5) {
+            previews = HiddenPreviewsShown;
+        } else if (hps == 6) {
+            previews = HiddenPreviewsAlways;
+        }
+        setHiddenPreviews(previews);
+    }
+
+    auto interfaceToKey = [](OpenGLPlatformInterface interface) {
+        switch (interface) {
+        case GlxPlatformInterface:
+            return QStringLiteral("glx");
+        case EglPlatformInterface:
+            return QStringLiteral("egl");
+        default:
+            return QString();
+        }
+    };
+    auto keyToInterface = [](const QString &key) {
+        if (key == QLatin1StringView("glx")) {
+            return GlxPlatformInterface;
+        } else if (key == QLatin1StringView("egl")) {
+            return EglPlatformInterface;
+        }
+        return defaultGlPlatformInterface();
+    };
+    setGlPlatformInterface(keyToInterface(config.readEntry("GLPlatformInterface", interfaceToKey(m_glPlatformInterface))));
 }
 
 void Options::syncFromKcfgc()
@@ -709,17 +841,18 @@ void Options::syncFromKcfgc()
     setNextFocusPrefersMouse(m_settings->nextFocusPrefersMouse());
     setSeparateScreenFocus(m_settings->separateScreenFocus());
     setRollOverDesktops(m_settings->rollOverDesktops());
-    setFocusStealingPreventionLevel(FocusStealingPreventionLevel(m_settings->focusStealingPreventionLevel()));
+    setFocusStealingPreventionLevel(m_settings->focusStealingPreventionLevel());
     setActivationDesktopPolicy(m_settings->activationDesktopPolicy());
     setXwaylandCrashPolicy(m_settings->xwaylandCrashPolicy());
     setXwaylandMaxCrashCount(m_settings->xwaylandMaxCrashCount());
     setXwaylandEavesdrops(XwaylandEavesdropsMode(m_settings->xwaylandEavesdrops()));
     setXwaylandEavesdropsMouse(m_settings->xwaylandEavesdropsMouse());
-    setXWaylandEisNoPrompt(m_settings->xwaylandEisNoPrompt());
     setPlacement(m_settings->placement());
     setAutoRaise(m_settings->autoRaise());
     setAutoRaiseInterval(m_settings->autoRaiseInterval());
     setDelayFocusInterval(m_settings->delayFocusInterval());
+    setShadeHover(m_settings->shadeHover());
+    setShadeHoverInterval(m_settings->shadeHoverInterval());
     setClickRaise(m_settings->clickRaise());
     setBorderSnapZone(m_settings->borderSnapZone());
     setWindowSnapZone(m_settings->windowSnapZone());
@@ -732,13 +865,10 @@ void Options::syncFromKcfgc()
     setElectricBorderMaximize(m_settings->electricBorderMaximize());
     setElectricBorderTiling(m_settings->electricBorderTiling());
     setElectricBorderCornerRatio(m_settings->electricBorderCornerRatio());
-    setElectricBorderAllScreenCorner(m_settings->electricBorderAllScreenCorner());
+    setWindowsBlockCompositing(m_settings->windowsBlockCompositing());
     setAllowTearing(m_settings->allowTearing());
     setInteractiveWindowMoveEnabled(m_settings->interactiveWindowMoveEnabled());
-    setOverlayVirtualKeyboardOnWindows(m_settings->overlayVirtualKeyboardOnWindows());
     setDoubleClickBorderToMaximize(m_settings->doubleClickBorderToMaximize());
-    setPictureInPictureHomeCorner(m_settings->pictureInPictureHomeCorner());
-    setPictureInPictureMargin(m_settings->pictureInPictureMargin());
 }
 
 // restricted should be true for operations that the user may not be able to repeat
@@ -759,6 +889,10 @@ Options::WindowOperation Options::windowOperation(const QString &name, bool rest
         return CloseOp;
     } else if (name == QLatin1StringView("OnAllDesktops")) {
         return OnAllDesktopsOp;
+    } else if (name == QLatin1StringView("Shade")) {
+        return ShadeOp;
+    } else if (name == QLatin1StringView("Operations")) {
+        return OperationsOp;
     } else if (name == QLatin1StringView("Maximize (vertical only)")) {
         return VMaximizeOp;
     } else if (name == QLatin1StringView("Maximize (horizontal only)")) {
@@ -820,6 +954,9 @@ Options::MouseCommand Options::mouseCommand(const QString &name, bool restricted
     if (lowerName == QLatin1StringView("resize")) {
         return restricted ? MouseResize : MouseUnrestrictedResize;
     }
+    if (lowerName == QLatin1StringView("shade")) {
+        return MouseShade;
+    }
     if (lowerName == QLatin1StringView("minimize")) {
         return MouseMinimize;
     }
@@ -844,6 +981,9 @@ Options::MouseWheelCommand Options::mouseWheelCommand(const QString &name)
     if (lowerName == QLatin1StringView("raise/lower")) {
         return MouseWheelRaiseLower;
     }
+    if (lowerName == QLatin1StringView("shade/unshade")) {
+        return MouseWheelShadeUnshade;
+    }
     if (lowerName == QLatin1StringView("maximize/restore")) {
         return MouseWheelMaximizeRestore;
     }
@@ -867,11 +1007,13 @@ bool Options::condensedTitle() const
     return condensed_title;
 }
 
-Options::MouseCommand Options::wheelToMouseCommand(MouseWheelCommand com, qreal delta) const
+Options::MouseCommand Options::wheelToMouseCommand(MouseWheelCommand com, int delta) const
 {
     switch (com) {
     case MouseWheelRaiseLower:
         return delta > 0 ? MouseRaise : MouseLower;
+    case MouseWheelShadeUnshade:
+        return delta > 0 ? MouseSetShade : MouseUnsetShade;
     case MouseWheelMaximizeRestore:
         return delta > 0 ? MouseMaximize : MouseRestore;
     case MouseWheelAboveBelow:
@@ -899,6 +1041,11 @@ Options::WindowOperation Options::operationMaxButtonClick(Qt::MouseButtons butto
 {
     return button == Qt::RightButton ? opMaxButtonRightClick : button == Qt::MiddleButton ? opMaxButtonMiddleClick
                                                                                           : opMaxButtonLeftClick;
+}
+
+bool Options::isUseCompositing() const
+{
+    return m_useCompositing;
 }
 
 } // namespace

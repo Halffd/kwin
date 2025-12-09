@@ -27,7 +27,7 @@ class QTimer;
 namespace KWin
 {
 
-class LogicalOutput;
+class Output;
 class Tile;
 class TileModel;
 
@@ -37,48 +37,40 @@ class TileModel;
 class KWIN_EXPORT TileManager : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(KWin::Tile *rootTile READ rootTile NOTIFY rootTileChanged)
-    Q_PROPERTY(TileModel *model READ model NOTIFY modelChanged)
+    Q_PROPERTY(KWin::Tile *rootTile READ rootTile CONSTANT)
+    Q_PROPERTY(TileModel *model READ model CONSTANT)
 
 public:
-    explicit TileManager(LogicalOutput *parent = nullptr);
+    explicit TileManager(Output *parent = nullptr);
     ~TileManager() override;
 
     bool tearingDown() const;
 
-    LogicalOutput *output() const;
+    Output *output() const;
 
+    KWin::Tile *bestTileForPosition(const QPointF &pos);
     Q_INVOKABLE KWin::Tile *bestTileForPosition(qreal x, qreal y); // For scripting
-    RootTile *rootTile(VirtualDesktop *desktop) const;
-    RootTile *rootTile() const;
-    QuickRootTile *quickRootTile(VirtualDesktop *desktop) const;
-    QuickRootTile *quickRootTile() const;
+    CustomTile *rootTile() const;
     KWin::Tile *quickTile(QuickTileMode mode) const;
 
     TileModel *model() const;
 
-    Tile *tileForWindow(Window *window, VirtualDesktop *desktop);
-    void forgetWindow(Window *window, VirtualDesktop *desktop);
-
 Q_SIGNALS:
     void tileRemoved(KWin::Tile *tile);
-    void rootTileChanged(CustomTile *rootTile);
-    void modelChanged(TileModel *model);
 
 private:
-    void readSettings(RootTile *rootTile);
+    void readSettings();
     void saveSettings();
     QJsonObject tileToJSon(CustomTile *parentTile);
     CustomTile *parseTilingJSon(const QJsonValue &val, const QRectF &availableArea, CustomTile *parentTile);
 
     Q_DISABLE_COPY(TileManager)
 
-    LogicalOutput *m_output = nullptr;
+    Output *m_output = nullptr;
     std::unique_ptr<QTimer> m_saveTimer;
-
-    QHash<VirtualDesktop *, RootTile *> m_rootTiles;
-    QHash<VirtualDesktop *, QuickRootTile *> m_quickRootTiles;
-
+    std::unique_ptr<CustomTile> m_rootTile = nullptr;
+    std::unique_ptr<QuickRootTile> m_quickRootTile = nullptr;
+    std::unique_ptr<TileModel> m_tileModel = nullptr;
     bool m_tearingDown = false;
     friend class CustomTile;
 };

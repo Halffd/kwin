@@ -9,24 +9,12 @@
 #include "kwin_export.h"
 
 #include "clientconnection.h"
-#include "utils/filedescriptor.h"
+#include "datadevicemanager.h"
 
 struct wl_client;
 
 namespace KWin
 {
-
-/**
- * Drag and Drop actions supported by the data source.
- */
-enum class DnDAction {
-    None = 0,
-    Copy = 1 << 0,
-    Move = 1 << 1,
-    Ask = 1 << 2,
-};
-Q_DECLARE_FLAGS(DnDActions, DnDAction)
-
 /**
  * @brief The AbstractDataSource class abstracts the data that
  * can be transferred to another client.
@@ -49,7 +37,7 @@ public:
     virtual void accept(const QString &mimeType)
     {
     };
-    virtual void requestData(const QString &mimeType, FileDescriptor fd) = 0;
+    virtual void requestData(const QString &mimeType, qint32 fd) = 0;
     virtual void cancel() = 0;
 
     virtual QStringList mimeTypes() const = 0;
@@ -57,13 +45,13 @@ public:
     /**
      * @returns The Drag and Drop actions supported by this DataSourceInterface.
      */
-    virtual DnDActions supportedDragAndDropActions() const
+    virtual DataDeviceManagerInterface::DnDActions supportedDragAndDropActions() const
     {
         return {};
     };
-    virtual DnDAction selectedDndAction() const
+    virtual DataDeviceManagerInterface::DnDAction selectedDndAction() const
     {
-        return DnDAction::None;
+        return DataDeviceManagerInterface::DnDAction::None;
     }
     /**
      * The user performed the drop action during a drag and drop operation.
@@ -82,9 +70,8 @@ public:
      * This event indicates the @p action selected by the compositor after matching the
      * source/destination side actions. Only one action (or none) will be offered here.
      */
-    virtual void dndAction(DnDAction action)
-    {
-    }
+    virtual void dndAction(DataDeviceManagerInterface::DnDAction action) {
+    };
 
     bool isDndCancelled() const
     {
@@ -116,13 +103,6 @@ public:
     void setKeyboardModifiers(Qt::KeyboardModifiers heldModifiers);
     Qt::KeyboardModifiers keyboardModifiers() const;
 
-    /**
-     * Action forced by the data source. Its primary purpose is to support XDND where supported
-     * source actions are unknown until some specific action arrives with an XdndPosition message.
-     */
-    void setExclusiveAction(DnDAction action);
-    std::optional<DnDAction> exclusiveAction() const;
-
 Q_SIGNALS:
     void aboutToBeDestroyed();
 
@@ -130,19 +110,15 @@ Q_SIGNALS:
     void supportedDragAndDropActionsChanged();
     void keyboardModifiersChanged();
     void dndActionChanged();
-    void exclusiveActionChanged();
     void acceptedChanged();
 
 protected:
     explicit AbstractDataSource(QObject *parent = nullptr);
 
 private:
-    std::optional<DnDAction> m_exclusiveAction;
     Qt::KeyboardModifiers m_heldModifiers;
     bool m_dndCancelled = false;
     bool m_dndDropped = false;
 };
 
 }
-
-Q_DECLARE_OPERATORS_FOR_FLAGS(KWin::DnDActions)

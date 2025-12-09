@@ -35,12 +35,12 @@ SurfaceInterface *DragAndDropIconItem::surface() const
     return m_surfaceItem ? m_surfaceItem->surface() : nullptr;
 }
 
-void DragAndDropIconItem::setOutput(LogicalOutput *output)
+void DragAndDropIconItem::setOutput(Output *output)
 {
     if (m_surfaceItem && output) {
         m_output = output;
         m_surfaceItem->surface()->setPreferredBufferScale(output->scale());
-        m_surfaceItem->surface()->setPreferredColorDescription(output->blendingColor());
+        m_surfaceItem->surface()->setPreferredColorDescription(output->colorDescription());
     }
 }
 

@@ -60,7 +60,7 @@ void MagicLampEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
     effects->prePaintScreen(data, presentTime);
 }
 
-void MagicLampEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
+void MagicLampEffect::prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
 {
     // Schedule window for transformation if the animation is still in
     //  progress
@@ -70,7 +70,7 @@ void MagicLampEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPr
         data.setTransformed();
     }
 
-    effects->prePaintWindow(view, w, data, presentTime);
+    effects->prePaintWindow(w, data, presentTime);
 }
 
 void MagicLampEffect::apply(EffectWindow *w, int mask, WindowPaintData &data, WindowQuadList &quads)
@@ -146,7 +146,7 @@ void MagicLampEffect::apply(EffectWindow *w, int mask, WindowPaintData &data, Wi
                 }
             }
             if (panel) {
-                // Assumption: width of horizontal panel is greater than its height and vice versa
+                // Assumption: width of horizonal panel is greater than its height and vice versa
                 const QRectF windowScreen = effects->clientArea(ScreenArea, w);
 
                 if (panel->width() >= panel->height()) {
@@ -207,7 +207,7 @@ void MagicLampEffect::apply(EffectWindow *w, int mask, WindowPaintData &data, Wi
         quads = quads.makeGrid(40);
         float quadFactor; // defines how fast a quad is vertically moved: y coordinates near to window top are slowed down
                           // it is used as quadFactor^3/windowHeight^3
-                          // quadFactor is the y position of the quad but is changed towards becoming the window height
+                          // quadFactor is the y position of the quad but is changed towards becomming the window height
                           // by that the factor becomes 1 and has no influence any more
         float offset[2] = {0, 0}; // how far has a quad to be moved? Distance between icon and window multiplied by the progress and by the quadFactor
         float p_progress[2] = {0, 0}; // the factor which defines how far the x values have to be changed

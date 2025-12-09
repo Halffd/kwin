@@ -14,8 +14,6 @@
 
 #include <kwin_export.h>
 
-class QProximitySensor;
-
 namespace KWin
 {
 
@@ -32,9 +30,9 @@ public:
     bool pointerButton(PointerButtonEvent *event) override;
     bool pointerAxis(PointerAxisEvent *event) override;
     bool keyboardKey(KeyboardKeyEvent *event) override;
-    bool touchDown(TouchDownEvent *event) override;
-    bool touchMotion(TouchMotionEvent *event) override;
-    bool touchUp(TouchUpEvent *event) override;
+    bool touchDown(qint32 id, const QPointF &pos, std::chrono::microseconds time) override;
+    bool touchMotion(qint32 id, const QPointF &pos, std::chrono::microseconds time) override;
+    bool touchUp(qint32 id, std::chrono::microseconds time) override;
     bool tabletToolProximityEvent(TabletToolProximityEvent *event) override;
     bool tabletToolAxisEvent(TabletToolAxisEvent *event) override;
     bool tabletToolTipEvent(TabletToolTipEvent *event) override;
@@ -42,20 +40,13 @@ public:
     bool tabletPadButtonEvent(TabletPadButtonEvent *event) override;
     bool tabletPadStripEvent(TabletPadStripEvent *event) override;
     bool tabletPadRingEvent(TabletPadRingEvent *event) override;
-    bool tabletPadDialEvent(TabletPadDialEvent *event) override;
-
-private Q_SLOTS:
-    void updateProximitySensor();
 
 private:
     void notify();
     QElapsedTimer m_doubleTapTimer;
     QList<qint32> m_touchPoints;
-    std::unique_ptr<QProximitySensor> m_sensor;
-
     bool m_secondTap = false;
-    bool m_enableDoubleTap = false;
-    bool m_proximityClose = false;
+    bool m_enableDoubleTap;
 };
 
 }

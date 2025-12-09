@@ -9,7 +9,6 @@
 #include "kwin_wayland_test.h"
 
 #include "core/output.h"
-#include "core/outputconfiguration.h"
 #include "cursor.h"
 #include "cursorsource.h"
 #include "effect/effecthandler.h"
@@ -21,6 +20,7 @@
 #include "wayland_server.h"
 #include "window.h"
 #include "workspace.h"
+#include "x11window.h"
 
 #include <KWayland/Client/buffer.h>
 #include <KWayland/Client/compositor.h>
@@ -33,12 +33,7 @@
 #include <KWayland/Client/surface.h>
 
 #include <linux/input.h>
-
-#if KWIN_BUILD_X11
-#include "x11window.h"
-
 #include <xcb/xcb_icccm.h>
-#endif
 
 namespace KWin
 {
@@ -119,6 +114,10 @@ void PointerInputTest::initTestCase()
 {
     qRegisterMetaType<KWin::Window *>();
     QVERIFY(waylandServer()->init(s_socketName));
+    Test::setOutputConfig({
+        QRect(0, 0, 1280, 1024),
+        QRect(1280, 0, 1280, 1024),
+    });
 
     kwinApp()->setConfig(KSharedConfig::openConfig(QString(), KConfig::SimpleConfig));
 
@@ -127,10 +126,6 @@ void PointerInputTest::initTestCase()
     qputenv("XKB_DEFAULT_RULES", "evdev");
 
     kwinApp()->start();
-    Test::setOutputConfig({
-        QRect(0, 0, 1280, 1024),
-        QRect(1280, 0, 1280, 1024),
-    });
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 2);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -403,7 +398,7 @@ void PointerInputTest::testUpdateFocusOnDecorationDestroy()
     shellSurface->xdgSurface()->ack_configure(surfaceConfigureRequestedSpy.last().at(0).value<quint32>());
     Test::render(surface.get(), QSize(1280, 1024), Qt::blue);
     QVERIFY(frameGeometryChangedSpy.wait());
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 1280, 1024));
     QCOMPARE(window->maximizeMode(), MaximizeFull);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeFull);
     QCOMPARE(window->isDecorated(), false);
@@ -700,9 +695,9 @@ void PointerInputTest::testModifierScrollOpacity()
     }
     QFETCH(int, modifierKey);
     Test::keyboardKeyPressed(modifierKey, timestamp++);
-    Test::pointerAxisVertical(-15, timestamp++);
+    Test::pointerAxisVertical(-5, timestamp++);
     QCOMPARE(window->opacity(), 0.6);
-    Test::pointerAxisVertical(15, timestamp++);
+    Test::pointerAxisVertical(5, timestamp++);
     QCOMPARE(window->opacity(), 0.5);
     Test::keyboardKeyReleased(modifierKey, timestamp++);
     if (capsLock) {
@@ -758,9 +753,9 @@ void PointerInputTest::testModifierScrollOpacityGlobalShortcutsDisabled()
     // simulate modifier+wheel
     quint32 timestamp = 1;
     Test::keyboardKeyPressed(KEY_LEFTMETA, timestamp++);
-    Test::pointerAxisVertical(-15, timestamp++);
+    Test::pointerAxisVertical(-5, timestamp++);
     QCOMPARE(window->opacity(), 0.5);
-    Test::pointerAxisVertical(15, timestamp++);
+    Test::pointerAxisVertical(5, timestamp++);
     QCOMPARE(window->opacity(), 0.5);
     Test::keyboardKeyReleased(KEY_LEFTMETA, timestamp++);
 
@@ -804,11 +799,6 @@ void PointerInputTest::testScrollAction()
     input()->pointer()->warp(window1->frameGeometry().center());
 
     quint32 timestamp = 1;
-    QVERIFY(!window1->isActive());
-    // the action should be triggered only once enough delta is accumulated
-    Test::pointerAxisVertical(5, timestamp++);
-    QVERIFY(!window1->isActive());
-    Test::pointerAxisVertical(5, timestamp++);
     QVERIFY(!window1->isActive());
     Test::pointerAxisVertical(5, timestamp++);
     QVERIFY(window1->isActive());
@@ -1874,7 +1864,6 @@ void PointerInputTest::testEmptyInputRegion()
 
 void PointerInputTest::testUnfocusedModifiers()
 {
-#if KWIN_BUILD_X11
     // This test verifies that a window under the cursor gets modifier events,
     // even if it isn't focused
 
@@ -1936,7 +1925,6 @@ void PointerInputTest::testUnfocusedModifiers()
     // Destroy the Wayland window.
     shellSurface.reset();
     QVERIFY(Test::waitForWindowClosed(waylandWindow));
-#endif
 }
 }
 

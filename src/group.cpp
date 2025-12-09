@@ -32,7 +32,7 @@ Group::Group(xcb_window_t leader_P)
     , refcount(0)
 {
     if (leader_P != XCB_WINDOW_NONE) {
-        leader_client = workspace()->findClient(leader_P);
+        leader_client = workspace()->findClient(Predicate::WindowMatch, leader_P);
         leader_info = std::make_unique<NETWinInfo>(kwinApp()->x11Connection(), leader_P, kwinApp()->x11RootWindow(),
                                                    NET::Properties(), NET::WM2StartupId);
     }
@@ -135,7 +135,8 @@ void Group::updateUserTime(xcb_timestamp_t time)
 {
     // copy of X11Window::updateUserTime
     if (time == XCB_CURRENT_TIME) {
-        time = kwinApp()->x11Time();
+        kwinApp()->updateXTime();
+        time = xTime();
     }
     if (time != -1U
         && (user_time == XCB_CURRENT_TIME

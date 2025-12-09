@@ -11,6 +11,8 @@
 #include "effect/effect.h"
 #include "effect/timeline.h"
 
+#include <xcb/xcb.h>
+
 namespace KWin
 {
 
@@ -20,11 +22,12 @@ class KscreenEffect : public Effect
 
 public:
     KscreenEffect();
+    ~KscreenEffect() override;
 
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime) override;
     void postPaintScreen() override;
-    void prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
-    void paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data) override;
+    void prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
+    void paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, QRegion region, WindowPaintData &data) override;
 
     void reconfigure(ReconfigureFlags flags) override;
     bool isActive() const override;
@@ -33,6 +36,11 @@ public:
     {
         return 99;
     }
+
+#if KWIN_BUILD_X11
+private Q_SLOTS:
+    void propertyNotify(KWin::EffectWindow *window, long atom);
+#endif
 
 private:
     enum FadeOutState {
@@ -50,11 +58,15 @@ private:
 
     void switchState(ScreenState &state);
     void setState(ScreenState &state, FadeOutState newState);
-    void dpmsChanged(std::chrono::milliseconds animationTime);
-    bool isScreenActive(LogicalOutput *screen) const;
+    void addScreen(Output *screen);
+    bool isScreenActive(Output *screen) const;
 
-    QHash<LogicalOutput *, ScreenState> m_states;
-    LogicalOutput *m_currentScreen = nullptr;
+    QHash<Output *, ScreenState> m_waylandStates;
+    ScreenState m_xcbState;
+    Output *m_currentScreen = nullptr;
+#if KWIN_BUILD_X11
+    xcb_atom_t m_atom;
+#endif
 };
 
 } // namespace KWin

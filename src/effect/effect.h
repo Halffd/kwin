@@ -22,7 +22,7 @@ namespace KWin
 {
 
 class EffectWindow;
-class LogicalOutput;
+class Output;
 class PaintDataPrivate;
 class RenderTarget;
 class RenderViewport;
@@ -30,7 +30,6 @@ struct TabletToolProximityEvent;
 struct TabletToolTipEvent;
 struct TabletToolAxisEvent;
 class WindowPaintDataPrivate;
-class RenderView;
 
 /** @defgroup kwineffects KWin effects library
  * KWin effects library contains necessary classes for creating new KWin
@@ -102,7 +101,7 @@ class RenderView;
 
 #define KWIN_EFFECT_API_MAKE_VERSION(major, minor) ((major) << 8 | (minor))
 #define KWIN_EFFECT_API_VERSION_MAJOR 0
-#define KWIN_EFFECT_API_VERSION_MINOR 237
+#define KWIN_EFFECT_API_VERSION_MINOR 236
 #define KWIN_EFFECT_API_VERSION KWIN_EFFECT_API_MAKE_VERSION( \
     KWIN_EFFECT_API_VERSION_MAJOR, KWIN_EFFECT_API_VERSION_MINOR)
 
@@ -280,14 +279,14 @@ class KWIN_EXPORT WindowPrePaintData
 public:
     int mask;
     /**
-     * Region that will be painted, in device coordinates.
+     * Region that will be painted, in screen coordinates.
      */
-    QRegion devicePaint;
+    QRegion paint;
     /**
      * Region indicating the opaque content. It can be used to avoid painting
      * windows occluded by the opaque region.
      */
-    QRegion deviceOpaque;
+    QRegion opaque;
     /**
      * Simple helper that sets data to say the window will be painted as non-opaque.
      * Takes also care of changing the regions.
@@ -436,8 +435,7 @@ class KWIN_EXPORT ScreenPrePaintData
 public:
     int mask;
     QRegion paint;
-    LogicalOutput *screen = nullptr;
-    RenderView *view = nullptr;
+    Output *screen = nullptr;
 };
 
 /**
@@ -609,7 +607,7 @@ public:
      * In OpenGL based compositing, the frameworks ensures that the context is current
      * when this method is invoked.
      */
-    virtual void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen);
+    virtual void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen);
     /**
      * Called after all the painting has been finished.
      * In this method you can:
@@ -624,7 +622,7 @@ public:
     /**
      * Called for every window before the actual paint pass
      * In this method you can:
-     * @li enable or disable painting of the window (e.g. enable painting of minimized window)
+     * @li enable or disable painting of the window (e.g. enable paiting of minimized window)
      * @li set window to be painted with translucency
      * @li set window to be transformed
      * @li request the window to be divided into multiple parts
@@ -635,7 +633,7 @@ public:
      * @a presentTime specifies the expected monotonic time when the rendered frame
      * will be displayed on the screen.
      */
-    virtual void prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data,
+    virtual void prePaintWindow(EffectWindow *w, WindowPrePaintData &data,
                                 std::chrono::milliseconds presentTime);
     /**
      * This is the main method for painting windows.
@@ -647,7 +645,17 @@ public:
      * In OpenGL based compositing, the frameworks ensures that the context is current
      * when this method is invoked.
      */
-    virtual void paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data);
+    virtual void paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, QRegion region, WindowPaintData &data);
+    /**
+     * Called for every window after all painting has been finished.
+     * In this method you can:
+     * @li schedule next repaint for individual window(s) in case of animations
+     * You shouldn't paint anything here.
+     *
+     * In OpenGL based compositing, the frameworks ensures that the context is current
+     * when this method is invoked.
+     */
+    virtual void postPaintWindow(EffectWindow *w);
 
     /**
      * Called on Transparent resizes.
@@ -676,7 +684,7 @@ public:
      * In OpenGL based compositing, the frameworks ensures that the context is current
      * when this method is invoked.
      */
-    virtual void drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data);
+    virtual void drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &region, WindowPaintData &data);
 
     virtual void windowInputMouseEvent(QEvent *e);
     virtual void grabbedKeyboardEvent(QKeyEvent *e);
@@ -837,7 +845,7 @@ public:
      *
      * @since 5.25
      */
-    virtual bool tabletPadStripEvent(int number, qreal position, bool isFinger, void *device);
+    virtual bool tabletPadStripEvent(int number, int position, bool isFinger, void *device);
 
     /**
      * There has been an event from a input ring on a drawing tablet pad
@@ -849,18 +857,7 @@ public:
      *
      * @since 5.25
      */
-    virtual bool tabletPadRingEvent(int number, qreal position, bool isFinger, void *device);
-
-    /**
-     * There has been an event from a input dial on a drawing tablet pad
-     *
-     * @param number which dial
-     * @param delta the delta value
-     * @param device the identifier of the tool id
-     *
-     * @since 6.4
-     */
-    virtual bool tabletPadDialEvent(int number, double delta, void *device);
+    virtual bool tabletPadRingEvent(int number, int position, bool isFinger, void *device);
 
     static QPointF cursorPos();
 
@@ -898,7 +895,7 @@ public:
     /** Helper to set WindowPaintData and QRegion to necessary transformations so that
      * a following drawWindow() would put the window at the requested geometry (useful for thumbnails)
      */
-    static void setPositionTransformations(WindowPaintData &data, QRect &logicalRegion, EffectWindow *w,
+    static void setPositionTransformations(WindowPaintData &data, QRect &region, EffectWindow *w,
                                            const QRect &r, Qt::AspectRatioMode aspect);
 
     /**
@@ -963,7 +960,7 @@ public:
  *
  * If the Effect to be created does not need the isSupported or enabledByDefault methods prefer
  * the simplified KWIN_EFFECT_FACTORY, KWIN_EFFECT_FACTORY_SUPPORTED or KWIN_EFFECT_FACTORY_ENABLED
- * macros which create an EffectPluginFactory with a usable default value.
+ * macros which create an EffectPluginFactory with a useable default value.
  *
  * This API is not providing binary compatibility and thus the effect plugin must be compiled against
  * the same kwineffects library version as KWin.

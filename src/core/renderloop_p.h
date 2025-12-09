@@ -10,7 +10,7 @@
 #include "renderjournal.h"
 #include "renderloop.h"
 
-#include <QBasicTimer>
+#include <QTimer>
 
 #include <fstream>
 #include <optional>
@@ -25,7 +25,7 @@ class KWIN_EXPORT RenderLoopPrivate
 {
 public:
     static RenderLoopPrivate *get(RenderLoop *loop);
-    explicit RenderLoopPrivate(RenderLoop *q, BackendOutput *output);
+    explicit RenderLoopPrivate(RenderLoop *q, Output *output);
 
     void dispatch();
 
@@ -38,25 +38,25 @@ public:
     void notifyVblank(std::chrono::nanoseconds timestamp);
 
     RenderLoop *const q;
-    BackendOutput *const output;
+    Output *const output;
     std::optional<std::fstream> m_debugOutput;
     std::chrono::nanoseconds lastPresentationTimestamp = std::chrono::nanoseconds::zero();
     std::chrono::nanoseconds nextPresentationTimestamp = std::chrono::nanoseconds::zero();
     bool wasTripleBuffering = false;
     int doubleBufferingCounter = 0;
-    QBasicTimer compositeTimer;
+    QTimer compositeTimer;
     RenderJournal renderJournal;
     int refreshRate = 60000;
     int pendingFrameCount = 0;
-    bool preparingNewFrame = false;
     int inhibitCount = 0;
     bool pendingReschedule = false;
+    bool pendingRepaint = false;
     std::chrono::nanoseconds safetyMargin{0};
 
     PresentationMode presentationMode = PresentationMode::VSync;
     int maxPendingFrameCount = 1;
 
-    QBasicTimer delayedVrrTimer;
+    QTimer delayedVrrTimer;
 };
 
 } // namespace KWin

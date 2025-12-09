@@ -46,6 +46,10 @@ void TabBoxTest::initTestCase()
 {
     qRegisterMetaType<KWin::Window *>();
     QVERIFY(waylandServer()->init(s_socketName));
+    Test::setOutputConfig({
+        QRect(0, 0, 1280, 1024),
+        QRect(1280, 0, 1280, 1024),
+    });
 
     KSharedConfigPtr c = KSharedConfig::openConfig(QString(), KConfig::SimpleConfig);
     c->group(QStringLiteral("TabBox")).writeEntry("ShowTabBox", false);
@@ -54,10 +58,6 @@ void TabBoxTest::initTestCase()
     qputenv("KWIN_XKB_DEFAULT_KEYMAP", "1");
 
     kwinApp()->start();
-    Test::setOutputConfig({
-        QRect(0, 0, 1280, 1024),
-        QRect(1280, 0, 1280, 1024),
-    });
 }
 
 void TabBoxTest::init()
@@ -306,7 +306,7 @@ void TabBoxTest::testActiveClientOutsideModel()
     // 2) the selection should not be advanced initially if the active window
     //    is not part of the client list.
 
-    const auto outputs = workspace()->outputs();
+    const auto outputs = kwinApp()->outputBackend()->outputs();
 
     // Initially, set up MultiScreenMode such that alt+tab will only switch
     // within windows on the same screen.

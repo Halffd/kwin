@@ -5,13 +5,11 @@
 */
 
 #include "scene/itemrenderer_qpainter.h"
-#include "core/rendertarget.h"
 #include "core/renderviewport.h"
 #include "effect/effect.h"
-#include "scene/decorationitem.h"
+#include "platformsupport/scenes/qpainter/qpaintersurfacetexture.h"
 #include "scene/imageitem.h"
-#include "scene/surfaceitem.h"
-#include "scene/workspacescene.h"
+#include "scene/workspacescene_qpainter.h"
 #include "window.h"
 
 #include <QPainter>
@@ -50,33 +48,30 @@ void ItemRendererQPainter::endFrame()
     m_painter->end();
 }
 
-void ItemRendererQPainter::renderBackground(const RenderTarget &renderTarget, const RenderViewport &viewport, const QRegion &deviceRegion)
+void ItemRendererQPainter::renderBackground(const RenderTarget &renderTarget, const RenderViewport &viewport, const QRegion &region)
 {
     m_painter->setCompositionMode(QPainter::CompositionMode_Source);
-    const QRegion clipped = deviceRegion & renderTarget.transformedRect();
-    for (const QRect &rect : clipped) {
-        m_painter->fillRect(viewport.mapFromDeviceCoordinates(rect), Qt::transparent);
+    for (const QRect &rect : region) {
+        m_painter->fillRect(rect, Qt::transparent);
     }
     m_painter->setCompositionMode(QPainter::CompositionMode_SourceOver);
 }
 
-void ItemRendererQPainter::renderItem(const RenderTarget &renderTarget, const RenderViewport &viewport, Item *item, int mask, const QRegion &deviceRegion, const WindowPaintData &data, const std::function<bool(Item *)> &filter, const std::function<bool(Item *)> &holeFilter)
+void ItemRendererQPainter::renderItem(const RenderTarget &renderTarget, const RenderViewport &viewport, Item *item, int mask, const QRegion &_region, const WindowPaintData &data)
 {
-    QRegion effectiveRegion = deviceRegion;
+    QRegion region = _region;
 
+    const QRect boundingRect = item->mapToScene(item->boundingRect()).toAlignedRect();
     if (!(mask & (Scene::PAINT_WINDOW_TRANSFORMED | Scene::PAINT_SCREEN_TRANSFORMED))) {
-        const QRect boundingRect = viewport.mapToRenderTarget(item->mapToScene(item->boundingRect())).toAlignedRect();
-        effectiveRegion &= boundingRect;
+        region &= boundingRect;
     }
 
-    if (effectiveRegion.isEmpty()) {
+    if (region.isEmpty()) {
         return;
     }
 
-    const QRegion logicalRegion = viewport.mapFromDeviceCoordinatesAligned(effectiveRegion);
-
     m_painter->save();
-    m_painter->setClipRegion(logicalRegion);
+    m_painter->setClipRegion(region);
     m_painter->setClipping(true);
     m_painter->setOpacity(data.opacity());
 
@@ -85,16 +80,13 @@ void ItemRendererQPainter::renderItem(const RenderTarget &renderTarget, const Re
         m_painter->scale(data.xScale(), data.yScale());
     }
 
-    renderItem(m_painter.get(), item, filter);
+    renderItem(m_painter.get(), item);
 
     m_painter->restore();
 }
 
-void ItemRendererQPainter::renderItem(QPainter *painter, Item *item, const std::function<bool(Item *)> &filter) const
+void ItemRendererQPainter::renderItem(QPainter *painter, Item *item) const
 {
-    if (filter && filter(item)) {
-        return;
-    }
     const QList<Item *> sortedChildItems = item->sortedChildItems();
 
     painter->save();
@@ -106,7 +98,7 @@ void ItemRendererQPainter::renderItem(QPainter *painter, Item *item, const std::
             break;
         }
         if (childItem->explicitVisible()) {
-            renderItem(painter, childItem, filter);
+            renderItem(painter, childItem);
         }
     }
 
@@ -124,7 +116,7 @@ void ItemRendererQPainter::renderItem(QPainter *painter, Item *item, const std::
             continue;
         }
         if (childItem->explicitVisible()) {
-            renderItem(painter, childItem, filter);
+            renderItem(painter, childItem);
         }
     }
 
@@ -133,10 +125,13 @@ void ItemRendererQPainter::renderItem(QPainter *painter, Item *item, const std::
 
 void ItemRendererQPainter::renderSurfaceItem(QPainter *painter, SurfaceItem *surfaceItem) const
 {
-    const auto surfaceTexture = static_cast<QPainterSurfaceTexture *>(surfaceItem->texture());
+    const SurfacePixmap *surfaceTexture = surfaceItem->pixmap();
     if (!surfaceTexture || !surfaceTexture->isValid()) {
         return;
     }
+
+    QPainterSurfaceTexture *platformSurfaceTexture =
+        static_cast<QPainterSurfaceTexture *>(surfaceTexture->texture());
 
     const OutputTransform surfaceToBufferTransform = surfaceItem->bufferTransform();
     const QSizeF transformedSize = surfaceToBufferTransform.map(surfaceItem->destinationSize());
@@ -189,7 +184,7 @@ void ItemRendererQPainter::renderSurfaceItem(QPainter *painter, SurfaceItem *sur
                             target.width() * xSourceBoxScale,
                             target.height() * ySourceBoxScale);
 
-        painter->drawImage(target, surfaceTexture->image(), source);
+        painter->drawImage(target, platformSurfaceTexture->image(), source);
     }
 
     painter->restore();
@@ -198,7 +193,7 @@ void ItemRendererQPainter::renderSurfaceItem(QPainter *painter, SurfaceItem *sur
 void ItemRendererQPainter::renderDecorationItem(QPainter *painter, DecorationItem *decorationItem) const
 {
     const auto renderer = static_cast<const SceneQPainterDecorationRenderer *>(decorationItem->renderer());
-    RectF dtr, dlr, drr, dbr;
+    QRectF dtr, dlr, drr, dbr;
     decorationItem->window()->layoutDecorationRects(dlr, dtr, drr, dbr);
 
     painter->drawImage(dtr, renderer->image(SceneQPainterDecorationRenderer::DecorationPart::Top));

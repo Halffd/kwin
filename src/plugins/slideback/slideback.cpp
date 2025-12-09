@@ -8,7 +8,6 @@
 */
 
 #include "slideback.h"
-#include "core/renderviewport.h"
 #include "effect/effecthandler.h"
 
 namespace KWin
@@ -68,8 +67,7 @@ void SlideBackEffect::windowRaised(EffectWindow *w)
                 currentFound = true;
             }
         } else {
-            if (isWindowUsable(tmp) && tmp->isOnCurrentDesktop() && w->isOnCurrentDesktop()
-                && tmp->isOnCurrentActivity() && w->isOnCurrentActivity()) {
+            if (isWindowUsable(tmp) && tmp->isOnCurrentDesktop() && w->isOnCurrentDesktop()) {
                 // Do we have to move it?
                 if (intersects(w, tmp->frameGeometry().toRect())) {
                     QRect slideRect;
@@ -155,10 +153,43 @@ void SlideBackEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
 
 void SlideBackEffect::postPaintScreen()
 {
-    const auto managedWindows = motionManager.managedWindows();
-    for (EffectWindow *w : managedWindows) {
+    if (motionManager.areWindowsMoving()) {
+        effects->addRepaintFull();
+    }
+
+    for (auto &w : effects->stackingOrder()) {
+        w->setData(WindowForceBlurRole, QVariant());
+    }
+
+    effects->postPaintScreen();
+}
+
+void SlideBackEffect::prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
+{
+    if (motionManager.isManaging(w)) {
+        data.setTransformed();
+    }
+
+    effects->prePaintWindow(w, data, presentTime);
+}
+
+void SlideBackEffect::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, QRegion region, WindowPaintData &data)
+{
+    if (motionManager.isManaging(w)) {
+        motionManager.apply(w, data);
+    }
+    for (const QRegion &r : std::as_const(clippedRegions)) {
+        region = region.intersected(r);
+    }
+    effects->paintWindow(renderTarget, viewport, w, mask, region, data);
+    clippedRegions.clear();
+}
+
+void SlideBackEffect::postPaintWindow(EffectWindow *w)
+{
+    if (motionManager.isManaging(w)) {
         if (destinationList.contains(w)) {
-            if (!motionManager.isWindowMoving(w)) { // has window reached its destination?
+            if (!motionManager.isWindowMoving(w)) { // has window reched its destination?
                 // If we are still intersecting with the upmostWindow it is moving. slide to somewhere else
                 // restore the stacking order of all windows not intersecting any more except panels
                 if (coveringWindows.contains(w)) {
@@ -220,42 +251,10 @@ void SlideBackEffect::postPaintScreen()
             }
         }
     }
-
-    if (motionManager.areWindowsMoving()) {
-        effects->addRepaintFull();
-    }
-
-    for (auto &w : effects->stackingOrder()) {
-        w->setData(WindowForceBlurRole, QVariant());
-    }
-
     if (!isActive()) {
         m_lastPresentTime = std::chrono::milliseconds::zero();
     }
-
-    effects->postPaintScreen();
-}
-
-void SlideBackEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime)
-{
-    if (motionManager.isManaging(w)) {
-        data.setTransformed();
-    }
-
-    effects->prePaintWindow(view, w, data, presentTime);
-}
-
-void SlideBackEffect::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceGeometry, WindowPaintData &data)
-{
-    if (motionManager.isManaging(w)) {
-        motionManager.apply(w, data);
-    }
-    QRegion effectiveRegion = deviceGeometry;
-    for (const QRegion &r : std::as_const(clippedRegions)) {
-        effectiveRegion = effectiveRegion.intersected(viewport.mapToDeviceCoordinatesAligned(r));
-    }
-    effects->paintWindow(renderTarget, viewport, w, mask, effectiveRegion, data);
-    clippedRegions.clear();
+    effects->postPaintWindow(w);
 }
 
 void SlideBackEffect::slotWindowDeleted(EffectWindow *w)

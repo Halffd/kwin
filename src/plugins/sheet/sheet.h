@@ -29,8 +29,8 @@ public:
 
     void reconfigure(ReconfigureFlags flags) override;
 
-    void prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
-    void postPaintScreen() override;
+    void prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
+    void postPaintWindow(EffectWindow *w) override;
 
     bool isActive() const override;
     int requestedEffectChainPosition() const override;

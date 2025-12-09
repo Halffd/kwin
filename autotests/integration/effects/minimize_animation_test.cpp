@@ -45,6 +45,10 @@ void MinimizeAnimationTest::initTestCase()
 
     qRegisterMetaType<KWin::Window *>();
     QVERIFY(waylandServer()->init(s_socketName));
+    Test::setOutputConfig({
+        QRect(0, 0, 1280, 1024),
+        QRect(1280, 0, 1280, 1024),
+    });
 
     auto config = KSharedConfig::openConfig(QString(), KConfig::SimpleConfig);
     KConfigGroup plugins(config, QStringLiteral("Plugins"));
@@ -59,10 +63,6 @@ void MinimizeAnimationTest::initTestCase()
     qputenv("KWIN_EFFECTS_FORCE_ANIMATIONS", QByteArrayLiteral("1"));
 
     kwinApp()->start();
-    Test::setOutputConfig({
-        QRect(0, 0, 1280, 1024),
-        QRect(1280, 0, 1280, 1024),
-    });
 }
 
 void MinimizeAnimationTest::init()
@@ -93,7 +93,7 @@ void MinimizeAnimationTest::testMinimizeUnminimize()
     // when it's minimized or unminimized.
 
     // Create a panel at the top of the screen.
-    const Rect panelRect = Rect(0, 0, 1280, 36);
+    const QRect panelRect = QRect(0, 0, 1280, 36);
     std::unique_ptr<KWayland::Client::Surface> panelSurface{Test::createSurface()};
     std::unique_ptr<Test::LayerSurfaceV1> panelShellSurface{Test::createLayerSurfaceV1(panelSurface.get(), QStringLiteral("dock"))};
     panelShellSurface->set_size(panelRect.width(), panelRect.height());
@@ -123,8 +123,8 @@ void MinimizeAnimationTest::testMinimizeUnminimize()
     // otherwise it won't start animation.
     auto plasmaWindow = plasmaWindowCreatedSpy.last().first().value<KWayland::Client::PlasmaWindow *>();
     QVERIFY(plasmaWindow);
-    const RectF iconRect = RectF(0, 0, 42, 36);
-    plasmaWindow->setMinimizedGeometry(panelSurface.get(), iconRect.toRect());
+    const QRect iconRect = QRect(0, 0, 42, 36);
+    plasmaWindow->setMinimizedGeometry(panelSurface.get(), iconRect);
     Test::flushWaylandConnection();
     QTRY_COMPARE(window->iconGeometry(), iconRect.translated(panel->frameGeometry().topLeft().toPoint()));
 

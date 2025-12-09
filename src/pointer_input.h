@@ -170,7 +170,7 @@ private:
     void updateToReset();
     void updatePosition(const QPointF &pos, std::chrono::microseconds time);
     void updateButton(uint32_t button, PointerButtonState state);
-    QPointF applyEdgeBarrier(const QPointF &pos, const LogicalOutput *currentOutput, std::chrono::microseconds time);
+    QPointF applyEdgeBarrier(const QPointF &pos, const Output *currentOutput, std::chrono::microseconds time);
     EdgeBarrierType edgeBarrierType(const QPointF &pos, const QRectF &lastOutputGeometry) const;
     qreal edgeBarrier(EdgeBarrierType type) const;
     QPointF applyPointerConfinement(const QPointF &pos) const;
@@ -270,5 +270,29 @@ private:
         std::unique_ptr<ShapeCursorSource> shape;
         CursorSource *cursor = nullptr;
     } m_serverCursor;
+};
+
+/**
+ * @brief Implementation using the InputRedirection framework to get pointer positions.
+ *
+ * Does not support warping of cursor.
+ */
+class InputRedirectionCursor : public KWin::Cursor
+{
+    Q_OBJECT
+public:
+    explicit InputRedirectionCursor();
+    ~InputRedirectionCursor() override;
+
+protected:
+    void doSetPos() override;
+
+private Q_SLOTS:
+    void slotPosChanged(const QPointF &pos);
+    void slotPointerButtonChanged();
+    void slotModifiersChanged(Qt::KeyboardModifiers mods, Qt::KeyboardModifiers oldMods);
+
+private:
+    Qt::MouseButtons m_currentButtons;
 };
 }

@@ -10,7 +10,7 @@
 
 #include "core/outputlayer.h"
 #include "core/renderbackend.h"
-#include "qpainter/qpainterbackend.h"
+#include "platformsupport/scenes/qpainter/qpainterbackend.h"
 
 #include <QList>
 #include <QMap>
@@ -30,15 +30,14 @@ class VirtualQPainterBackend;
 class VirtualQPainterLayer : public OutputLayer
 {
 public:
-    VirtualQPainterLayer(BackendOutput *output, VirtualQPainterBackend *backend);
+    VirtualQPainterLayer(Output *output, VirtualQPainterBackend *backend);
     ~VirtualQPainterLayer() override;
 
     std::optional<OutputLayerBeginFrameInfo> doBeginFrame() override;
-    bool doEndFrame(const QRegion &renderedDeviceRegion, const QRegion &damagedDeviceRegion, OutputFrame *frame) override;
+    bool doEndFrame(const QRegion &renderedRegion, const QRegion &damagedRegion, OutputFrame *frame) override;
     QImage *image();
     DrmDevice *scanoutDevice() const override;
     QHash<uint32_t, QList<uint64_t>> supportedDrmFormats() const override;
-    void releaseBuffers() override;
 
 private:
     VirtualQPainterBackend *const m_backend;
@@ -56,13 +55,15 @@ public:
 
     GraphicsBufferAllocator *graphicsBufferAllocator() const;
 
-    QList<OutputLayer *> compatibleOutputLayers(BackendOutput *output) override;
+    bool present(Output *output, const std::shared_ptr<OutputFrame> &frame) override;
+    VirtualQPainterLayer *primaryLayer(Output *output) override;
 
 private:
-    void addOutput(BackendOutput *output);
+    void addOutput(Output *output);
+    void removeOutput(Output *output);
 
-    VirtualBackend *const m_backend;
     std::unique_ptr<GraphicsBufferAllocator> m_allocator;
+    std::map<Output *, std::unique_ptr<VirtualQPainterLayer>> m_outputs;
 };
 
 } // namespace KWin

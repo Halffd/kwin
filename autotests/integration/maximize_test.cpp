@@ -48,14 +48,14 @@ void TestMaximized::initTestCase()
 {
     qRegisterMetaType<KWin::Window *>();
     QVERIFY(waylandServer()->init(s_socketName));
-
-    kwinApp()->setConfig(KSharedConfig::openConfig(QString(), KConfig::SimpleConfig));
-
-    kwinApp()->start();
     Test::setOutputConfig({
         QRect(0, 0, 1280, 1024),
         QRect(1280, 0, 1280, 1024),
     });
+
+    kwinApp()->setConfig(KSharedConfig::openConfig(QString(), KConfig::SimpleConfig));
+
+    kwinApp()->start();
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 2);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -187,7 +187,7 @@ void TestMaximized::testInitiallyMaximizedBorderless()
     QVERIFY(window->isMaximizable());
     QCOMPARE(window->maximizeMode(), MaximizeMode::MaximizeFull);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeMode::MaximizeFull);
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 1280, 1024));
     QCOMPARE(decorationConfigureRequestedSpy.last().at(0).value<Test::XdgToplevelDecorationV1::mode>(),
              Test::XdgToplevelDecorationV1::mode_server_side);
 
@@ -258,7 +258,7 @@ void TestMaximized::testBorderlessMaximizedWindow()
     shellSurface->xdgSurface()->ack_configure(surfaceConfigureRequestedSpy.last().at(0).value<quint32>());
     Test::render(surface.get(), QSize(1280, 1024), Qt::blue);
     QVERIFY(frameGeometryChangedSpy.wait());
-    QCOMPARE(window->frameGeometry(), RectF(0, 0, 1280, 1024));
+    QCOMPARE(window->frameGeometry(), QRect(0, 0, 1280, 1024));
     QCOMPARE(window->maximizeMode(), MaximizeMode::MaximizeFull);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeMode::MaximizeFull);
     QCOMPARE(window->isDecorated(), false);

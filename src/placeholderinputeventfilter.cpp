@@ -39,17 +39,17 @@ bool PlaceholderInputEventFilter::keyboardKey(KeyboardKeyEvent *event)
     return !isMediaKey(event->key);
 }
 
-bool PlaceholderInputEventFilter::touchDown(TouchDownEvent *event)
+bool PlaceholderInputEventFilter::touchDown(qint32 id, const QPointF &pos, std::chrono::microseconds time)
 {
     return true;
 }
 
-bool PlaceholderInputEventFilter::touchMotion(TouchMotionEvent *event)
+bool PlaceholderInputEventFilter::touchMotion(qint32 id, const QPointF &pos, std::chrono::microseconds time)
 {
     return true;
 }
 
-bool PlaceholderInputEventFilter::touchUp(TouchUpEvent *event)
+bool PlaceholderInputEventFilter::touchUp(qint32 id, std::chrono::microseconds time)
 {
     return true;
 }

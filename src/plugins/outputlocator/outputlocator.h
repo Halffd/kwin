@@ -22,7 +22,7 @@ class OutputLocatorEffect : public KWin::Effect
 
 public:
     explicit OutputLocatorEffect(QObject *parent = nullptr);
-    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen) override;
+    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, KWin::Output *screen) override;
     bool isActive() const override;
 
 public Q_SLOTS:
@@ -30,7 +30,8 @@ public Q_SLOTS:
     void hide();
 
 private:
+    QUrl m_qmlUrl;
     QTimer m_showTimer;
-    std::unordered_map<LogicalOutput *, std::unique_ptr<OffscreenQuickScene>> m_scenesByScreens;
+    std::unordered_map<Output *, std::unique_ptr<OffscreenQuickScene>> m_scenesByScreens;
 };
 }

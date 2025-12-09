@@ -7,7 +7,7 @@
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 #pragma once
-#include "core/backendoutput.h"
+#include "core/output.h"
 #include "core/outputconfiguration.h"
 
 #include <QList>
@@ -18,7 +18,7 @@ namespace KWin
 namespace KScreenIntegration
 {
 
-QString connectedOutputsHash(const QList<BackendOutput *> &outputs, bool isLidClosed);
-std::optional<OutputConfiguration> readOutputConfig(const QList<BackendOutput *> &outputs, const QString &hash);
+QString connectedOutputsHash(const QList<Output *> &outputs, bool isLidClosed);
+std::optional<std::pair<OutputConfiguration, QList<Output *>>> readOutputConfig(const QList<Output *> &outputs, const QString &hash);
 }
 }

@@ -18,7 +18,7 @@
 namespace KWin
 {
 
-static constexpr int s_version = 2;
+static constexpr int s_version = 1;
 
 class CursorShapeManagerV1InterfacePrivate : public QtWaylandServer::wp_cursor_shape_manager_v1
 {
@@ -179,10 +179,6 @@ static QByteArray shapeName(uint32_t shape)
         return QByteArrayLiteral("zoom-in");
     case QtWaylandServer::wp_cursor_shape_device_v1::shape_zoom_out:
         return QByteArrayLiteral("zoom-out");
-    case QtWaylandServer::wp_cursor_shape_device_v1::shape_dnd_ask:
-        return QByteArrayLiteral("dnd-ask");
-    case QtWaylandServer::wp_cursor_shape_device_v1::shape_all_resize:
-        return QByteArrayLiteral("all-resize");
     default:
         return QByteArrayLiteral("default");
     }
@@ -190,7 +186,7 @@ static QByteArray shapeName(uint32_t shape)
 
 void CursorShapeDeviceV1Interface::wp_cursor_shape_device_v1_set_shape(Resource *resource, uint32_t serial, uint32_t shape)
 {
-    if (shape < shape_default || shape > shape_all_resize) {
+    if (shape < shape_default || shape > shape_zoom_out) {
         wl_resource_post_error(resource->handle, error_invalid_shape, "unknown cursor shape");
         return;
     }

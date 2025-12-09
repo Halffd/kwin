@@ -15,7 +15,7 @@ namespace KWin
 {
 
 /**
- * The color filter supports protanopia, deuteranopia, tritanopia, and monochrome.
+ * The color filter supports protanopia, deuteranopia and tritanopia.
  */
 class ColorBlindnessCorrectionEffect : public OffscreenEffect
 {
@@ -26,7 +26,6 @@ public:
         Protanopia = 0, //<Greatly reduced reds
         Deuteranopia, //<Greatly reduced greens
         Tritanopia, //<Greatly reduced blues
-        Monochrome, //<Monochrome
     };
 
     explicit ColorBlindnessCorrectionEffect();
@@ -36,12 +35,6 @@ public:
     bool provides(Feature) override;
     void reconfigure(ReconfigureFlags flags) override;
     int requestedEffectChainPosition() const override;
-    void drawWindow(const RenderTarget &renderTarget,
-                    const RenderViewport &viewport,
-                    EffectWindow *w,
-                    int mask,
-                    const QRegion &logicalRegion,
-                    WindowPaintData &data) override;
 
     static bool supported();
 

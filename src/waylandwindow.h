@@ -24,23 +24,24 @@ public:
     bool isClient() const override;
     bool isLockScreen() const override;
     bool isLocalhost() const override;
-    RectF resizeWithChecks(const RectF &geometry, const QSizeF &size) const override;
+    QRectF resizeWithChecks(const QRectF &geometry, const QSizeF &size) override;
     void killWindow() override;
     QString windowRole() const override;
 
-    virtual RectF frameRectToBufferRect(const RectF &rect) const;
+    virtual QRectF frameRectToBufferRect(const QRectF &rect) const;
 
     void setCaption(const QString &caption);
 
 protected:
     bool belongsToSameApplication(const Window *other, SameApplicationChecks checks) const override;
     bool belongsToDesktop() const override;
+    void doSetActive() override;
     void updateCaption() override;
     void updateClientOutputs();
     std::unique_ptr<WindowItem> createItem(Item *parentItem) override;
 
     void cleanGrouping();
-    void updateGeometry(const RectF &rect);
+    void updateGeometry(const QRectF &rect);
     void markAsMapped();
 
 private:
@@ -49,7 +50,6 @@ private:
     QString m_captionNormal;
     QString m_captionSuffix;
     bool m_isScreenLocker = false;
-    const pid_t m_pid;
 };
 
 } // namespace KWin

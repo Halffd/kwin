@@ -184,6 +184,7 @@ KWin.TabBoxSwitcher {
                             PlasmaComponents3.Label {
                                 Layout.fillWidth: true
                                 text: model.caption
+                                font.weight: thumbnailGridItem.focus ? Font.Bold : Font.Normal
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                                 textFormat: Text.PlainText
@@ -204,7 +205,7 @@ KWin.TabBoxSwitcher {
                     anchors.centerIn: parent
                     width: parent.width - Kirigami.Units.largeSpacing * 2
                     icon.source: "edit-none"
-                    text: i18ndc("kwin", "@info:placeholder no entries in the task switcher", "No open windows")
+                    text: i18ndc("kwin_x11", "@info:placeholder no entries in the task switcher", "No open windows")
                     visible: thumbnailGridView.count === 0
                 }
 
@@ -224,10 +225,6 @@ KWin.TabBoxSwitcher {
                     thumbnailGridView.currentIndexChanged(thumbnailGridView.currentIndex);
                 }
             } // Dialog.mainItem
-
-            onSceneGraphError: () => {
-                // This slot is intentionally left blank, otherwise QtQuick may post a qFatal() message on a graphics reset.
-            }
         } // Dialog
     } // Instantiator
 }

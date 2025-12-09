@@ -372,7 +372,7 @@ static const TransKey g_rgQtToSymX[] = {
     {XKB_KEY_twosuperior, Qt::Key_twosuperior, Qt::KeyboardModifiers()},
     {XKB_KEY_threesuperior, Qt::Key_threesuperior, Qt::KeyboardModifiers()},
     {XKB_KEY_acute, Qt::Key_acute, Qt::KeyboardModifiers()},
-    {XKB_KEY_mu, Qt::Key_micro, Qt::KeyboardModifiers()},
+    {XKB_KEY_mu, Qt::Key_mu, Qt::KeyboardModifiers()},
     {XKB_KEY_paragraph, Qt::Key_paragraph, Qt::KeyboardModifiers()},
     {XKB_KEY_periodcentered, Qt::Key_periodcentered, Qt::KeyboardModifiers()},
     {XKB_KEY_cedilla, Qt::Key_cedilla, Qt::KeyboardModifiers()},
@@ -487,9 +487,9 @@ void XkbTest::testToQtKey_data()
 {
     QTest::addColumn<Qt::Key>("qt");
     QTest::addColumn<xkb_keysym_t>("keySym");
-    for (const auto rgQtToSymX : g_rgQtToSymX) {
-        const QByteArray row = QByteArray::number(rgQtToSymX.keySymX, 16);
-        QTest::newRow(row.constData()) << rgQtToSymX.keySymQt << rgQtToSymX.keySymX;
+    for (std::size_t i = 0; i < sizeof(g_rgQtToSymX) / sizeof(TransKey); i++) {
+        const QByteArray row = QByteArray::number(g_rgQtToSymX[i].keySymX, 16);
+        QTest::newRow(row.constData()) << g_rgQtToSymX[i].keySymQt << g_rgQtToSymX[i].keySymX;
     }
 }
 
@@ -503,10 +503,10 @@ void XkbTest::testToQtKey()
 void XkbTest::testFromQtKey_data()
 {
     QTest::addColumn<xkb_keysym_t>("keySym");
-    QTest::addColumn<QKeyCombination>("keyQt");
-    for (const auto rgQtToSymX : g_rgQtToSymX) {
-        const QByteArray row = QByteArray::number(rgQtToSymX.keySymX, 16);
-        QTest::newRow(row.constData()) << rgQtToSymX.keySymX << QKeyCombination{rgQtToSymX.modifiers, rgQtToSymX.keySymQt};
+    QTest::addColumn<int>("keyQt");
+    for (std::size_t i = 0; i < sizeof(g_rgQtToSymX) / sizeof(TransKey); i++) {
+        const QByteArray row = QByteArray::number(g_rgQtToSymX[i].keySymX, 16);
+        QTest::newRow(row.constData()) << g_rgQtToSymX[i].keySymX << (g_rgQtToSymX[i].keySymQt | g_rgQtToSymX[i].modifiers).toCombined();
     }
 }
 
@@ -514,13 +514,16 @@ void XkbTest::testFromQtKey()
 {
     Xkb xkb;
     QFETCH(xkb_keysym_t, keySym);
-    QFETCH(QKeyCombination, keyQt);
+    QFETCH(int, keyQt);
     QList<xkb_keysym_t> keys = xkb.keysymsFromQtKey(keyQt);
 
     QEXPECT_FAIL(QByteArray::number(XKB_KEY_Super_L, 16), "keysymsFromQtKey doesn't map super to meta", Continue);
     QEXPECT_FAIL(QByteArray::number(XKB_KEY_Super_R, 16), "keysymsFromQtKey doesn't map super to meta", Continue);
     QEXPECT_FAIL(QByteArray::number(XKB_KEY_Hyper_L, 16), "keysymsFromQtKey doesn't map hyper to meta", Continue);
     QEXPECT_FAIL(QByteArray::number(XKB_KEY_Hyper_R, 16), "keysymsFromQtKey doesn't map hyper to meta", Continue);
+#if QT_VERSION < QT_VERSION_CHECK(6, 7, 1)
+    QEXPECT_FAIL(QByteArray::number(XKB_KEY_KP_Equal, 16), "KP_Equal is not correctly identified as keypad key in Qt 6.7.0; fixed in 6.7.1: https://codereview.qt-project.org/c/qt/qtbase/+/546889", Continue);
+#endif
 
     QVERIFY(keys.contains(keySym));
 }

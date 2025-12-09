@@ -137,7 +137,6 @@ public:
     void setVirtualDesktopChangeable(bool set);
     void setNoBorder(bool set);
     void setCanSetNoBorder(bool set);
-    void setExcludeFromCapture(bool set);
 
     /**
      * This method removes the Window and the Client is supposed to release the resource
@@ -299,7 +298,6 @@ Q_SIGNALS:
     void sendToOutput(KWin::OutputInterface *output);
     void clientGeometryChanged(const QRect &geometry);
     void noBorderRequested(bool noBorder);
-    void excludeFromCaptureRequested(bool exclude);
 
 private:
     friend class PlasmaWindowManagementInterface;

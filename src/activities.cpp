@@ -25,8 +25,9 @@
 namespace KWin
 {
 
-Activities::Activities()
+Activities::Activities(const KSharedConfig::Ptr &config)
     : m_controller(new KActivities::Controller(this))
+    , m_config(config)
 {
     connect(m_controller, &KActivities::Controller::activityRemoved, this, &Activities::slotRemoved);
     connect(m_controller, &KActivities::Controller::activityRemoved, this, &Activities::removed);
@@ -34,14 +35,9 @@ Activities::Activities()
     connect(m_controller, &KActivities::Controller::currentActivityChanged, this, &Activities::slotCurrentChanged);
     connect(m_controller, &KActivities::Controller::serviceStatusChanged, this, &Activities::slotServiceStatusChanged);
 
-    m_config = KSharedConfig::openStateConfig();
-    auto lastDesktopConfig = m_config->group("Activities").group("LastVirtualDesktop");
-
-    // migrate old config
-    kwinApp()->config()->group("Activities").group("LastVirtualDesktop").moveValuesTo(lastDesktopConfig);
-
-    for (const auto &activity : lastDesktopConfig.keyList()) {
-        const QString desktop = lastDesktopConfig.readEntry(activity);
+    const auto group = m_config->group("Activities").group("LastVirtualDesktop");
+    for (const auto &activity : group.keyList()) {
+        const QString desktop = group.readEntry(activity);
         if (!desktop.isEmpty()) {
             m_lastVirtualDesktop[activity] = desktop;
         }
@@ -90,8 +86,7 @@ void Activities::setCurrent(const QString &activity, VirtualDesktop *desktop)
 void Activities::notifyCurrentDesktopChanged(VirtualDesktop *desktop)
 {
     m_lastVirtualDesktop[m_current] = desktop->id();
-    auto lastDesktopConfig = m_config->group("Activities").group("LastVirtualDesktop");
-    lastDesktopConfig.writeEntry(m_current, desktop->id());
+    m_config->group("Activities").group("LastVirtualDesktop").writeEntry(m_current, desktop->id());
 }
 
 void Activities::slotCurrentChanged(const QString &newActivity)
@@ -148,7 +143,7 @@ void Activities::toggleWindowOnActivity(Window *window, const QString &activity,
 
     Workspace *ws = Workspace::self();
     if (window->isOnCurrentActivity()) {
-        if (window->wantsTabFocus() && options->focusPolicyIsReasonable() && !was_on_activity && // for stickiness changes
+        if (window->wantsTabFocus() && options->focusPolicyIsReasonable() && !was_on_activity && // for stickyness changes
                                                                                                  // FIXME not sure if the line above refers to the correct activity
             !dont_activate) {
             ws->requestFocus(window);

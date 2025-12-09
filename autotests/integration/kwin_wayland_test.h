@@ -13,44 +13,28 @@
 #include "main.h"
 #include "window.h"
 
-// KWayland
-#include <KWayland/Client/keyboard.h>
-#include <KWayland/Client/surface.h>
-
 // Qt
-#include <QMimeType>
 #include <QSignalSpy>
 #include <QTest>
 
+#include <KWayland/Client/surface.h>
 #include <optional>
 
-#include <xkbcommon/xkbcommon.h>
-
 #include "qwayland-color-management-v1.h"
-#include "qwayland-color-representation-v1.h"
 #include "qwayland-cursor-shape-v1.h"
 #include "qwayland-fake-input.h"
-#include "qwayland-fifo-v1.h"
 #include "qwayland-fractional-scale-v1.h"
 #include "qwayland-idle-inhibit-unstable-v1.h"
 #include "qwayland-input-method-unstable-v1.h"
 #include "qwayland-kde-output-device-v2.h"
 #include "qwayland-kde-output-management-v2.h"
 #include "qwayland-kde-screen-edge-v1.h"
-#include "qwayland-keystate.h"
-#include "qwayland-presentation-time.h"
-#include "qwayland-primary-selection-unstable-v1.h"
 #include "qwayland-security-context-v1.h"
-#include "qwayland-tablet-v2.h"
 #include "qwayland-text-input-unstable-v3.h"
 #include "qwayland-wlr-layer-shell-unstable-v1.h"
-#include "qwayland-xdg-activation-v1.h"
 #include "qwayland-xdg-decoration-unstable-v1.h"
 #include "qwayland-xdg-dialog-v1.h"
 #include "qwayland-xdg-shell.h"
-#include "qwayland-xdg-toplevel-drag-v1.h"
-#include "qwayland-xx-session-management-v1.h"
-#include "qwayland-zkde-screencast-unstable-v1.h"
 
 namespace KWayland
 {
@@ -59,9 +43,8 @@ namespace Client
 class AppMenuManager;
 class ConnectionThread;
 class Compositor;
-class DataSource;
 class EventQueue;
-class LogicalOutput;
+class Output;
 class PlasmaShell;
 class PlasmaWindowManagement;
 class Pointer;
@@ -74,7 +57,6 @@ class SubCompositor;
 class SubSurface;
 class Surface;
 class TextInputManager;
-class DataDeviceManager;
 }
 }
 
@@ -85,15 +67,8 @@ class zwp_text_input_v3;
 class zwp_text_input_manager_v3;
 }
 
-class ScreencastingV1;
-
 namespace KWin
 {
-
-namespace WaylandClient
-{
-class LinuxDmabufV1;
-}
 
 class WaylandServer;
 
@@ -114,7 +89,7 @@ class WaylandTestApplication : public Application
 {
     Q_OBJECT
 public:
-    WaylandTestApplication(int &argc, char **argv, bool runOnKMS);
+    WaylandTestApplication(OperationMode mode, int &argc, char **argv);
     ~WaylandTestApplication() override;
 
     void setInputMethodServerToStart(const QString &inputMethodServer)
@@ -159,12 +134,7 @@ private:
 namespace Test
 {
 
-class ScreencastingV1;
 class MockInputMethod;
-class WpTabletV2;
-class WpTabletPadV2;
-class WpTabletSeatV2;
-class WpTabletToolV2;
 
 class TextInputManagerV3 : public QtWayland::zwp_text_input_manager_v3
 {
@@ -610,163 +580,8 @@ public:
     ~XdgDialogV1() override;
 };
 
-class WpTabletManagerV2 : public QtWayland::zwp_tablet_manager_v2
-{
-public:
-    WpTabletManagerV2(::wl_registry *registry, uint32_t id, int version);
-    ~WpTabletManagerV2() override;
-
-    std::unique_ptr<WpTabletSeatV2> createSeat(KWayland::Client::Seat *seat);
-};
-
-class WpTabletSeatV2 : public QObject, public QtWayland::zwp_tablet_seat_v2
-{
-    Q_OBJECT
-
-public:
-    explicit WpTabletSeatV2(::zwp_tablet_seat_v2 *seat);
-    ~WpTabletSeatV2() override;
-
-Q_SIGNALS:
-    void toolAdded(WpTabletToolV2 *tool);
-
-protected:
-    void zwp_tablet_seat_v2_tablet_added(::zwp_tablet_v2 *id) override;
-    void zwp_tablet_seat_v2_tool_added(::zwp_tablet_tool_v2 *id) override;
-    void zwp_tablet_seat_v2_pad_added(::zwp_tablet_pad_v2 *id) override;
-
-private:
-    std::vector<std::unique_ptr<WpTabletV2>> m_tablets;
-    std::vector<std::unique_ptr<WpTabletToolV2>> m_tools;
-    std::vector<std::unique_ptr<WpTabletPadV2>> m_pads;
-};
-
-class WpTabletV2 : public QtWayland::zwp_tablet_v2
-{
-public:
-    explicit WpTabletV2(::zwp_tablet_v2 *id);
-    ~WpTabletV2() override;
-};
-
-class WpTabletPadV2 : public QtWayland::zwp_tablet_pad_v2
-{
-public:
-    explicit WpTabletPadV2(::zwp_tablet_pad_v2 *id);
-    ~WpTabletPadV2() override;
-};
-
-class WpTabletToolV2 : public QObject, public QtWayland::zwp_tablet_tool_v2
-{
-    Q_OBJECT
-
-public:
-    explicit WpTabletToolV2(::zwp_tablet_tool_v2 *id);
-    ~WpTabletToolV2() override;
-
-    bool ready() const;
-
-Q_SIGNALS:
-    void done();
-    void down(uint32_t serial);
-    void up();
-    void motion(const QPointF &position);
-
-protected:
-    void zwp_tablet_tool_v2_done() override;
-    void zwp_tablet_tool_v2_down(uint32_t serial) override;
-    void zwp_tablet_tool_v2_up() override;
-    void zwp_tablet_tool_v2_motion(wl_fixed_t x, wl_fixed_t y) override;
-
-private:
-    bool m_ready = false;
-};
-
-class WpPrimarySelectionOfferV1 : public QObject, public QtWayland::zwp_primary_selection_offer_v1
-{
-    Q_OBJECT
-
-public:
-    explicit WpPrimarySelectionOfferV1(::zwp_primary_selection_offer_v1 *id);
-    ~WpPrimarySelectionOfferV1() override;
-
-    QList<QMimeType> mimeTypes() const;
-
-protected:
-    void zwp_primary_selection_offer_v1_offer(const QString &mime_type) override;
-
-private:
-    QList<QMimeType> m_mimeTypes;
-};
-
-class WpPrimarySelectionSourceV1 : public QObject, public QtWayland::zwp_primary_selection_source_v1
-{
-    Q_OBJECT
-
-public:
-    explicit WpPrimarySelectionSourceV1(::zwp_primary_selection_source_v1 *id);
-    ~WpPrimarySelectionSourceV1() override;
-
-Q_SIGNALS:
-    void sendDataRequested(const QString &mimeType, int32_t fd);
-    void cancelled();
-
-protected:
-    void zwp_primary_selection_source_v1_send(const QString &mime_type, int32_t fd) override;
-    void zwp_primary_selection_source_v1_cancelled() override;
-};
-
-class WpPrimarySelectionDeviceV1 : public QObject, public QtWayland::zwp_primary_selection_device_v1
-{
-    Q_OBJECT
-
-public:
-    explicit WpPrimarySelectionDeviceV1(::zwp_primary_selection_device_v1 *id);
-    ~WpPrimarySelectionDeviceV1() override;
-
-    WpPrimarySelectionOfferV1 *offer() const;
-    std::unique_ptr<WpPrimarySelectionOfferV1> takeOffer();
-
-Q_SIGNALS:
-    void selectionOffered(WpPrimarySelectionOfferV1 *offer);
-    void selectionCleared();
-
-protected:
-    void zwp_primary_selection_device_v1_data_offer(::zwp_primary_selection_offer_v1 *offer) override;
-    void zwp_primary_selection_device_v1_selection(::zwp_primary_selection_offer_v1 *id) override;
-
-private:
-    std::unique_ptr<WpPrimarySelectionOfferV1> m_offer;
-};
-
-class WpPrimarySelectionDeviceManagerV1 : public QtWayland::zwp_primary_selection_device_manager_v1
-{
-public:
-    WpPrimarySelectionDeviceManagerV1(::wl_registry *registry, uint32_t id, int version);
-    ~WpPrimarySelectionDeviceManagerV1() override;
-
-    std::unique_ptr<WpPrimarySelectionDeviceV1> getDevice(KWayland::Client::Seat *seat);
-    std::unique_ptr<WpPrimarySelectionSourceV1> createSource();
-};
-
-class XdgToplevelDragV1 : public QtWayland::xdg_toplevel_drag_v1
-{
-public:
-    explicit XdgToplevelDragV1(::xdg_toplevel_drag_v1 *id);
-    ~XdgToplevelDragV1() override;
-};
-
-class XdgToplevelDragManagerV1 : public QtWayland::xdg_toplevel_drag_manager_v1
-{
-public:
-    XdgToplevelDragManagerV1(::wl_registry *registry, uint32_t id, int version);
-    ~XdgToplevelDragManagerV1() override;
-
-    std::unique_ptr<XdgToplevelDragV1> createDrag(KWayland::Client::DataSource *source);
-};
-
-enum class AdditionalWaylandInterface : uint64_t {
+enum class AdditionalWaylandInterface {
     Seat = 1 << 0,
-    DataDeviceManager = 1 << 1,
     PlasmaShell = 1 << 2,
     WindowManagement = 1 << 3,
     PointerConstraints = 1 << 4,
@@ -781,23 +596,12 @@ enum class AdditionalWaylandInterface : uint64_t {
     TextInputManagerV3 = 1 << 13,
     OutputDeviceV2 = 1 << 14,
     FractionalScaleManagerV1 = 1 << 15,
-    ScreencastingV1 = 1 << 16,
     ScreenEdgeV1 = 1 << 17,
     CursorShapeV1 = 1 << 18,
     FakeInput = 1 << 19,
     SecurityContextManagerV1 = 1 << 20,
     XdgDialogV1 = 1 << 21,
     ColorManagement = 1 << 22,
-    FifoV1 = 1 << 23,
-    PresentationTime = 1 << 24,
-    XdgActivation = 1 << 25,
-    XdgSessionV1 = 1 << 26,
-    WpTabletV2 = 1 << 27,
-    KeyState = 1 << 28,
-    WpPrimarySelectionV1 = 1 << 29,
-    XdgToplevelDragV1 = 1 << 30,
-    LinuxDmabuf = 1ull << 31,
-    ColorRepresentation = 1ull << 32,
 };
 Q_DECLARE_FLAGS(AdditionalWaylandInterfaces, AdditionalWaylandInterface)
 
@@ -874,150 +678,16 @@ public:
     ~ColorManagerV1() override;
 };
 
-class FifoManagerV1 : public QtWayland::wp_fifo_manager_v1
-{
-public:
-    explicit FifoManagerV1(::wl_registry *registry, uint32_t id, int version);
-    ~FifoManagerV1() override;
-};
-
-class PresentationTime : public QtWayland::wp_presentation
-{
-public:
-    explicit PresentationTime(::wl_registry *registry, uint32_t id, int version);
-    ~PresentationTime() override;
-};
-
-class WpPresentationFeedback : public QObject, public QtWayland::wp_presentation_feedback
-{
-    Q_OBJECT
-public:
-    explicit WpPresentationFeedback(struct ::wp_presentation_feedback *obj);
-    ~WpPresentationFeedback() override;
-
-Q_SIGNALS:
-    void presented(std::chrono::nanoseconds timestamp, std::chrono::nanoseconds refreshDuration);
-    void discarded();
-
-private:
-    void wp_presentation_feedback_presented(uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec, uint32_t refresh, uint32_t seq_hi, uint32_t seq_lo, uint32_t flags) override;
-    void wp_presentation_feedback_discarded() override;
-};
-
-class XdgActivationToken : public QObject, public QtWayland::xdg_activation_token_v1
-{
-    Q_OBJECT
-public:
-    explicit XdgActivationToken(::xdg_activation_token_v1 *object);
-    ~XdgActivationToken() override;
-
-    QString commitAndWait();
-
-Q_SIGNALS:
-    void tokenReceived();
-
-private:
-    void xdg_activation_token_v1_done(const QString &token) override;
-
-    QString m_token;
-};
-
-class XdgActivation : public QtWayland::xdg_activation_v1
-{
-public:
-    explicit XdgActivation(::wl_registry *registry, uint32_t id, int version);
-    ~XdgActivation() override;
-
-    std::unique_ptr<XdgActivationToken> createToken();
-};
-
-class XdgToplevelSessionV1 : public QObject, public QtWayland::xx_toplevel_session_v1
-{
-    Q_OBJECT
-
-public:
-    explicit XdgToplevelSessionV1(::xx_toplevel_session_v1 *session);
-    ~XdgToplevelSessionV1() override;
-
-Q_SIGNALS:
-    void restored();
-
-protected:
-    void xx_toplevel_session_v1_restored(struct ::xdg_toplevel *surface) override;
-};
-
-class XdgSessionV1 : public QObject, public QtWayland::xx_session_v1
-{
-    Q_OBJECT
-
-public:
-    explicit XdgSessionV1(::xx_session_v1 *session);
-    ~XdgSessionV1() override;
-
-    std::unique_ptr<XdgToplevelSessionV1> add(XdgToplevel *toplevel, const QString &toplevelId);
-    std::unique_ptr<XdgToplevelSessionV1> restore(XdgToplevel *toplevel, const QString &toplevelId);
-
-Q_SIGNALS:
-    void created(const QString &id);
-    void restored();
-    void replaced();
-
-protected:
-    void xx_session_v1_created(const QString &id) override;
-    void xx_session_v1_restored() override;
-    void xx_session_v1_replaced() override;
-};
-
-class XdgSessionManagerV1 : public QtWayland::xx_session_manager_v1
-{
-public:
-    XdgSessionManagerV1(::wl_registry *registry, uint32_t id, int version);
-    ~XdgSessionManagerV1() override;
-};
-
-class KeyStateV1 : public QObject, public QtWayland::org_kde_kwin_keystate
-{
-    Q_OBJECT
-public:
-    explicit KeyStateV1(::wl_registry *registry, uint32_t id, int version);
-    ~KeyStateV1() override;
-
-    QHash<uint32_t, uint32_t> keyToState;
-
-Q_SIGNALS:
-    void stateChanged();
-
-private:
-    void org_kde_kwin_keystate_stateChanged(uint32_t key, uint32_t state) override;
-};
-
-class ColorRepresentationV1 : public QtWayland::wp_color_representation_manager_v1
-{
-public:
-    explicit ColorRepresentationV1(::wl_registry *registry, uint32_t id, int version);
-    ~ColorRepresentationV1() override;
-};
-
-class ColorRepresentationSurfaceV1 : public QtWayland::wp_color_representation_surface_v1
-{
-public:
-    explicit ColorRepresentationSurfaceV1(::wp_color_representation_surface_v1 *object);
-    ~ColorRepresentationSurfaceV1() override;
-};
-
 struct Connection
 {
     static std::unique_ptr<Connection> setup(AdditionalWaylandInterfaces interfaces = AdditionalWaylandInterfaces());
     ~Connection();
-
-    bool sync();
 
     KWayland::Client::ConnectionThread *connection = nullptr;
     KWayland::Client::EventQueue *queue = nullptr;
     KWayland::Client::Compositor *compositor = nullptr;
     KWayland::Client::SubCompositor *subCompositor = nullptr;
     KWayland::Client::ShadowManager *shadowManager = nullptr;
-    KWayland::Client::DataDeviceManager *dataDeviceManager = nullptr;
     XdgShell *xdgShell = nullptr;
     KWayland::Client::ShmPool *shm = nullptr;
     KWayland::Client::Seat *seat = nullptr;
@@ -1039,23 +709,12 @@ struct Connection
     LayerShellV1 *layerShellV1 = nullptr;
     TextInputManagerV3 *textInputManagerV3 = nullptr;
     FractionalScaleManagerV1 *fractionalScaleManagerV1 = nullptr;
-    ScreencastingV1 *screencastingV1 = nullptr;
     ScreenEdgeManagerV1 *screenEdgeManagerV1 = nullptr;
     CursorShapeManagerV1 *cursorShapeManagerV1 = nullptr;
     FakeInput *fakeInput = nullptr;
     SecurityContextManagerV1 *securityContextManagerV1 = nullptr;
     XdgWmDialogV1 *xdgWmDialogV1;
     std::unique_ptr<ColorManagerV1> colorManager;
-    std::unique_ptr<FifoManagerV1> fifoManager;
-    std::unique_ptr<PresentationTime> presentationTime;
-    std::unique_ptr<XdgActivation> xdgActivation;
-    std::unique_ptr<XdgSessionManagerV1> sessionManager;
-    std::unique_ptr<WpTabletManagerV2> tabletManager;
-    std::unique_ptr<KeyStateV1> keyState;
-    std::unique_ptr<WpPrimarySelectionDeviceManagerV1> primarySelectionManager;
-    std::unique_ptr<XdgToplevelDragManagerV1> toplevelDragManager;
-    std::unique_ptr<WaylandClient::LinuxDmabufV1> linuxDmabuf;
-    std::unique_ptr<ColorRepresentationV1> colorRepresentation;
 };
 
 void keyboardKeyPressed(quint32 key, quint32 time);
@@ -1078,13 +737,9 @@ void touchMotion(qint32 id, const QPointF &pos, quint32 time);
 void touchUp(qint32 id, quint32 time);
 void tabletPadButtonPressed(quint32 button, quint32 time);
 void tabletPadButtonReleased(quint32 button, quint32 time);
-void tabletPadDialEvent(double delta, int number, quint32 time);
-void tabletPadRingEvent(qreal position, int number, quint32 group, quint32 mode, quint32 time);
 void tabletToolButtonPressed(quint32 button, quint32 time);
 void tabletToolButtonReleased(quint32 button, quint32 time);
 void tabletToolProximityEvent(const QPointF &pos, qreal xTilt, qreal yTilt, qreal rotation, qreal distance, bool tipNear, qreal sliderPosition, quint32 time);
-void tabletToolAxisEvent(const QPointF &pos, qreal pressure, qreal xTilt, qreal yTilt, qreal rotation, qreal distance, bool tipDown, qreal sliderPosition, quint32 time);
-void tabletToolTipEvent(const QPointF &pos, qreal pressure, qreal xTilt, qreal yTilt, qreal rotation, qreal distance, bool tipDown, qreal sliderPosition, quint32 time);
 
 /**
  * Creates a Wayland Connection in a dedicated thread and creates various
@@ -1108,7 +763,6 @@ KWayland::Client::SubCompositor *waylandSubCompositor();
 KWayland::Client::ShadowManager *waylandShadowManager();
 KWayland::Client::ShmPool *waylandShmPool();
 KWayland::Client::Seat *waylandSeat();
-KWayland::Client::DataDeviceManager *waylandDataDeviceManager();
 KWayland::Client::PlasmaShell *waylandPlasmaShell();
 KWayland::Client::PlasmaWindowManagement *waylandWindowManagement();
 KWayland::Client::PointerConstraints *waylandPointerConstraints();
@@ -1117,20 +771,10 @@ WaylandOutputManagementV2 *waylandOutputManagementV2();
 KWayland::Client::TextInputManager *waylandTextInputManager();
 QList<KWayland::Client::Output *> waylandOutputs();
 KWayland::Client::Output *waylandOutput(const QString &name);
-ScreencastingV1 *screencasting();
 QList<WaylandOutputDeviceV2 *> waylandOutputDevicesV2();
 FakeInput *waylandFakeInput();
 SecurityContextManagerV1 *waylandSecurityContextManagerV1();
 ColorManagerV1 *colorManager();
-FifoManagerV1 *fifoManager();
-PresentationTime *presentationTime();
-XdgActivation *xdgActivation();
-WpTabletManagerV2 *tabletManager();
-KeyStateV1 *keyState();
-WpPrimarySelectionDeviceManagerV1 *primarySelectionManager();
-XdgToplevelDragManagerV1 *toplevelDragManager();
-WaylandClient::LinuxDmabufV1 *linuxDmabuf();
-ColorRepresentationV1 *colorRepresentation();
 
 bool waitForWaylandSurface(Window *window);
 
@@ -1140,7 +784,6 @@ bool waitForWaylandTouch();
 bool waitForWaylandTouch(KWayland::Client::Seat *seat);
 bool waitForWaylandKeyboard();
 bool waitForWaylandKeyboard(KWayland::Client::Seat *seat);
-bool waitForWaylandTabletTool(Test::WpTabletToolV2 *tool);
 
 void flushWaylandConnection();
 
@@ -1191,8 +834,6 @@ std::unique_ptr<IdleInhibitorV1> createIdleInhibitorV1(KWayland::Client::Surface
 std::unique_ptr<AutoHideScreenEdgeV1> createAutoHideScreenEdgeV1(KWayland::Client::Surface *surface, uint32_t border);
 std::unique_ptr<CursorShapeDeviceV1> createCursorShapeDeviceV1(KWayland::Client::Pointer *pointer);
 std::unique_ptr<XdgDialogV1> createXdgDialogV1(XdgToplevel *toplevel);
-std::unique_ptr<XdgSessionV1> createXdgSessionV1(XdgSessionManagerV1::reason reason, const QString &sessionId = QString());
-std::unique_ptr<XdgSessionV1> createXdgSessionV1(XdgSessionManagerV1 *manager, XdgSessionManagerV1::reason reason, const QString &sessionId = QString());
 
 /**
  * Creates a shared memory buffer of @p size in @p color and attaches it to the @p surface.
@@ -1247,11 +888,6 @@ bool unlockScreen();
 bool renderNodeAvailable();
 
 /**
- * Returns @c true if the system has at least one primary node; otherwise returns @c false.
- */
-bool primaryNodeAvailable();
-
-/**
  * Creates an X11 connection
  * Internally a nested event loop is spawned whilst we connect to avoid a deadlock
  * with X on demand
@@ -1264,138 +900,10 @@ struct XcbConnectionDeleter
 };
 typedef std::unique_ptr<xcb_connection_t, XcbConnectionDeleter> XcbConnectionPtr;
 XcbConnectionPtr createX11Connection();
-
-enum {
-    MWM_HINTS_FUNCTIONS = (1L << 0),
-
-    MWM_FUNC_ALL = (1L << 0),
-    MWM_FUNC_RESIZE = (1L << 1),
-    MWM_FUNC_MOVE = (1L << 2),
-    MWM_FUNC_MINIMIZE = (1L << 3),
-    MWM_FUNC_MAXIMIZE = (1L << 4),
-    MWM_FUNC_CLOSE = (1L << 5),
-
-    MWM_HINTS_DECORATIONS = (1L << 1),
-
-    MWM_DECOR_ALL = (1L << 0),
-    MWM_DECOR_BORDER = (1L << 1),
-    MWM_DECOR_RESIZEH = (1L << 2),
-    MWM_DECOR_TITLE = (1L << 3),
-    MWM_DECOR_MENU = (1L << 4),
-    MWM_DECOR_MINIMIZE = (1L << 5),
-    MWM_DECOR_MAXIMIZE = (1L << 6),
-};
-
-struct MotifHints
-{
-    uint32_t flags = 0;
-    uint32_t functions = 0;
-    uint32_t decorations = 0;
-    int32_t input_mode = 0;
-    uint32_t status = 0;
-};
-
-void applyMotifHints(xcb_connection_t *connection, xcb_window_t window, const MotifHints &hints);
 #endif
 
 MockInputMethod *inputMethod();
 KWayland::Client::Surface *inputPanelSurface();
-
-class ScreencastingStreamV1 : public QObject, public QtWayland::zkde_screencast_stream_unstable_v1
-{
-    Q_OBJECT
-    friend class ScreencastingV1;
-
-public:
-    ScreencastingStreamV1(QObject *parent)
-        : QObject(parent)
-    {
-    }
-
-    ~ScreencastingStreamV1() override
-    {
-        if (isInitialized()) {
-            close();
-        }
-    }
-
-    quint32 nodeId() const
-    {
-        Q_ASSERT(m_nodeId.has_value());
-        return *m_nodeId;
-    }
-
-    void zkde_screencast_stream_unstable_v1_created(uint32_t node) override
-    {
-        m_nodeId = node;
-        Q_EMIT created(node);
-    }
-
-    void zkde_screencast_stream_unstable_v1_closed() override
-    {
-        Q_EMIT closed();
-    }
-
-    void zkde_screencast_stream_unstable_v1_failed(const QString &error) override
-    {
-        Q_EMIT failed(error);
-    }
-
-Q_SIGNALS:
-    void created(quint32 nodeid);
-    void failed(const QString &error);
-    void closed();
-
-private:
-    std::optional<uint> m_nodeId;
-};
-
-class ScreencastingV1 : public QObject, public QtWayland::zkde_screencast_unstable_v1
-{
-    Q_OBJECT
-public:
-    explicit ScreencastingV1(QObject *parent = nullptr)
-        : QObject(parent)
-    {
-    }
-
-    ScreencastingStreamV1 *createOutputStream(wl_output *output, pointer mode)
-    {
-        auto stream = new ScreencastingStreamV1(this);
-        stream->init(stream_output(output, mode));
-        return stream;
-    }
-
-    ScreencastingStreamV1 *createWindowStream(const QString &uuid, pointer mode)
-    {
-        auto stream = new ScreencastingStreamV1(this);
-        stream->init(stream_window(uuid, mode));
-        return stream;
-    }
-};
-
-using XkbContextPtr = std::unique_ptr<xkb_context, decltype(&xkb_context_unref)>;
-using XkbKeymapPtr = std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)>;
-using XkbStatePtr = std::unique_ptr<xkb_state, decltype(&xkb_state_unref)>;
-
-class SimpleKeyboard : public QObject
-{
-    Q_OBJECT
-public:
-    explicit SimpleKeyboard(QObject *parent = nullptr);
-    KWayland::Client::Keyboard *keyboard();
-    QString receviedText();
-Q_SIGNALS:
-    void receviedTextChanged();
-    void keySymRecevied(xkb_keysym_t keysym);
-
-private:
-    KWayland::Client::Keyboard *m_keyboard;
-    QString m_receviedText;
-    XkbContextPtr m_ctx = XkbContextPtr(xkb_context_new(XKB_CONTEXT_NO_FLAGS), &xkb_context_unref);
-    XkbKeymapPtr m_keymap{nullptr, &xkb_keymap_unref};
-    XkbStatePtr m_state{nullptr, &xkb_state_unref};
-};
 
 struct OutputInfo
 {
@@ -1412,31 +920,6 @@ struct OutputInfo
 };
 void setOutputConfig(const QList<QRect> &geometries);
 void setOutputConfig(const QList<OutputInfo> &infos);
-
-class XdgToplevelWindow
-{
-public:
-    explicit XdgToplevelWindow(const std::function<void(KWayland::Client::Surface *surface, XdgToplevel *toplevel)> &setup);
-    explicit XdgToplevelWindow(const std::function<void(XdgToplevel *toplevel)> &setup = {});
-    XdgToplevelWindow(const XdgToplevelWindow &copy) = delete;
-    ~XdgToplevelWindow();
-
-    bool show(const QSize &size = QSize(100, 100), const QColor &color = Qt::blue);
-    bool show(const QImage &image);
-    void unmap();
-
-    /**
-     * Commits and waits for the commit to be presented.
-     * NOTE that this requires the presentation time protocol!
-     */
-    bool presentWait();
-    bool waitSurfaceConfigure();
-    std::optional<QSize> handleConfigure(const QColor &color = Qt::blue);
-
-    std::unique_ptr<KWayland::Client::Surface> m_surface;
-    std::unique_ptr<XdgToplevel> m_toplevel;
-    Window *m_window = nullptr;
-};
 }
 
 }
@@ -1445,7 +928,7 @@ Q_DECLARE_OPERATORS_FOR_FLAGS(KWin::Test::AdditionalWaylandInterfaces)
 Q_DECLARE_METATYPE(KWin::Test::XdgToplevel::States)
 Q_DECLARE_METATYPE(QtWayland::zxdg_toplevel_decoration_v1::mode)
 
-#define WAYLANDTEST_MAIN_OPT(TestObject, useDrm)                                                                                          \
+#define WAYLANDTEST_MAIN(TestObject)                                                                                                      \
     int main(int argc, char *argv[])                                                                                                      \
     {                                                                                                                                     \
         setenv("QT_QPA_PLATFORM", "wayland-org.kde.kwin.qpa", true);                                                                      \
@@ -1455,13 +938,10 @@ Q_DECLARE_METATYPE(QtWayland::zxdg_toplevel_decoration_v1::mode)
         qunsetenv("KDE_SESSION_VERSION");                                                                                                 \
         qunsetenv("XDG_SESSION_DESKTOP");                                                                                                 \
         qunsetenv("XDG_CURRENT_DESKTOP");                                                                                                 \
-        KWin::WaylandTestApplication app(argc, argv, useDrm);                                                                             \
+        KWin::WaylandTestApplication app(KWin::Application::OperationModeWayland, argc, argv);                                            \
         app.setAttribute(Qt::AA_Use96Dpi, true);                                                                                          \
         TestObject tc;                                                                                                                    \
         return QTest::qExec(&tc, argc, argv);                                                                                             \
     }
-
-#define WAYLANDTEST_MAIN(TestObject) WAYLANDTEST_MAIN_OPT(TestObject, false)
-#define WAYLAND_DRM_TEST_MAIN(TestObject) WAYLANDTEST_MAIN_OPT(TestObject, true)
 
 #endif

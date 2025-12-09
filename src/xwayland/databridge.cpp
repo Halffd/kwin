@@ -10,9 +10,14 @@
 #include "clipboard.h"
 #include "dnd.h"
 #include "primary.h"
+#include "selection.h"
 #include "xwayland.h"
 
 #include "atoms.h"
+#include "wayland/clientconnection.h"
+#include "wayland/datadevice.h"
+#include "wayland/datadevicemanager.h"
+#include "wayland/seat.h"
 #include "wayland_server.h"
 #include "window.h"
 #include "workspace.h"
@@ -44,9 +49,9 @@ bool DataBridge::nativeEventFilter(const QByteArray &eventType, void *message, q
     return false;
 }
 
-bool DataBridge::dragMoveFilter(Window *target, const QPointF &position)
+DragEventReply DataBridge::dragMoveFilter(Window *target)
 {
-    return m_dnd->dragMoveFilter(target, position);
+    return m_dnd->dragMoveFilter(target);
 }
 
 } // namespace Xwl

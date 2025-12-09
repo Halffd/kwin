@@ -220,9 +220,6 @@ QString RulesModel::defaultDescription() const
     if (!title.isEmpty()) {
         return i18n("Window settings for %1", title);
     }
-    if (m_rules["tag"]->isEnabled()) {
-        return i18n("Window settings for %1", m_rules["tag"]->value().toString());
-    }
     if (!wmclass.isEmpty()) {
         return i18n("Settings for %1", wmclass);
     }
@@ -435,12 +432,6 @@ void RulesModel::populateRuleList()
                          i18n("Machine (hostname)"), i18n("Window matching"),
                          QIcon::fromTheme("computer")));
 
-    auto tag = addRule(new RuleItem(QLatin1String("tag"),
-                                    RulePolicy::StringMatch, RuleItem::String,
-                                    i18n("Window tag"), i18n("Window matching"),
-                                    QIcon::fromTheme("edit-comment")));
-    tag->setFlag(RuleItem::AffectsDescription);
-
     // Size & Position
     auto position = addRule(new RuleItem(QLatin1String("position"),
                                          RulePolicy::SetRule, RuleItem::Point,
@@ -498,7 +489,7 @@ void RulesModel::populateRuleList()
                                          QIcon::fromTheme("activities")));
     activity->setOptionsData(activitiesModelData());
 
-    // Activities consumer may update the available activities later
+    // Activites consumer may update the available activities later
     auto updateActivities = [this]() {
         m_rules["activity"]->setOptionsData(activitiesModelData());
         const QModelIndex index = indexOf("activity");
@@ -522,6 +513,11 @@ void RulesModel::populateRuleList()
                          RulePolicy::SetRule, RuleItem::Boolean,
                          i18n("Minimized"), i18n("Size & Position"),
                          QIcon::fromTheme("window-minimize")));
+
+    addRule(new RuleItem(QLatin1String("shade"),
+                         RulePolicy::SetRule, RuleItem::Boolean,
+                         i18n("Shaded"), i18n("Size & Position"),
+                         QIcon::fromTheme("window-shade")));
 
     auto placement = addRule(new RuleItem(QLatin1String("placement"),
                                           RulePolicy::ForceRule, RuleItem::Option,
@@ -737,6 +733,7 @@ const QHash<QString, QString> RulesModel::x11PropertyHash()
         {"maximizeHorizontal", "maximizehoriz"},
         {"maximizeVertical", "maximizevert"},
         {"minimized", "minimize"},
+        {"shaded", "shade"},
         {"fullscreen", "fullscreen"},
         {"keepAbove", "above"},
         {"keepBelow", "below"},

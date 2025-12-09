@@ -16,56 +16,26 @@ namespace KWin
 class PinchGesture;
 class SwipeGesture;
 
-/*!
- * \qmltype SwipeGestureHandler
- * \inqmlmodule org.kde.kwin
- *
- * \brief The SwipeGestureHandler type provides a way to handle global swipe gestures.
+/**
+ * The SwipeGestureHandler type provides a way to handle global swipe gestures.
  *
  * Example usage:
- * \code
+ * @code
  * SwipeGestureHandler {
  *     direction: SwipeGestureHandler.Direction.Up
  *     fingerCount: 3
  *     onActivated: console.log("activated")
  * }
- * \endcode
+ * @endcode
  */
 class SwipeGestureHandler : public QObject, public QQmlParserStatus
 {
     Q_OBJECT
     Q_INTERFACES(QQmlParserStatus)
 
-    /*!
-     * \qmlproperty enumeration SwipeGestureHandler::direction
-     * \qmlenumeratorsfrom KWin::SwipeGestureHandler::Direction
-     *
-     * This property specifies the direction of the swipe gesture. The default value is
-     * Direction::Invalid.
-     */
     Q_PROPERTY(Direction direction READ direction WRITE setDirection NOTIFY directionChanged)
-
-    /*!
-     * \qmlproperty int SwipeGestureHandler::fingerCount
-     *
-     * This property specifies the required number of fingers for swipe recognition.
-     */
     Q_PROPERTY(int fingerCount READ fingerCount WRITE setFingerCount NOTIFY fingerCountChanged)
-
-    /*!
-     * \qmlproperty real SwipeGestureHandler::progress
-     *
-     * This property specifies the progress of the swipe gesture. The progress ranges from
-     * 0.0 to 1.0.
-     */
     Q_PROPERTY(qreal progress READ progress NOTIFY progressChanged)
-
-    /*!
-     * \qmlproperty enumeration SwipeGestureHandler::deviceType
-     * \qmlenumeratorsfrom KWin::SwipeGestureHandler::Device
-     *
-     * This property specifies the input device that can trigger the swipe gesture.
-     */
     Q_PROPERTY(Device deviceType READ deviceType WRITE setDeviceType NOTIFY deviceTypeChanged)
 
 public:
@@ -73,15 +43,6 @@ public:
     ~SwipeGestureHandler() override;
 
     // Matches SwipeDirection.
-    /*!
-     * The Direction type specifies the direction of the swipe gesture.
-     *
-     * \value Invalid No direction.
-     * \value Down Swipe downward.
-     * \value Left Swipe to the left.
-     * \value Up Swipe upward.
-     * \value Right Swipe to the right.
-     */
     enum class Direction {
         Invalid,
         Down,
@@ -91,12 +52,6 @@ public:
     };
     Q_ENUM(Direction)
 
-    /*!
-     * The Device type specifies the input device that triggers the swipe gesture.
-     *
-     * \value Touchpad The gesture is triggered by a touchpad input device.
-     * \value Touchscreen The gesture is triggered by a touchscreen input device.
-     */
     enum class Device {
         Touchpad,
         Touchscreen,
@@ -119,21 +74,8 @@ public:
     void setDeviceType(Device device);
 
 Q_SIGNALS:
-    /*!
-     * \qmlsignal SwipeGestureHandler::activated()
-     *
-     * This signal is emitted when the swipe gesture is triggered, i.e. the progress() reaches 1.0.
-     */
     void activated();
-
-    /*!
-     * \qmlsignal SwipeGestureHandler::cancelled()
-     *
-     * This signal is emitted when the swipe gesture is cancelled. A swipe gesture can be cancelled
-     * if the user lifts their fingers or moves the fingers in a different direction, etc.
-     */
     void cancelled();
-
     void progressChanged();
     void directionChanged();
     void fingerCountChanged();
@@ -147,48 +89,25 @@ private:
     int m_fingerCount = 3;
 };
 
-/*!
- * \qmltype PinchGestureHandler
- * \inqmlmodule org.kde.kwin
- *
- * \brief The PinchGestureHandler type provides a way to handle global pinch gestures.
+/**
+ * The PinchGestureHandler type provides a way to handle global pinch gestures.
  *
  * Example usage:
- * \code
+ * @code
  * PinchGestureHandler {
  *     direction: PinchGestureHandler.Direction.Contracting
  *     fingerCount: 3
  *     onActivated: console.log("activated")
  * }
- * \endcode
+ * @endcode
  */
 class PinchGestureHandler : public QObject, public QQmlParserStatus
 {
     Q_OBJECT
     Q_INTERFACES(QQmlParserStatus)
 
-    /*!
-     * \qmlproperty enumeration PinchGestureHandler::direction
-     * \qmlenumeratorsfrom KWin::PinchGestureHandler::Direction
-     *
-     * This property specifies whether the fingers should contract or expand. The default
-     * value is Direction::Contracting.
-     */
     Q_PROPERTY(Direction direction READ direction WRITE setDirection NOTIFY directionChanged)
-
-    /*!
-     * \qmlproperty int PinchGestureHandler::fingerCount
-     *
-     * This property specifies the required number of fingers for pinch recognition.
-     */
     Q_PROPERTY(int fingerCount READ fingerCount WRITE setFingerCount NOTIFY fingerCountChanged)
-
-    /*!
-     * \qmlproperty real PinchGestureHandler::progress
-     *
-     * This property specifies the progress of the pinch gesture. The progress ranges from
-     * 0.0 to 1.0.
-     */
     Q_PROPERTY(qreal progress READ progress NOTIFY progressChanged)
 
 public:
@@ -196,23 +115,12 @@ public:
     ~PinchGestureHandler() override;
 
     // Matches PinchDirection.
-    /*!
-     * The Direction type specifies whether fingers should contract or expand.
-     *
-     * \value Expanding Fingers should expand for the pinch gesture.
-     * \value Contracting Fingers should contract for the pinch gesture.
-     */
     enum class Direction {
         Expanding,
         Contracting,
     };
     Q_ENUM(Direction)
 
-    /*!
-     * The Device type specifies the input device that triggers the pinch gesture.
-     *
-     * \value Touchpad The pinch gesture is triggered by a touchpad input device.
-     */
     enum class Device {
         Touchpad,
     };
@@ -234,21 +142,8 @@ public:
     void setDeviceType(Device device);
 
 Q_SIGNALS:
-    /*!
-     * \qmlsignal PinchGestureHandler::activated()
-     *
-     * This signal is emitted when the pinch gesture is triggered, i.e. the progress() reaches 1.0.
-     */
     void activated();
-
-    /*!
-     * \qmlsignal PinchGestureHandler::cancelled()
-     *
-     * This signal is emitted when the pinch gesture is cancelled. A pinch gesture can be cancelled
-     * if the user lifts their fingers or moves the fingers in a different direction, etc.
-     */
     void cancelled();
-
     void progressChanged();
     void directionChanged();
     void fingerCountChanged();

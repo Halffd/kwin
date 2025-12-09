@@ -6,13 +6,13 @@
 */
 #pragma once
 
-#include "abstract_data_source.h"
+#include "kwin_export.h"
 
 #include <QObject>
 
-#include <optional>
+#include "datadevicemanager.h"
 
-struct wl_resource;
+#include <optional>
 
 namespace KWin
 {
@@ -37,26 +37,20 @@ public:
     /**
      * @returns The Drag and Drop actions supported by this DataOfferInterface.
      */
-    std::optional<DnDActions> supportedDragAndDropActions() const;
+    std::optional<DataDeviceManagerInterface::DnDActions> supportedDragAndDropActions() const;
 
     /**
      * @returns The preferred Drag and Drop action of this DataOfferInterface.
      */
-    std::optional<DnDAction> preferredDragAndDropAction() const;
+    std::optional<DataDeviceManagerInterface::DnDAction> preferredDragAndDropAction() const;
 
     /**
      * This event indicates the @p action selected by the compositor after matching the
      * source/destination side actions. Only one action (or none) will be offered here.
      */
-    void dndAction(DnDAction action);
+    void dndAction(DataDeviceManagerInterface::DnDAction action);
 
 Q_SIGNALS:
-    /**
-     * This signal is emitted when the data offer is discarded by the client, for example
-     * due to the wl_data_offer.destroy request. It is not emitted when the data offer object is deleted
-     * by the compositor.
-     */
-    void discarded();
     /**
      * Emitted whenever the supported or preferred Drag and Drop actions changed.
      */

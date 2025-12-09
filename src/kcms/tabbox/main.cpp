@@ -21,7 +21,6 @@
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QPointer>
-#include <QProcess>
 #include <QPushButton>
 #include <QSpacerItem>
 #include <QStandardPaths>
@@ -43,11 +42,12 @@
 #include "kwintabboxconfigform.h"
 #include "kwintabboxdata.h"
 #include "kwintabboxsettings.h"
+#include "layoutpreview.h"
 #include "shortcutsettings.h"
 
 #include <QTabBar>
 
-K_PLUGIN_FACTORY_WITH_JSON(KWinTabBoxConfigFactory, "kcm_kwintabbox.json", registerPlugin<KWin::KWinTabBoxConfig>(); registerPlugin<KWin::TabBox::KWinTabboxData>();)
+K_PLUGIN_FACTORY_WITH_JSON(KWinTabBoxConfigFactory, "kcm_kwintabbox_x11.json", registerPlugin<KWin::KWinTabBoxConfig>(); registerPlugin<KWin::TabBox::KWinTabboxData>();)
 
 namespace KWin
 {
@@ -74,7 +74,7 @@ KWinTabBoxConfig::KWinTabBoxConfig(QObject *parent, const KPluginMetaData &data)
     tabWidget->addTab(m_primaryTabBoxUi, i18n("Main"));
     tabWidget->addTab(m_alternativeTabBoxUi, i18n("Alternative"));
 
-    KNSWidgets::Button *ghnsButton = new KNSWidgets::Button(i18n("Get New Task Switcher Styles…"), QStringLiteral("kwinswitcher.knsrc"), widget());
+    KNSWidgets::Button *ghnsButton = new KNSWidgets::Button(i18n("Get New Task Switcher Styles…"), QStringLiteral("kwinswitcher-x11.knsrc"), widget());
     connect(ghnsButton, &KNSWidgets::Button::dialogFinished, this, [this](auto changedEntries) {
         if (!changedEntries.isEmpty()) {
             initLayoutLists();
@@ -101,9 +101,6 @@ KWinTabBoxConfig::KWinTabBoxConfig(QObject *parent, const KPluginMetaData &data)
     layout->addWidget(separator);
     layout->addLayout(buttonBar);
     widget()->setLayout(layout);
-
-    // Hide the separator if KNS is disabled.
-    separator->setVisible(!ghnsButton->isHidden());
 
     addConfig(m_data->tabBoxConfig(), m_primaryTabBoxUi);
     addConfig(m_data->tabBoxAlternativeConfig(), m_alternativeTabBoxUi);
@@ -165,6 +162,7 @@ void KWinTabBoxConfig::initLayoutLists()
         QStandardItem *item = new QStandardItem(name);
         item->setData(pluginId, Qt::UserRole);
         item->setData(path, KWinTabBoxConfigForm::LayoutPath);
+        item->setData(true, KWinTabBoxConfigForm::AddonEffect);
         model->appendRow(item);
     };
 
@@ -181,7 +179,7 @@ void KWinTabBoxConfig::initLayoutLists()
     }
 
     const QStringList packageRoots{
-        QStringLiteral("kwin-wayland/tabbox"),
+        KWIN_DATADIR + QStringLiteral("/tabbox"),
         QStringLiteral("kwin/tabbox"),
     };
     for (const QString &packageRoot : packageRoots) {
@@ -209,7 +207,7 @@ void KWinTabBoxConfig::initLayoutLists()
 
 void KWinTabBoxConfig::createConnections(KWinTabBoxConfigForm *form)
 {
-    connect(form, &KWinTabBoxConfigForm::effectPreviewClicked, this, &KWinTabBoxConfig::showPreview);
+    connect(form, &KWinTabBoxConfigForm::effectConfigButtonClicked, this, &KWinTabBoxConfig::configureEffectClicked);
     connect(form, &KWinTabBoxConfigForm::configChanged, this, &KWinTabBoxConfig::updateUnmanagedState);
 
     connect(this, &KWinTabBoxConfig::defaultsIndicatorsVisibleChanged, form, [form, this]() {
@@ -272,43 +270,17 @@ void KWinTabBoxConfig::defaults()
     KCModule::defaults();
     updateUnmanagedState();
 }
-
-void KWinTabBoxConfig::showPreview()
+void KWinTabBoxConfig::configureEffectClicked()
 {
     auto form = qobject_cast<KWinTabBoxConfigForm *>(sender());
     Q_ASSERT(form);
 
-    // The process will close when losing focus, but check in case of multiple calls
-    if (m_previewProcess && m_previewProcess->state() != QProcess::NotRunning) {
-        return;
+    if (form->effectComboCurrentData(KWinTabBoxConfigForm::AddonEffect).toBool()) {
+        // Show the preview for addon effect
+        new LayoutPreview(form->effectComboCurrentData(KWinTabBoxConfigForm::LayoutPath).toString(),
+                          form->config()->showDesktopMode(),
+                          this);
     }
-
-    // Launch the preview helper executable with the required env var
-    // that allows the PlasmaDialog to position itself
-    // QT_WAYLAND_DISABLE_FIXED_POSITIONS=1 kwin-tabbox-preview <path> [--show-desktop]
-
-    const QString previewHelper = QStandardPaths::findExecutable("kwin-tabbox-preview", {LIBEXEC_DIR});
-    if (previewHelper.isEmpty()) {
-        qWarning() << "Cannot find tabbox preview helper executable \"kwin-tabbox-preview\" in" << LIBEXEC_DIR;
-        return;
-    }
-
-    QStringList args;
-    args << form->effectComboCurrentData(KWinTabBoxConfigForm::LayoutPath).toString();
-    if (form->config()->showDesktopMode()) {
-        args << QStringLiteral("--show-desktop");
-    }
-
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("QT_WAYLAND_DISABLE_FIXED_POSITIONS"),
-               QStringLiteral("1"));
-
-    m_previewProcess = std::make_unique<QProcess>();
-    m_previewProcess->setArguments(args);
-    m_previewProcess->setProgram(previewHelper);
-    m_previewProcess->setProcessEnvironment(env);
-    m_previewProcess->setProcessChannelMode(QProcess::ForwardedChannels);
-    m_previewProcess->start();
 }
 
 } // namespace

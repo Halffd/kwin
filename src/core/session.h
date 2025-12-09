@@ -12,7 +12,6 @@
 #include <QObject>
 #include <QString>
 
-#include <expected>
 #include <memory>
 #include <sys/types.h>
 
@@ -71,15 +70,11 @@ public:
      */
     virtual uint terminal() const = 0;
 
-    enum class Error {
-        EBusy,
-        Other,
-    };
-
     /**
-     * Opens the file with the specified @a fileName
+     * Opens the file with the specified @a fileName. Returns the file descriptor
+     * of the file or @a -1 if an error has occurred.
      */
-    virtual std::expected<int, Error> openRestricted(const QString &fileName) = 0;
+    virtual int openRestricted(const QString &fileName) = 0;
 
     /**
      * Closes a file that has been opened using the openRestricted() function.
@@ -124,8 +119,6 @@ Q_SIGNALS:
 
 protected:
     explicit Session() = default;
-
-    static Error errorFromErrno();
 };
 
 } // namespace KWin

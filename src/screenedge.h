@@ -35,20 +35,20 @@ namespace KWin
 {
 
 class Window;
-class LogicalOutput;
-class ScreenEdgeGestureRecognizer;
+class Output;
+class GestureRecognizer;
 class ScreenEdges;
-class ScreenEdgeGesture;
+class SwipeGesture;
 
 class TouchCallback
 {
 public:
-    using CallbackFunction = std::function<void(ElectricBorder border, const QPointF &, LogicalOutput *output)>;
+    using CallbackFunction = std::function<void(ElectricBorder border, const QPointF &, Output *output)>;
     explicit TouchCallback(QAction *touchUpAction, TouchCallback::CallbackFunction progressCallback);
     ~TouchCallback();
 
     QAction *touchUpAction() const;
-    void progressCallback(ElectricBorder border, const QPointF &deltaProgress, LogicalOutput *output) const;
+    void progressCallback(ElectricBorder border, const QPointF &deltaProgress, Output *output) const;
     bool hasProgressCallback() const;
 
 private:
@@ -84,14 +84,28 @@ public:
     bool isApproaching() const;
     void setClient(Window *client);
     Window *client() const;
-    void setOutput(LogicalOutput *output);
-    LogicalOutput *output() const;
+    void setOutput(Output *output);
+    Output *output() const;
     const QRect &geometry() const;
     void setTouchAction(ElectricBorderAction action);
-    void checkBlocking();
 
     bool activatesForPointer() const;
     bool activatesForTouchGesture() const;
+
+#if KWIN_BUILD_X11
+    /**
+     * The window id of the native window representing the edge.
+     * Default implementation returns @c 0, which means no window.
+     */
+    virtual quint32 window() const;
+    /**
+     * The approach window is a special window to notice when get close to the screen border but
+     * not yet triggering the border.
+     *
+     * The default implementation returns @c 0, which means no window.
+     */
+    virtual quint32 approachWindow() const;
+#endif
 
 public Q_SLOTS:
     void reserve();
@@ -101,6 +115,7 @@ public Q_SLOTS:
     void setAction(ElectricBorderAction action);
     void setGeometry(const QRect &geometry);
     void updateApproaching(const QPointF &point);
+    void checkBlocking();
 Q_SIGNALS:
     void approaching(ElectricBorder border, qreal factor, const QRect &geometry);
     void activatesForTouchGestureChanged();
@@ -109,6 +124,12 @@ protected:
     ScreenEdges *edges();
     const ScreenEdges *edges() const;
     bool isBlocked() const;
+    virtual void doGeometryUpdate();
+    virtual void doActivate();
+    virtual void doDeactivate();
+    virtual void doStartApproaching();
+    virtual void doStopApproaching();
+    virtual void doUpdateBlocking();
 
 private:
     void activate();
@@ -149,8 +170,8 @@ private:
     bool m_blocked;
     bool m_pushBackBlocked;
     Window *m_client;
-    LogicalOutput *m_output;
-    std::unique_ptr<ScreenEdgeGesture> m_gesture;
+    Output *m_output;
+    std::unique_ptr<SwipeGesture> m_gesture;
     QList<TouchCallback> m_touchCallbacks;
     friend class ScreenEdges;
 };
@@ -213,7 +234,6 @@ class KWIN_EXPORT ScreenEdges : public QObject
     Q_PROPERTY(int actionLeft READ actionLeft)
 public:
     explicit ScreenEdges();
-    ~ScreenEdges() override;
     /**
      * @internal
      */
@@ -223,6 +243,14 @@ public:
      * @internal
      */
     void init();
+    /**
+     * Check, if a screen edge is entered and trigger the appropriate action
+     * if one is enabled for the current region and the timeout is satisfied
+     * @param pos the position of the mouse pointer
+     * @param now the time when the function is called
+     * @param forceNoPushBack needs to be called to workaround some DnD clients, don't use unless you want to chek on a DnD event
+     */
+    void check(const QPoint &pos, const std::chrono::microseconds &now, bool forceNoPushBack = false);
     /**
      * Check, if @p pos is in the approach geometry of any edge.
      */
@@ -298,11 +326,23 @@ public:
      * @param o Qt orientations
      */
     void reserveDesktopSwitching(bool isToReserve, Qt::Orientations o);
-    void handlePointerMotion(const QPointF &pos, std::chrono::microseconds timestamp);
+    /**
+     * Raise electric border windows to the real top of the screen. We only need
+     * to do this if an effect input window is active.
+     */
+    void ensureOnTop();
+    bool isEntered(const QPointF &pos, std::chrono::microseconds timestamp);
+
+#if KWIN_BUILD_X11
+    /**
+     * Returns a QList of all existing screen edge windows
+     * @return all existing screen edge windows in a QList
+     */
+    QList<xcb_window_t> windows() const;
+#endif
 
     bool isDesktopSwitching() const;
     bool isDesktopSwitchingMovingClients() const;
-    bool isAllScreenCorners() const;
     const QSize &cursorPushBackDistance() const;
     /**
      * Minimum time between the push back of the cursor and the activation by re-entering the edge.
@@ -323,12 +363,17 @@ public:
 
     ElectricBorderAction actionForTouchBorder(ElectricBorder border) const;
 
-    ScreenEdgeGestureRecognizer *gestureRecognizer() const;
+    GestureRecognizer *gestureRecognizer() const
+    {
+        return m_gestureRecognizer;
+    }
 
+#if KWIN_BUILD_X11
+    bool handleDndNotify(xcb_window_t window, const QPoint &point);
+    bool handleEnterNotifiy(xcb_window_t window, const QPoint &point, const std::chrono::microseconds &timestamp);
+#endif
     bool remainActiveOnFullscreen() const;
     const std::vector<std::unique_ptr<Edge>> &edges() const;
-
-    void checkBlocking();
 
 public Q_SLOTS:
     void reconfigure();
@@ -349,6 +394,7 @@ Q_SIGNALS:
      * @c 0.0 meaning far away from the border, @c 1.0 in trigger distance.
      */
     void approaching(ElectricBorder border, qreal factor, const QRect &geometry);
+    void checkBlocking();
 
 private:
     enum {
@@ -358,13 +404,12 @@ private:
     };
     void setDesktopSwitching(bool enable);
     void setDesktopSwitchingMovingClients(bool enable);
-    void setAllScreenCorners(bool enable);
     void setCursorPushBackDistance(const QSize &distance);
     void setTimeThreshold(std::chrono::milliseconds threshold);
     void setReActivationThreshold(std::chrono::milliseconds threshold);
-    void createHorizontalEdge(ElectricBorder border, const QRect &screen, const QRect &fullArea, LogicalOutput *output);
-    void createVerticalEdge(ElectricBorder border, const QRect &screen, const QRect &fullArea, LogicalOutput *output);
-    std::unique_ptr<Edge> createEdge(ElectricBorder border, int x, int y, int width, int height, LogicalOutput *output, bool createAction = true);
+    void createHorizontalEdge(ElectricBorder border, const QRect &screen, const QRect &fullArea, Output *output);
+    void createVerticalEdge(ElectricBorder border, const QRect &screen, const QRect &fullArea, Output *output);
+    std::unique_ptr<Edge> createEdge(ElectricBorder border, int x, int y, int width, int height, Output *output, bool createAction = true);
     void setActionForBorder(ElectricBorder border, ElectricBorderAction *oldValue, ElectricBorderAction newValue);
     void setActionForTouchBorder(ElectricBorder border, ElectricBorderAction newValue);
     void setRemainActiveOnFullscreen(bool remainActive);
@@ -389,10 +434,9 @@ private:
     ElectricBorderAction m_actionBottomLeft;
     ElectricBorderAction m_actionLeft;
     QMap<ElectricBorder, ElectricBorderAction> m_touchCallbacks;
-    const int m_cornerOffset;
-    std::unique_ptr<ScreenEdgeGestureRecognizer> m_gestureRecognizer;
+    int m_cornerOffset;
+    GestureRecognizer *m_gestureRecognizer;
     bool m_remainActiveOnFullscreen = false;
-    bool m_allScreenCorners = true;
 };
 
 /**********************************************************
@@ -518,11 +562,6 @@ inline bool ScreenEdges::isDesktopSwitchingMovingClients() const
     return m_desktopSwitchingMovingClients;
 }
 
-inline bool ScreenEdges::isAllScreenCorners() const
-{
-    return m_allScreenCorners;
-}
-
 inline std::chrono::milliseconds ScreenEdges::reActivationThreshold() const
 {
     return m_reactivateThreshold;
@@ -550,15 +589,6 @@ inline void ScreenEdges::setDesktopSwitching(bool enable)
 inline void ScreenEdges::setDesktopSwitchingMovingClients(bool enable)
 {
     m_desktopSwitchingMovingClients = enable;
-}
-
-inline void ScreenEdges::setAllScreenCorners(bool enable)
-{
-    if (enable == m_allScreenCorners) {
-        return;
-    }
-    m_allScreenCorners = enable;
-    recreateEdges();
 }
 
 inline void ScreenEdges::setReActivationThreshold(std::chrono::milliseconds threshold)

@@ -16,7 +16,6 @@
 #include "keyboard_layout.h"
 #include "keyboard_repeat.h"
 #include "wayland/datadevice.h"
-#include "wayland/display.h"
 #include "wayland/keyboard.h"
 #include "wayland/seat.h"
 #include "wayland_server.h"
@@ -46,7 +45,9 @@ KeyboardInputRedirection::KeyboardInputRedirection(InputRedirection *parent)
     , m_xkb(new Xkb(kwinApp()->followLocale1()))
 {
     connect(m_xkb.get(), &Xkb::ledsChanged, this, &KeyboardInputRedirection::ledsChanged);
-    m_xkb->setSeat(waylandServer()->seat());
+    if (waylandServer()) {
+        m_xkb->setSeat(waylandServer()->seat());
+    }
 }
 
 KeyboardInputRedirection::~KeyboardInputRedirection() = default;
@@ -265,26 +266,10 @@ void KeyboardInputRedirection::update()
     }
 }
 
-static constexpr std::array s_modifierKeys = {
-    Qt::Key_Control,
-    Qt::Key_Alt,
-    Qt::Key_AltGr,
-    Qt::Key_Meta,
-    Qt::Key_CapsLock,
-    Qt::Key_NumLock,
-    Qt::Key_Shift,
-    Qt::Key_ScrollLock,
-};
-
 void KeyboardInputRedirection::processKey(uint32_t key, KeyboardKeyState state, std::chrono::microseconds time, InputDevice *device)
 {
     input()->setLastInputHandler(this);
     if (!m_inited) {
-        return;
-    }
-
-    const bool ret = m_a11yKeyboardMonitor.processKey(key, state, time);
-    if (ret) {
         return;
     }
 
@@ -314,17 +299,10 @@ void KeyboardInputRedirection::processKey(uint32_t key, KeyboardKeyState state, 
         .modifiers = m_xkb->modifiers(),
         .modifiersRelevantForGlobalShortcuts = m_xkb->modifiersRelevantForGlobalShortcuts(key),
         .timestamp = time,
-        .serial = waylandServer()->display()->nextSerial(),
     };
-    if (state == KeyboardKeyState::Pressed && !std::ranges::contains(s_modifierKeys, event.key)) {
-        input()->setLastInteractionSerial(event.serial);
-        if (auto f = pickFocus()) {
-            f->setLastUsageSerial(event.serial);
-        }
-    }
 
-    m_input->processSpies(&InputEventSpy::keyboardKey, &event);
-    m_input->processFilters(&InputEventFilter::keyboardKey, &event);
+    m_input->processSpies(std::bind(&InputEventSpy::keyboardKey, std::placeholders::_1, &event));
+    m_input->processFilters(std::bind(&InputEventFilter::keyboardKey, std::placeholders::_1, &event));
 
     if (state == KeyboardKeyState::Released) {
         m_filteredKeys.removeOne(key);

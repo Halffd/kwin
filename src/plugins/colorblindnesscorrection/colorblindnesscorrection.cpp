@@ -46,8 +46,7 @@ void ColorBlindnessCorrectionEffect::loadData()
     ensureResources();
 
     QMatrix3x3 defectMatrix;
-    QString fragPath = QStringLiteral(":/effects/colorblindnesscorrection/shaders/colorblindnesscorrection.frag");
-
+    QString fragPath;
     switch (m_mode) {
     case Deuteranopia:
         defectMatrix(0, 0) = 1.0;
@@ -71,9 +70,6 @@ void ColorBlindnessCorrectionEffect::loadData()
         defectMatrix(1, 2) = 0.0;
         defectMatrix(2, 2) = 0.0;
         break;
-    case Monochrome:
-        fragPath = QStringLiteral(":/effects/colorblindnesscorrection/shaders/monochrome.frag");
-        break;
     case Protanopia: // Most common, use it as fallback
     default:
         defectMatrix(0, 0) = 0.0;
@@ -88,7 +84,7 @@ void ColorBlindnessCorrectionEffect::loadData()
         break;
     }
 
-    m_shader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), fragPath);
+    m_shader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), QStringLiteral(":/effects/colorblindnesscorrection/shaders/colorblindnesscorrection.frag"));
 
     if (!m_shader->isValid()) {
         qCCritical(KWIN_COLORBLINDNESS_CORRECTION) << "Failed to load the shader!";
@@ -96,12 +92,8 @@ void ColorBlindnessCorrectionEffect::loadData()
     }
 
     ShaderBinder binder{m_shader.get()};
-
-    if (m_mode != Monochrome) {
-        // These uniforms aren't present in the monochrome shader, so we shouldn't set them there.
-        m_shader->setUniform("intensity", m_intensity);
-        m_shader->setUniform("defectMatrix", defectMatrix);
-    }
+    m_shader->setUniform("intensity", m_intensity);
+    m_shader->setUniform("defectMatrix", defectMatrix);
 
     for (const auto windows = effects->stackingOrder(); EffectWindow * w : windows) {
         correctColor(w);
@@ -110,21 +102,6 @@ void ColorBlindnessCorrectionEffect::loadData()
 
     connect(effects, &EffectsHandler::windowDeleted, this, &ColorBlindnessCorrectionEffect::slotWindowDeleted);
     connect(effects, &EffectsHandler::windowAdded, this, &ColorBlindnessCorrectionEffect::correctColor);
-}
-
-void ColorBlindnessCorrectionEffect::drawWindow(const RenderTarget &renderTarget,
-                                                const RenderViewport &viewport,
-                                                EffectWindow *w,
-                                                int mask,
-                                                const QRegion &logicalRegion,
-                                                WindowPaintData &data)
-{
-    // The 'saturation' uniform is exported in the base function, so we have to modify its value beforehand.
-    if (m_mode == Monochrome) {
-        data.setSaturation(1.0f - m_intensity);
-    }
-
-    OffscreenEffect::drawWindow(renderTarget, viewport, w, mask, logicalRegion, data);
 }
 
 void ColorBlindnessCorrectionEffect::correctColor(KWin::EffectWindow *w)

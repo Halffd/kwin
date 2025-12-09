@@ -26,7 +26,7 @@ OverviewEffect::OverviewEffect()
     : m_overviewState(new EffectTogglableState(this))
     // manages the transition between overview -> grid
     , m_transitionState(new EffectTogglableState(this))
-    // manages the transition between inactive -> overview
+    // manages the transition betwee inactive -> overview
     , m_gridState(new EffectTogglableState(this))
     , m_border(new EffectTogglableTouchBorder(m_overviewState))
     , m_gridBorder(new EffectTogglableTouchBorder(m_gridState))
@@ -166,7 +166,7 @@ OverviewEffect::OverviewEffect()
             qWarning() << "Failed to load overview:" << delegate->errorString();
         }
     });
-    delegate->loadFromModule(QStringLiteral("org.kde.kwin.overview"), QStringLiteral("Main"), QQmlComponent::Asynchronous);
+    delegate->loadUrl(QUrl(QStringLiteral("qrc:/overview/qml/main.qml")), QQmlComponent::Asynchronous);
     setDelegate(delegate);
 }
 
@@ -336,6 +336,59 @@ void OverviewEffect::reverseCycle()
         m_transitionState->deactivate();
     } else if (m_gridState->status() == EffectTogglableState::Status::Inactive) {
         m_gridState->activate();
+    }
+}
+
+void OverviewEffect::grabbedKeyboardEvent(QKeyEvent *keyEvent)
+{
+    if (!effects->waylandDisplay()) {
+        if (m_cycleShortcut.contains(keyEvent->key() | keyEvent->modifiers())) {
+            if (keyEvent->type() == QEvent::KeyPress) {
+                cycle();
+            }
+            return;
+        }
+        if (m_reverseCycleShortcut.contains(keyEvent->key() | keyEvent->modifiers())) {
+            if (keyEvent->type() == QEvent::KeyPress) {
+                reverseCycle();
+            }
+            return;
+        }
+        if (m_overviewShortcut.contains(keyEvent->key() | keyEvent->modifiers())) {
+            if (keyEvent->type() == QEvent::KeyPress) {
+                m_overviewState->toggle();
+            }
+            return;
+        }
+        if (m_gridShortcut.contains(keyEvent->key() | keyEvent->modifiers())) {
+            if (keyEvent->type() == QEvent::KeyPress) {
+                m_gridState->toggle();
+            }
+            return;
+        }
+    }
+    QuickSceneEffect::grabbedKeyboardEvent(keyEvent);
+}
+
+void OverviewEffect::swapDesktops(VirtualDesktop *from, VirtualDesktop *to)
+{
+    QList<EffectWindow *> fromList;
+    QList<EffectWindow *> toList;
+    for (auto *w : effects->stackingOrder()) {
+        if (!w->isNormalWindow() || !w->isOnCurrentActivity()) {
+            continue;
+        }
+        if (w->isOnDesktop(from)) {
+            fromList << w;
+        } else if (w->isOnDesktop(to)) {
+            toList << w;
+        }
+    }
+    for (auto *w : fromList) {
+        effects->windowToDesktops(w, {to});
+    }
+    for (auto *w : toList) {
+        effects->windowToDesktops(w, {from});
     }
 }
 

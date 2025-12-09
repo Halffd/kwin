@@ -10,11 +10,13 @@
 
 #include "kwin_wayland_test.h"
 
+#include "atoms.h"
 #include "rules.h"
 #include "virtualdesktops.h"
 #include "wayland_server.h"
 #include "window.h"
 #include "workspace.h"
+#include "x11window.h"
 
 #include <KWayland/Client/surface.h>
 
@@ -24,13 +26,8 @@
 #include <QDBusPendingReply>
 #include <QUuid>
 
-#if KWIN_BUILD_X11
-#include "atoms.h"
-#include "x11window.h"
-
 #include <netwm.h>
 #include <xcb/xcb_icccm.h>
-#endif
 
 using namespace KWin;
 
@@ -58,11 +55,12 @@ void TestDbusInterface::initTestCase()
     qRegisterMetaType<KWin::Window *>();
 
     QVERIFY(waylandServer()->init(s_socketName));
-    kwinApp()->start();
     Test::setOutputConfig({
         QRect(0, 0, 1280, 1024),
         QRect(1280, 0, 1280, 1024),
     });
+
+    kwinApp()->start();
     VirtualDesktopManager::self()->setCount(4);
 }
 
@@ -120,6 +118,7 @@ void TestDbusInterface::testGetWindowInfoXdgShellClient()
         {QStringLiteral("height"), window->height()},
         {QStringLiteral("desktops"), window->desktopIds()},
         {QStringLiteral("minimized"), false},
+        {QStringLiteral("shaded"), false},
         {QStringLiteral("fullscreen"), false},
         {QStringLiteral("keepAbove"), false},
         {QStringLiteral("keepBelow"), false},
@@ -187,6 +186,7 @@ void TestDbusInterface::testGetWindowInfoXdgShellClient()
     QVERIFY(window->skipSwitcher());
     QCOMPARE(verifyProperty(QStringLiteral("skipSwitcher")), true);
 
+    // not testing shaded as that's X11
     // not testing fullscreen, maximizeHorizontal, maximizeVertical and noBorder as those require window geometry changes
 
     const QList<VirtualDesktop *> desktops = VirtualDesktopManager::self()->desktops();
@@ -219,7 +219,6 @@ void TestDbusInterface::testGetWindowInfoXdgShellClient()
 
 void TestDbusInterface::testGetWindowInfoX11Client()
 {
-#if KWIN_BUILD_X11
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
     const QRect windowGeometry(0, 0, 600, 400);
@@ -230,7 +229,8 @@ void TestDbusInterface::testGetWindowInfoX11Client()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints{};
+    xcb_size_hints_t hints;
+    memset(&hints, 0, sizeof(hints));
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
@@ -257,6 +257,7 @@ void TestDbusInterface::testGetWindowInfoX11Client()
         {QStringLiteral("height"), window->height()},
         {QStringLiteral("desktops"), window->desktopIds()},
         {QStringLiteral("minimized"), false},
+        {QStringLiteral("shaded"), false},
         {QStringLiteral("fullscreen"), false},
         {QStringLiteral("keepAbove"), false},
         {QStringLiteral("keepBelow"), false},
@@ -325,6 +326,13 @@ void TestDbusInterface::testGetWindowInfoX11Client()
     QVERIFY(window->skipSwitcher());
     QCOMPARE(verifyProperty(QStringLiteral("skipSwitcher")), true);
 
+    QVERIFY(!window->isShade());
+    window->setShade(ShadeNormal);
+    QVERIFY(window->isShade());
+    QCOMPARE(verifyProperty(QStringLiteral("shaded")), true);
+    window->setShade(ShadeNone);
+    QVERIFY(!window->isShade());
+
     QVERIFY(!window->noBorder());
     window->setNoBorder(true);
     QVERIFY(window->noBorder());
@@ -354,17 +362,17 @@ void TestDbusInterface::testGetWindowInfoX11Client()
 
     const auto id = window->internalId();
     // destroy the window
-    xcb_destroy_window(c.get(), windowId);
+    xcb_unmap_window(c.get(), windowId);
     xcb_flush(c.get());
 
     QSignalSpy windowClosedSpy(window, &X11Window::closed);
     QVERIFY(windowClosedSpy.wait());
+    xcb_destroy_window(c.get(), windowId);
     c.reset();
 
     reply = getWindowInfo(id);
     reply.waitForFinished();
     QVERIFY(reply.value().empty());
-#endif
 }
 
 WAYLANDTEST_MAIN(TestDbusInterface)

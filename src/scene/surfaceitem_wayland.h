@@ -8,7 +8,6 @@
 
 #include "scene/surfaceitem.h"
 
-#include <QTimer>
 #include <unordered_map>
 
 namespace KWin
@@ -47,17 +46,17 @@ private Q_SLOTS:
     void handleChildSubSurfaceRemoved(SubSurfaceInterface *child);
     void handleChildSubSurfacesChanged();
     void handleSubSurfacePositionChanged();
-    void handleSurfaceMappedChanged();
+    void handleSubSurfaceMappedChanged();
     void handleColorDescriptionChanged();
     void handlePresentationModeHintChanged();
     void handleReleasePointChanged();
     void handleAlphaMultiplierChanged();
 
-    void handleFifoFallback();
+protected:
+    std::unique_ptr<SurfacePixmap> createPixmap() override;
 
 private:
     SurfaceItemWayland *getOrCreateSubSurfaceItem(SubSurfaceInterface *s);
-    void handleFramePainted(LogicalOutput *output, OutputFrame *frame, std::chrono::milliseconds timestamp) override;
 
     QPointer<SurfaceInterface> m_surface;
     struct ScanoutFeedback
@@ -67,7 +66,21 @@ private:
     };
     std::optional<ScanoutFeedback> m_scanoutFeedback;
     std::unordered_map<SubSurfaceInterface *, std::unique_ptr<SurfaceItemWayland>> m_subsurfaces;
-    QTimer m_fifoFallbackTimer;
+};
+
+class KWIN_EXPORT SurfacePixmapWayland final : public SurfacePixmap
+{
+    Q_OBJECT
+
+public:
+    explicit SurfacePixmapWayland(SurfaceItemWayland *item);
+
+    void create() override;
+    void update() override;
+    bool isValid() const override;
+
+private:
+    bool m_valid = false;
 };
 
 #if KWIN_BUILD_X11
@@ -85,10 +98,7 @@ public:
     QList<QRectF> shape() const override;
 
 private:
-    void handleShapeChange();
-
     X11Window *m_window;
-    QRegion m_previousBufferShape;
 };
 #endif
 

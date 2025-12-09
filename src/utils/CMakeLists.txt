@@ -4,7 +4,6 @@ target_sources(kwin PRIVATE
     drm_format_helper.cpp
     edid.cpp
     filedescriptor.cpp
-    gravity.cpp
     orientationsensor.cpp
     ramfile.cpp
     realtime.cpp

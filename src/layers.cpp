@@ -65,6 +65,7 @@
 */
 
 #include "compositor.h"
+#include "effect/effecthandler.h"
 #include "focuschain.h"
 #include "internalwindow.h"
 #include "rules.h"
@@ -100,7 +101,8 @@ void Workspace::updateStackingOrder(bool propagate_new_windows)
         return;
     }
     QList<Window *> new_stacking_order = constrainedStackingOrder();
-    bool changed = new_stacking_order != stacking_order;
+    bool changed = (force_restacking || new_stacking_order != stacking_order);
+    force_restacking = false;
     stacking_order = new_stacking_order;
     if (changed || propagate_new_windows) {
 #if KWIN_BUILD_X11
@@ -112,10 +114,28 @@ void Workspace::updateStackingOrder(bool propagate_new_windows)
         }
 
         Q_EMIT stackingOrderChanged();
+
+        if (m_activeWindow) {
+            m_activeWindow->updateMouseGrab();
+        }
     }
 }
 
 #if KWIN_BUILD_X11
+/**
+ * Some fullscreen effects have to raise the screenedge on top of an input window, thus all windows
+ * this function puts them back where they belong for regular use and is some cheap variant of
+ * the regular propagateWindows function in that it completely ignores managed windows and everything
+ * else and also does not update the NETWM property.
+ * Called from Effects::destroyInputWindow so far.
+ */
+void Workspace::stackScreenEdgesUnderOverrideRedirect()
+{
+    if (!rootInfo()) {
+        return;
+    }
+    Xcb::restackWindows(QList<xcb_window_t>() << rootInfo()->supportWindow() << workspace()->screenEdges()->windows());
+}
 
 /**
  * Propagates the managed windows to the world.
@@ -137,19 +157,36 @@ void Workspace::propagateWindows(bool propagate_new_windows)
     // windows (e.g. popups).
     newWindowStack << rootInfo()->supportWindow();
 
+    newWindowStack << workspace()->screenEdges()->windows();
+
     newWindowStack << manual_overlays;
 
-    newWindowStack.reserve(newWindowStack.size() + stacking_order.size());
+    newWindowStack.reserve(newWindowStack.size() + 2 * stacking_order.size()); // *2 for inputWindow
 
     for (int i = stacking_order.size() - 1; i >= 0; --i) {
         X11Window *window = qobject_cast<X11Window *>(stacking_order.at(i));
-        if (!window || window->isDeleted() || window->isUnmanaged()) {
+        if (!window || window->isDeleted() || window->isUnmanaged() || window->hiddenPreview()) {
             continue;
         }
 
-        newWindowStack << window->window();
+        if (window->inputId()) {
+            // Stack the input window above the frame
+            newWindowStack << window->inputId();
+        }
+
+        newWindowStack << window->frameId();
     }
 
+    // when having hidden previews, stack hidden windows below everything else
+    // (as far as pure X stacking order is concerned), in order to avoid having
+    // these windows that should be unmapped to interfere with other windows
+    for (int i = stacking_order.size() - 1; i >= 0; --i) {
+        X11Window *window = qobject_cast<X11Window *>(stacking_order.at(i));
+        if (!window || window->isDeleted() || window->isUnmanaged() || !window->hiddenPreview()) {
+            continue;
+        }
+        newWindowStack << window->frameId();
+    }
     // TODO isn't it too inefficient to restack always all windows?
     // TODO don't restack not visible windows?
     Q_ASSERT(newWindowStack.at(0) == rootInfo()->supportWindow());
@@ -190,7 +227,7 @@ void Workspace::propagateWindows(bool propagate_new_windows)
  * doesn't accept focus it's excluded.
  */
 // TODO misleading name for this method, too many slightly different ways to use it
-Window *Workspace::topWindowOnDesktop(VirtualDesktop *desktop, LogicalOutput *output, bool unconstrained, bool only_normal) const
+Window *Workspace::topWindowOnDesktop(VirtualDesktop *desktop, Output *output, bool unconstrained, bool only_normal) const
 {
     // TODO    Q_ASSERT( block_stacking_updates == 0 );
     QList<Window *> list;
@@ -204,7 +241,7 @@ Window *Workspace::topWindowOnDesktop(VirtualDesktop *desktop, LogicalOutput *ou
         if (!window->isClient() || window->isDeleted()) {
             continue;
         }
-        if (window->isOnDesktop(desktop) && window->isShown() && window->isOnCurrentActivity()) {
+        if (window->isOnDesktop(desktop) && window->isShown() && window->isOnCurrentActivity() && !window->isShade()) {
             if (output && window->output() != output) {
                 continue;
             }
@@ -219,7 +256,7 @@ Window *Workspace::topWindowOnDesktop(VirtualDesktop *desktop, LogicalOutput *ou
     return nullptr;
 }
 
-Window *Workspace::findDesktop(VirtualDesktop *desktop, LogicalOutput *output) const
+Window *Workspace::findDesktop(VirtualDesktop *desktop, Output *output) const
 {
     // TODO    Q_ASSERT( block_stacking_updates == 0 );
     for (int i = stacking_order.size() - 1; i >= 0; i--) {
@@ -298,7 +335,7 @@ void Workspace::raiseOrLowerWindow(Window *window)
     }
 
     VirtualDesktop *desktop = VirtualDesktopManager::self()->currentDesktop();
-    LogicalOutput *output = options->isSeparateScreenFocus() ? window->output() : nullptr;
+    Output *output = options->isSeparateScreenFocus() ? window->output() : nullptr;
     Layer layer = computeLayer(window);
 
     bool topmost = false;
@@ -306,7 +343,7 @@ void Workspace::raiseOrLowerWindow(Window *window)
         if (layer != computeLayer(*it) || !(*it)->isClient() || (*it)->isDeleted()) {
             continue;
         }
-        if ((*it)->isOnDesktop(desktop) && (*it)->isShown() && (*it)->isOnCurrentActivity()) {
+        if ((*it)->isOnDesktop(desktop) && (*it)->isShown() && (*it)->isOnCurrentActivity() && !(*it)->isShade()) {
             if (output && (*it)->output() != output) {
                 continue;
             }
@@ -341,28 +378,23 @@ void Workspace::lowerWindow(Window *window, bool nogroup)
 
     StackingUpdatesBlocker blocker(this);
 
-    if (nogroup || (!window->isTransient() && window->transients().isEmpty())) {
-        unconstrained_stacking_order.removeAll(window);
-        unconstrained_stacking_order.prepend(window);
-    } else {
-        auto mainWindows = window->allMainWindows();
-        Window *parent;
-        if (mainWindows.isEmpty()) {
-            parent = window;
-        } else {
-            parent = ensureStackingOrder(mainWindows).front();
+    unconstrained_stacking_order.removeAll(window);
+    unconstrained_stacking_order.prepend(window);
+    // TODO How X11-specific is this implementation?
+#if KWIN_BUILD_X11
+    if (!nogroup && window->isTransient()) {
+        // lower also all windows in the group, in their reversed stacking order
+        QList<X11Window *> wins;
+        if (auto group = window->group()) {
+            wins = ensureStackingOrder(group->members());
         }
-        QList<Window *> windows{parent};
-        for (int i = 0; i < windows.size(); ++i) {
-            if (!windows[i]->transients().isEmpty()) {
-                windows << windows[i]->transients();
+        for (int i = wins.size() - 1; i >= 0; --i) {
+            if (wins[i] != window) {
+                lowerWindow(wins[i], true);
             }
         }
-        windows = ensureStackingOrder(windows);
-        for (int i = windows.size() - 1; i >= 0; --i) {
-            lowerWindow(windows[i], true);
-        }
     }
+#endif
 }
 
 void Workspace::lowerWindowWithinApplication(Window *window)
@@ -636,6 +668,9 @@ void Workspace::blockStackingUpdates(bool block)
     } else // !block
         if (--m_blockStackingUpdates == 0) {
             updateStackingOrder(m_blockedPropagatingNewWindows);
+            if (effects) {
+                effects->checkInputWindowStacking();
+            }
         }
 }
 

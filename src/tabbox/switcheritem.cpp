@@ -120,7 +120,7 @@ void SwitcherItem::setAutomaticallyHide(bool value)
 
 bool SwitcherItem::compositing()
 {
-    return true;
+    return Compositor::compositing();
 }
 
 }

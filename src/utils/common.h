@@ -59,6 +59,23 @@ private:
 };
 typedef QList<StrutRect> StrutRects;
 
+enum ShadeMode {
+    ShadeNone, // not shaded
+    ShadeNormal, // normally shaded - isShade() is true only here
+    ShadeHover, // "shaded", but visible due to hover unshade
+    ShadeActivated // "shaded", but visible due to alt+tab to the window
+};
+
+#if KWIN_BUILD_X11
+// converting between X11 mouse/keyboard state mask and Qt button/keyboard states
+Qt::MouseButton x11ToQtMouseButton(int button);
+Qt::MouseButton KWIN_EXPORT x11ToQtMouseButton(int button);
+Qt::MouseButtons KWIN_EXPORT x11ToQtMouseButtons(int state);
+Qt::KeyboardModifiers KWIN_EXPORT x11ToQtKeyboardModifiers(int state);
+#endif
+
+KWIN_EXPORT QRectF gravitateGeometry(const QRectF &rect, const QRectF &bounds, Gravity gravity);
+
 } // namespace
 
 // Must be outside namespace

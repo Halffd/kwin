@@ -28,8 +28,6 @@
 #include <QLoggingCategory>
 #include <QStack>
 
-#include <KConfigWatcher>
-
 #include <functional>
 
 #if KWIN_BUILD_X11
@@ -70,7 +68,7 @@ class EffectWindow;
 class EffectWindowGroup;
 class OffscreenQuickView;
 class Group;
-class LogicalOutput;
+class Output;
 class Effect;
 struct TabletToolProximityEvent;
 struct TabletToolAxisEvent;
@@ -80,7 +78,7 @@ class WindowItem;
 class WindowPropertyNotifyX11Filter;
 class WorkspaceScene;
 class VirtualDesktop;
-class EglContext;
+class OpenGlContext;
 class InputDevice;
 class InputDeviceTabletTool;
 
@@ -130,7 +128,7 @@ class KWIN_EXPORT EffectsHandler : public QObject
     Q_PROPERTY(int workspaceHeight READ workspaceHeight)
     Q_PROPERTY(QList<KWin::VirtualDesktop *> desktops READ desktops)
     Q_PROPERTY(bool optionRollOverDesktops READ optionRollOverDesktops)
-    Q_PROPERTY(KWin::LogicalOutput *activeScreen READ activeScreen)
+    Q_PROPERTY(KWin::Output *activeScreen READ activeScreen)
     /**
      * Factor by which animation speed in the effect should be modified (multiplied).
      * If configurable in the effect itself, the option should have also 'default'
@@ -162,7 +160,7 @@ class KWIN_EXPORT EffectsHandler : public QObject
     friend class Effect;
 
 public:
-    using TouchBorderCallback = std::function<void(ElectricBorder border, const QPointF &, LogicalOutput *screen)>;
+    using TouchBorderCallback = std::function<void(ElectricBorder border, const QPointF &, Output *screen)>;
 
     EffectsHandler(Compositor *compositor, WorkspaceScene *scene);
     ~EffectsHandler() override;
@@ -172,19 +170,20 @@ public:
 
     // for use by effects
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime);
-    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen);
+    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen);
     void postPaintScreen();
-    void prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime);
-    void paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data);
-    void drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data);
-    void renderWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data);
+    void prePaintWindow(EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime);
+    void paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &region, WindowPaintData &data);
+    void postPaintWindow(EffectWindow *w);
+    void drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &region, WindowPaintData &data);
+    void renderWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &region, WindowPaintData &data);
     QVariant kwinOption(KWinOption kwopt);
     /**
      * Sets the cursor while the mouse is intercepted.
      * @see startMouseInterception
      * @since 4.11
      */
-    void defineCursor(Qt::CursorShape shape);
+    virtual void defineCursor(Qt::CursorShape shape);
     QPointF cursorPos() const;
     bool grabKeyboard(Effect *effect);
     void ungrabKeyboard();
@@ -213,6 +212,7 @@ public:
 
     bool checkInputWindowEvent(QMouseEvent *e);
     bool checkInputWindowEvent(QWheelEvent *e);
+    void checkInputWindowStacking();
 
     void grabbedKeyboardEvent(QKeyEvent *e);
     bool hasKeyboardGrab() const;
@@ -279,7 +279,7 @@ public:
      * If the @p border gets triggered through a touch swipe gesture the QAction::triggered
      * signal gets invoked.
      *
-     * progressCallback will be dynamically called each time the touch position is updated
+     * progressCallback will be dinamically called each time the touch position is updated
      * to show the effect "partially" activated
      *
      * To unregister the touch screen action either delete the @p action or
@@ -310,7 +310,7 @@ public:
      */
     Q_SCRIPTABLE void windowToDesktops(KWin::EffectWindow *w, const QList<KWin::VirtualDesktop *> &desktops);
 
-    Q_SCRIPTABLE void windowToScreen(KWin::EffectWindow *w, LogicalOutput *screen);
+    Q_SCRIPTABLE void windowToScreen(KWin::EffectWindow *w, Output *screen);
     void setShowingDesktop(bool showing);
 
     // Activities
@@ -387,8 +387,8 @@ public:
     Q_SCRIPTABLE QString desktopName(KWin::VirtualDesktop *desktop) const;
     bool optionRollOverDesktops() const;
 
-    LogicalOutput *activeScreen() const; // Xinerama
-    QRectF clientArea(clientAreaOption, const LogicalOutput *screen, const VirtualDesktop *desktop) const;
+    Output *activeScreen() const; // Xinerama
+    QRectF clientArea(clientAreaOption, const Output *screen, const VirtualDesktop *desktop) const;
     QRectF clientArea(clientAreaOption, const EffectWindow *c) const;
     QRectF clientArea(clientAreaOption, const QPoint &p, const VirtualDesktop *desktop) const;
 
@@ -425,7 +425,7 @@ public:
      * Finds the EffectWindow for the internal window @p w.
      * If there is no such window @c null is returned.
      *
-     * On Wayland this returns the internal window. On X11 it returns an Unmanaged with the
+     * On Wayland this returns the internal window. On X11 it returns an Unamanged with the
      * window id matching that of the provided window @p w.
      *
      * @since 5.16
@@ -458,10 +458,9 @@ public:
      *  affect the current painting.
      */
     Q_SCRIPTABLE void addRepaintFull();
-    // TODO Plasma 7: rename these to "addLogicalRepaint"
-    Q_SCRIPTABLE void addRepaint(const QRectF &logicalRegion);
-    Q_SCRIPTABLE void addRepaint(const QRect &logicalRegion);
-    Q_SCRIPTABLE void addRepaint(const QRegion &logicalRegion);
+    Q_SCRIPTABLE void addRepaint(const QRectF &r);
+    Q_SCRIPTABLE void addRepaint(const QRect &r);
+    Q_SCRIPTABLE void addRepaint(const QRegion &r);
     Q_SCRIPTABLE void addRepaint(int x, int y, int w, int h);
 
     CompositingType compositingType() const;
@@ -471,7 +470,7 @@ public:
      * @return bool @c true in case of OpenGL based Compositor, @c false otherwise
      */
     bool isOpenGLCompositing() const;
-    EglContext *openglContext() const;
+    OpenGlContext *openglContext() const;
     /**
      * @brief Provides access to the QPainter which is rendering to the back buffer.
      *
@@ -723,10 +722,10 @@ public:
     /**
      * Returns the list of all the screens connected to the system.
      */
-    QList<LogicalOutput *> screens() const;
-    LogicalOutput *screenAt(const QPoint &point) const;
-    LogicalOutput *findScreen(const QString &name) const;
-    LogicalOutput *findScreen(int screenId) const;
+    QList<Output *> screens() const;
+    Output *screenAt(const QPoint &point) const;
+    Output *findScreen(const QString &name) const;
+    Output *findScreen(int screenId) const;
 
     KWin::EffectWindow *inputPanel() const;
     bool isInputPanelOverlay() const;
@@ -753,9 +752,8 @@ public:
     bool tabletToolTipEvent(KWin::TabletToolTipEvent *event);
     bool tabletToolButtonEvent(uint button, bool pressed, InputDeviceTabletTool *tool, std::chrono::microseconds time);
     bool tabletPadButtonEvent(uint button, bool pressed, std::chrono::microseconds time, InputDevice *device);
-    bool tabletPadStripEvent(int number, qreal position, bool isFinger, std::chrono::microseconds time, InputDevice *device);
-    bool tabletPadRingEvent(int number, qreal position, bool isFinger, std::chrono::microseconds time, InputDevice *device);
-    bool tabletPadDialEvent(int number, double delta, std::chrono::microseconds time, InputDevice *device);
+    bool tabletPadStripEvent(int number, int position, bool isFinger, std::chrono::microseconds time, InputDevice *device);
+    bool tabletPadRingEvent(int number, int position, bool isFinger, std::chrono::microseconds time, InputDevice *device);
 
     void highlightWindows(const QList<EffectWindow *> &windows);
 
@@ -770,11 +768,11 @@ Q_SIGNALS:
     /**
      * This signal is emitted whenever a new @a screen is added to the system.
      */
-    void screenAdded(KWin::LogicalOutput *screen);
+    void screenAdded(KWin::Output *screen);
     /**
      * This signal is emitted whenever a @a screen is removed from the system.
      */
-    void screenRemoved(KWin::LogicalOutput *screen);
+    void screenRemoved(KWin::Output *screen);
     /**
      * Signal emitted when the current desktop changed.
      * @param oldDesktop The previously current desktop
@@ -785,8 +783,8 @@ Q_SIGNALS:
     void desktopChanged(KWin::VirtualDesktop *oldDesktop, KWin::VirtualDesktop *newDesktop, KWin::EffectWindow *with);
 
     /**
-     * Signal emitted while desktop is changing for animation.
-     * @param currentDesktop The current desktop until otherwise.
+     * Signal emmitted while desktop is changing for animation.
+     * @param currentDesktop The current desktop untiotherwise.
      * @param offset The current desktop offset.
      * offset.x() = .6 means 60% of the way to the desktop to the right.
      * Positive Values means Up and Right.
@@ -795,7 +793,6 @@ Q_SIGNALS:
     void desktopChangingCancelled();
     void desktopAdded(KWin::VirtualDesktop *desktop);
     void desktopRemoved(KWin::VirtualDesktop *desktop);
-    void desktopMoved(KWin::VirtualDesktop *desktop, int position);
 
     /**
      * Emitted when the virtual desktop grid layout changes
@@ -838,7 +835,7 @@ Q_SIGNALS:
      */
     void windowClosed(KWin::EffectWindow *w);
     /**
-     * Signal emitted when a window gets activated.
+     * Signal emitted when a window get's activated.
      * @param w The new active window, or @c NULL if there is no active window.
      * @since 4.7
      */
@@ -876,7 +873,7 @@ Q_SIGNALS:
     void tabBoxClosed();
     /**
      * Signal emitted when the selected TabBox window changed or the TabBox List changed.
-     * An effect should only respond to this signal if it referenced the TabBox with refTabBox.
+     * An effect should only response to this signal if it referenced the TabBox with refTabBox.
      * @see refTabBox
      * @see currentTabBoxWindowList
      * @see currentTabBoxDesktopList
@@ -886,9 +883,9 @@ Q_SIGNALS:
      */
     void tabBoxUpdated();
     /**
-     * Signal emitted when a key event, which is not handled by TabBox directly, happens while
+     * Signal emitted when a key event, which is not handled by TabBox directly is, happens while
      * TabBox is active. An effect might use the key event to e.g. change the selected window.
-     * An effect should only respond to this signal if it referenced the TabBox with refTabBox.
+     * An effect should only response to this signal if it referenced the TabBox with refTabBox.
      * @param event The key event not handled by TabBox directly
      * @see refTabBox
      * @since 4.7
@@ -968,7 +965,7 @@ Q_SIGNALS:
     void screenAboutToLock();
 
     /**
-     * This signal is emitted whenever the stacking order is changed, i.e. a window is raised
+     * This signels is emitted when ever the stacking order is change, ie. a window is risen
      * or lowered
      * @since 4.10
      */
@@ -1060,8 +1057,6 @@ Q_SIGNALS:
 
     void inputPanelChanged();
 
-    void viewRemoved(RenderView *view);
-
 public Q_SLOTS:
     // slots for D-Bus interface
     Q_SCRIPTABLE void reconfigureEffect(const QString &name);
@@ -1078,20 +1073,36 @@ protected:
     void effectsChanged();
     void setupWindowConnections(KWin::Window *window);
 
+    /**
+     * Default implementation does nothing and returns @c true.
+     */
+    virtual bool doGrabKeyboard();
+    /**
+     * Default implementation does nothing.
+     */
+    virtual void doUngrabKeyboard();
+
+    /**
+     * Default implementation sets Effects override cursor on the PointerInputRedirection.
+     */
+    virtual void doStartMouseInterception(Qt::CursorShape shape);
+
+    /**
+     * Default implementation removes the Effects override cursor on the PointerInputRedirection.
+     */
+    virtual void doStopMouseInterception();
+
+    /**
+     * Default implementation does nothing
+     */
+    virtual void doCheckInputWindowStacking();
+
     void registerPropertyType(long atom, bool reg);
     void destroyEffect(Effect *effect);
     void reconfigureEffects();
-    void configChanged(const KConfigGroup &group, const QByteArrayList &names);
 
     typedef QList<Effect *> EffectsList;
     typedef EffectsList::const_iterator EffectsIterator;
-
-    struct
-    {
-        QPointF position;
-        Qt::MouseButtons buttons;
-        Qt::KeyboardModifiers modifiers;
-    } m_cursor;
 
     Effect *keyboard_grab_effect;
     Effect *fullscreen_effect;
@@ -1115,7 +1126,6 @@ protected:
     QList<Effect *> m_grabbedMouseEffects;
     EffectLoader *m_effectLoader;
     std::unique_ptr<WindowPropertyNotifyX11Filter> m_x11WindowPropertyNotify;
-    KConfigWatcher::Ptr m_configWatcher;
 };
 
 /**

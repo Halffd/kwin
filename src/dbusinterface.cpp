@@ -71,6 +71,16 @@ void DBusInterface::killWindow()
     Workspace::self()->slotKillWindow();
 }
 
+void DBusInterface::cascadeDesktop()
+{
+    workspace()->placement()->cascadeDesktop();
+}
+
+void DBusInterface::unclutterDesktop()
+{
+    workspace()->placement()->unclutterDesktop();
+}
+
 QString DBusInterface::supportInformation()
 {
     return Workspace::self()->supportInformation();
@@ -79,6 +89,16 @@ QString DBusInterface::supportInformation()
 QString DBusInterface::activeOutputName()
 {
     return Workspace::self()->activeOutput()->name();
+}
+
+bool DBusInterface::startActivity(const QString &in0)
+{
+    return false;
+}
+
+bool DBusInterface::stopActivity(const QString &in0)
+{
+    return false;
 }
 
 int DBusInterface::currentDesktop()
@@ -116,36 +136,36 @@ namespace
 {
 QVariantMap clientToVariantMap(const Window *c)
 {
-    return
-    {
+    return {
         {QStringLiteral("resourceClass"), c->resourceClass()},
-            {QStringLiteral("resourceName"), c->resourceName()},
-            {QStringLiteral("desktopFile"), c->desktopFileName()},
-            {QStringLiteral("role"), c->windowRole()},
-            {QStringLiteral("caption"), c->captionNormal()},
-            {QStringLiteral("clientMachine"), c->wmClientMachine(true)},
-            {QStringLiteral("localhost"), c->isLocalhost()},
-            {QStringLiteral("type"), int(c->windowType())},
-            {QStringLiteral("x"), c->x()},
-            {QStringLiteral("y"), c->y()},
-            {QStringLiteral("width"), c->width()},
-            {QStringLiteral("height"), c->height()},
-            {QStringLiteral("desktops"), c->desktopIds()},
-            {QStringLiteral("minimized"), c->isMinimized()},
-            {QStringLiteral("fullscreen"), c->isFullScreen()},
-            {QStringLiteral("keepAbove"), c->keepAbove()},
-            {QStringLiteral("keepBelow"), c->keepBelow()},
-            {QStringLiteral("noBorder"), c->noBorder()},
-            {QStringLiteral("skipTaskbar"), c->skipTaskbar()},
-            {QStringLiteral("skipPager"), c->skipPager()},
-            {QStringLiteral("skipSwitcher"), c->skipSwitcher()},
-            {QStringLiteral("maximizeHorizontal"), c->maximizeMode() & MaximizeHorizontal},
-            {QStringLiteral("maximizeVertical"), c->maximizeMode() & MaximizeVertical},
-            {QStringLiteral("uuid"), c->internalId().toString()},
+        {QStringLiteral("resourceName"), c->resourceName()},
+        {QStringLiteral("desktopFile"), c->desktopFileName()},
+        {QStringLiteral("role"), c->windowRole()},
+        {QStringLiteral("caption"), c->captionNormal()},
+        {QStringLiteral("clientMachine"), c->wmClientMachine(true)},
+        {QStringLiteral("localhost"), c->isLocalhost()},
+        {QStringLiteral("type"), int(c->windowType())},
+        {QStringLiteral("x"), c->x()},
+        {QStringLiteral("y"), c->y()},
+        {QStringLiteral("width"), c->width()},
+        {QStringLiteral("height"), c->height()},
+        {QStringLiteral("desktops"), c->desktopIds()},
+        {QStringLiteral("minimized"), c->isMinimized()},
+        {QStringLiteral("shaded"), c->isShade()},
+        {QStringLiteral("fullscreen"), c->isFullScreen()},
+        {QStringLiteral("keepAbove"), c->keepAbove()},
+        {QStringLiteral("keepBelow"), c->keepBelow()},
+        {QStringLiteral("noBorder"), c->noBorder()},
+        {QStringLiteral("skipTaskbar"), c->skipTaskbar()},
+        {QStringLiteral("skipPager"), c->skipPager()},
+        {QStringLiteral("skipSwitcher"), c->skipSwitcher()},
+        {QStringLiteral("maximizeHorizontal"), c->maximizeMode() & MaximizeHorizontal},
+        {QStringLiteral("maximizeVertical"), c->maximizeMode() & MaximizeVertical},
+        {QStringLiteral("uuid"), c->internalId().toString()},
 #if KWIN_BUILD_ACTIVITIES
-            {QStringLiteral("activities"), c->activities()},
+        {QStringLiteral("activities"), c->activities()},
 #endif
-            {QStringLiteral("layer"), c->layer()},
+        {QStringLiteral("layer"), c->layer()},
     };
 }
 }
@@ -236,6 +256,9 @@ CompositorDBusInterface::CompositorDBusInterface(Compositor *parent)
 
 QString CompositorDBusInterface::compositingType() const
 {
+    if (!m_compositor->compositing()) {
+        return QStringLiteral("none");
+    }
     switch (m_compositor->backend()->compositingType()) {
     case OpenGLCompositing:
         if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGLES) {
@@ -258,22 +281,22 @@ bool CompositorDBusInterface::isActive() const
 
 bool CompositorDBusInterface::isCompositingPossible() const
 {
-    return true;
+    return m_compositor->compositingPossible();
 }
 
 QString CompositorDBusInterface::compositingNotPossibleReason() const
 {
-    return QString();
+    return m_compositor->compositingNotPossibleReason();
 }
 
 bool CompositorDBusInterface::isOpenGLBroken() const
 {
-    return false;
+    return m_compositor->openGLCompositingIsBroken();
 }
 
 bool CompositorDBusInterface::platformRequiresCompositing() const
 {
-    return true;
+    return kwinApp()->operationMode() != Application::OperationModeX11; // TODO: Remove this property?
 }
 
 void CompositorDBusInterface::reinitialize()
@@ -283,7 +306,19 @@ void CompositorDBusInterface::reinitialize()
 
 QStringList CompositorDBusInterface::supportedOpenGLPlatformInterfaces() const
 {
-    return {QStringLiteral("egl")};
+    QStringList interfaces;
+    bool supportsGlx = false;
+#if HAVE_GLX
+    supportsGlx = (kwinApp()->operationMode() == Application::OperationModeX11);
+#endif
+    if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGLES) {
+        supportsGlx = false;
+    }
+    if (supportsGlx) {
+        interfaces << QStringLiteral("glx");
+    }
+    interfaces << QStringLiteral("egl");
+    return interfaces;
 }
 
 VirtualDesktopManagerDBusInterface::VirtualDesktopManagerDBusInterface(VirtualDesktopManager *parent)

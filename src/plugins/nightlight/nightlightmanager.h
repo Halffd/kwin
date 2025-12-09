@@ -36,7 +36,7 @@ typedef QPair<QDateTime, QDateTime> DateTimes;
  */
 enum NightLightMode {
     /**
-     * Color temperature is constant throughout the day.
+     * Color temperature is constant thoughout the day.
      */
     Constant,
     /**
@@ -205,12 +205,12 @@ Q_SIGNALS:
     void targetTemperatureChanged();
 
     /**
-     * Emitted whenever the operation mode has changed.
+     * Emitted whenver the operation mode has changed.
      */
     void modeChanged();
 
     /**
-     * Emitted whenever night light has switched between day and night time.
+     * Emitted whenver night light has switched between day and night time.
      */
     void daylightChanged();
 

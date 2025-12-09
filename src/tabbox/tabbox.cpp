@@ -13,9 +13,14 @@
 // own
 #include "tabbox.h"
 // tabbox
+#include "tabbox/clientmodel.h"
 #include "tabbox/tabbox_logging.h"
 #include "tabbox/tabboxconfig.h"
 // kwin
+#if KWIN_BUILD_ACTIVITIES
+#include "activities.h"
+#endif
+#include "compositor.h"
 #include "effect/effecthandler.h"
 #include "focuschain.h"
 #include "input.h"
@@ -25,6 +30,9 @@
 #include "virtualdesktops.h"
 #include "window.h"
 #include "workspace.h"
+#if KWIN_BUILD_X11
+#include "x11window.h"
+#endif
 // Qt
 #include <QAction>
 #include <QKeyEvent>
@@ -33,6 +41,18 @@
 #include <KConfigGroup>
 #include <KGlobalAccel>
 #include <KLazyLocalizedString>
+#include <KLocalizedString>
+#include <kkeyserver.h>
+#if KWIN_BUILD_X11
+#include "tabbox/x11_filter.h"
+#include "utils/xcbutils.h"
+// X11
+#include <X11/keysym.h>
+#include <X11/keysymdef.h>
+// xcb
+#include <xcb/xcb_keysyms.h>
+#endif
+// specify externals before namespace
 
 namespace KWin
 {
@@ -195,9 +215,37 @@ QList<Window *> TabBoxHandlerImpl::stackingOrder() const
     return ret;
 }
 
+bool TabBoxHandlerImpl::isKWinCompositing() const
+{
+    return Compositor::compositing();
+}
+
 void TabBoxHandlerImpl::raiseClient(Window *c) const
 {
     Workspace::self()->raiseWindow(c);
+}
+
+void TabBoxHandlerImpl::restack(Window *c, Window *under)
+{
+    Workspace::self()->stackBelow(c, under);
+}
+
+void TabBoxHandlerImpl::elevateClient(Window *c, QWindow *tabbox, bool b) const
+{
+    c->elevate(b);
+    if (Window *w = Workspace::self()->findInternal(tabbox)) {
+        w->elevate(b);
+    }
+}
+
+void TabBoxHandlerImpl::shadeClient(Window *c, bool b) const
+{
+    c->cancelShadeHoverTimer(); // stop core shading action
+    if (!b && c->shadeMode() == ShadeNormal) {
+        c->setShade(ShadeHover);
+    } else if (b && c->shadeMode() == ShadeHover) {
+        c->setShade(ShadeNormal);
+    }
 }
 
 Window *TabBoxHandlerImpl::desktopClient() const
@@ -591,7 +639,7 @@ bool TabBox::handleMouseEvent(QMouseEvent *event)
         // fall through
     case QEvent::MouseButtonRelease:
     default:
-        // we do not filter it out, the internal filter takes care
+        // we do not filter it out, the intenal filter takes care
         return false;
     }
     return false;
@@ -631,16 +679,103 @@ void TabBox::grabbedKeyEvent(QKeyEvent *event)
     m_tabBox->grabbedKeyEvent(event);
 }
 
-static bool areModKeysDepressed(const QList<QKeySequence> &shortcuts)
+#if KWIN_BUILD_X11
+struct KeySymbolsDeleter
 {
-    if (shortcuts.isEmpty()) {
+    void operator()(xcb_key_symbols_t *symbols)
+    {
+        xcb_key_symbols_free(symbols);
+    }
+};
+
+/**
+ * Handles alt-tab / control-tab
+ */
+static bool areKeySymXsDepressed(const uint keySyms[], int nKeySyms)
+{
+    Xcb::QueryKeymap keys;
+
+    std::unique_ptr<xcb_key_symbols_t, KeySymbolsDeleter> symbols(xcb_key_symbols_alloc(connection()));
+    if (!symbols || !keys) {
         return false;
     }
+    const auto keymap = keys->keys;
 
-    for (const QKeySequence &seq : shortcuts) {
-        if (seq.isEmpty()) {
+    bool depressed = false;
+    for (int iKeySym = 0; iKeySym < nKeySyms; iKeySym++) {
+        uint keySymX = keySyms[iKeySym];
+        xcb_keycode_t *keyCodes = xcb_key_symbols_get_keycode(symbols.get(), keySymX);
+        if (!keyCodes) {
             continue;
         }
+
+        int j = 0;
+        while (keyCodes[j] != XCB_NO_SYMBOL) {
+            const xcb_keycode_t keyCodeX = keyCodes[j++];
+            int i = keyCodeX / 8;
+            char mask = 1 << (keyCodeX - (i * 8));
+
+            if (i < 0 || i >= 32) {
+                continue;
+            }
+
+            qCDebug(KWIN_TABBOX) << iKeySym << ": keySymX=0x" << QString::number(keySymX, 16)
+                                 << " i=" << i << " mask=0x" << QString::number(mask, 16)
+                                 << " keymap[i]=0x" << QString::number(keymap[i], 16);
+
+            if (keymap[i] & mask) {
+                depressed = true;
+                break;
+            }
+        }
+
+        free(keyCodes);
+    }
+
+    return depressed;
+}
+
+static bool areModKeysDepressedX11(const QList<QKeySequence> &shortcuts)
+{
+    for (const QKeySequence &seq : shortcuts) {
+        uint rgKeySyms[10];
+        int nKeySyms = 0;
+        Qt::KeyboardModifiers mod = seq[seq.count() - 1].keyboardModifiers();
+
+        if (mod & Qt::ShiftModifier) {
+            rgKeySyms[nKeySyms++] = XK_Shift_L;
+            rgKeySyms[nKeySyms++] = XK_Shift_R;
+        }
+        if (mod & Qt::ControlModifier) {
+            rgKeySyms[nKeySyms++] = XK_Control_L;
+            rgKeySyms[nKeySyms++] = XK_Control_R;
+        }
+        if (mod & Qt::AltModifier) {
+            rgKeySyms[nKeySyms++] = XK_Alt_L;
+            rgKeySyms[nKeySyms++] = XK_Alt_R;
+        }
+        if (mod & Qt::MetaModifier) {
+            // It would take some code to determine whether the Win key
+            // is associated with Super or Meta, so check for both.
+            // See bug #140023 for details.
+            rgKeySyms[nKeySyms++] = XK_Super_L;
+            rgKeySyms[nKeySyms++] = XK_Super_R;
+            rgKeySyms[nKeySyms++] = XK_Meta_L;
+            rgKeySyms[nKeySyms++] = XK_Meta_R;
+        }
+
+        if (areKeySymXsDepressed(rgKeySyms, nKeySyms)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+#endif
+
+static bool areModKeysDepressedWayland(const QList<QKeySequence> &shortcuts)
+{
+    for (const QKeySequence &seq : shortcuts) {
         const Qt::KeyboardModifiers mod = seq[seq.count() - 1].keyboardModifiers();
         const Qt::KeyboardModifiers mods = input()->modifiersRelevantForGlobalShortcuts();
 
@@ -659,6 +794,22 @@ static bool areModKeysDepressed(const QList<QKeySequence> &shortcuts)
     }
 
     return false;
+}
+
+static bool areModKeysDepressed(const QList<QKeySequence> &seq)
+{
+    if (seq.isEmpty()) {
+        return false;
+    }
+#if KWIN_BUILD_X11
+    if (kwinApp()->shouldUseWaylandForCompositing()) {
+        return areModKeysDepressedWayland(seq);
+    } else {
+        return areModKeysDepressedX11(seq);
+    }
+#else
+    return areModKeysDepressedWayland(seq);
+#endif
 }
 
 void TabBox::navigatingThroughWindows(bool forward, const QList<QKeySequence> &shortcut, TabBoxMode mode)
@@ -719,6 +870,13 @@ void TabBox::slotWalkThroughCurrentAppWindowsAlternative()
 void TabBox::slotWalkBackThroughCurrentAppWindowsAlternative()
 {
     navigatingThroughWindows(false, m_cutWalkThroughCurrentAppWindowsAlternativeReverse, TabBoxCurrentAppWindowsAlternativeMode);
+}
+
+void TabBox::shadeActivate(Window *c)
+{
+    if ((c->shadeMode() == ShadeNormal || c->shadeMode() == ShadeHover) && options->isShadeHover()) {
+        c->setShade(ShadeActivated);
+    }
 }
 
 bool TabBox::toggle(ElectricBorder eb)
@@ -794,7 +952,7 @@ void TabBox::CDEWalkThroughWindows(bool forward)
             continue;
         }
         if (t->isClient() && t->isOnCurrentActivity() && t->isOnCurrentDesktop() && !t->isSpecialWindow()
-            && t->isShown() && t->wantsTabFocus()
+            && !t->isShade() && t->isShown() && t->wantsTabFocus()
             && !t->keepAbove() && !t->keepBelow()) {
             c = t;
             break;
@@ -826,6 +984,7 @@ void TabBox::CDEWalkThroughWindows(bool forward)
         }
         if (options->focusPolicyIsReasonable()) {
             Workspace::self()->activateWindow(nc);
+            shadeActivate(nc);
         } else {
             if (!nc->isOnCurrentDesktop()) {
                 VirtualDesktopManager::self()->setCurrent(nc->desktops().constLast());
@@ -846,6 +1005,7 @@ void TabBox::KDEOneStepThroughWindows(bool forward, TabBoxMode mode)
 
     if (Window *c = currentClient()) {
         Workspace::self()->activateWindow(c);
+        shadeActivate(c);
     }
 }
 
@@ -888,7 +1048,7 @@ TabBox::Direction TabBox::matchShortcuts(const KeyboardKeyEvent &keyEvent, const
     }
 
     // if the shortcuts do not match, try matching again after filtering the shift key
-    // it is needed to handle correctly the ALT+~ shortcut for example as it is coded as ALT+SHIFT+~ in keyQt
+    // it is needed to handle correctly the ALT+~ shorcut for example as it is coded as ALT+SHIFT+~ in keyQt
     if (contains(forward, (keyEvent.modifiers & ~Qt::ShiftModifier) | keyEvent.key)) {
         return Forward;
     }
@@ -984,6 +1144,7 @@ void TabBox::accept(bool closeTabBox)
     }
     if (c) {
         Workspace::self()->activateWindow(c);
+        shadeActivate(c);
         if (c->isDesktop()) {
             Workspace::self()->setShowingDesktop(!Workspace::self()->showingDesktop(), !m_defaultConfig.isHighlightWindows());
         }
@@ -1062,13 +1223,51 @@ Window *TabBox::previousClientStatic(Window *c) const
 
 bool TabBox::establishTabBoxGrab()
 {
+    if (kwinApp()->shouldUseWaylandForCompositing()) {
+        m_forcedGlobalMouseGrab = true;
+        return true;
+    }
+#if KWIN_BUILD_X11
+    kwinApp()->updateXTime();
+    if (!grabXKeyboard()) {
+        return false;
+    }
+#endif
+    // Don't try to establish a global mouse grab using XGrabPointer, as that would prevent
+    // using Alt+Tab while DND (#44972). However force passive grabs on all windows
+    // in order to catch MouseRelease events and close the tabbox (#67416).
+    // All clients already have passive grabs in their wrapper windows, so check only
+    // the active client, which may not have it.
+    Q_ASSERT(!m_forcedGlobalMouseGrab);
     m_forcedGlobalMouseGrab = true;
+    if (Workspace::self()->activeWindow() != nullptr) {
+        Workspace::self()->activeWindow()->updateMouseGrab();
+    }
+#if KWIN_BUILD_X11
+    m_x11EventFilter = std::make_unique<X11Filter>();
+#endif
     return true;
 }
 
 void TabBox::removeTabBoxGrab()
 {
+    if (kwinApp()->shouldUseWaylandForCompositing()) {
+        m_forcedGlobalMouseGrab = false;
+        return;
+    }
+#if KWIN_BUILD_X11
+    kwinApp()->updateXTime();
+    ungrabXKeyboard();
+#endif
+    Q_ASSERT(m_forcedGlobalMouseGrab);
     m_forcedGlobalMouseGrab = false;
+    if (Workspace::self()->activeWindow() != nullptr) {
+        Workspace::self()->activeWindow()->updateMouseGrab();
+    }
+
+#if KWIN_BUILD_X11
+    m_x11EventFilter.reset();
+#endif
 }
 } // namespace TabBox
 } // namespace
