@@ -352,11 +352,24 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             continue;
         }
 
+        // Debug print to verify offscreen texture sizes at runtime
+        qDebug() << "Offscreen for" << out->name()
+                 << "od->viewport.size() =" << od->viewport.size()
+                 << "texture =" << (od->texture ? QString("%1x%2").arg(od->texture->width()).arg(od->texture->height()) : QString("null"))
+                 << "output geo =" << out->geometry()
+                 << "renderTarget.size() =" << renderTarget.size();
+
         // Render the scene to offscreen buffer for this specific output
         RenderTarget offscreenRenderTarget(od->framebuffer.get(), renderTarget.colorDescription());
-        RenderViewport offscreenViewport(viewport.renderRect(), viewport.scale(), offscreenRenderTarget);
+        // Use output-local rect starting at (0,0) with output dimensions
+        QRect outputRect(0, 0, out->geometry().width(), out->geometry().height());
+        RenderViewport offscreenViewport(outputRect, viewport.scale(), offscreenRenderTarget);
         GLFramebuffer::pushFramebuffer(od->framebuffer.get());
-        effects->paintScreen(offscreenRenderTarget, offscreenViewport, mask, region, out);
+        // Convert desktop region to output-local region
+        QRegion outputRegion = region.intersected(out->geometry());
+        // Translate to output-local coordinates (so (geo.x(),geo.y()) -> (0,0))
+        outputRegion.translate(-out->geometry().topLeft());
+        effects->paintScreen(offscreenRenderTarget, offscreenViewport, mask, outputRegion, out);
         GLFramebuffer::popFramebuffer();
 
         const auto scale = viewport.scale();
