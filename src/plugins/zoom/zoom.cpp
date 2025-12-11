@@ -364,16 +364,13 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 
         // Render to offscreen
         RenderTarget offscreenTarget(data.framebuffer.get(), renderTarget.colorDescription());
-        QRect localViewport(0, 0, geo.width(), geo.height());
-        RenderViewport offscreenViewport(localViewport, scale, offscreenTarget);
+        // CRITICAL FIX: The viewport needs to account for the output's position on the desktop!
+        // We're rendering into a local texture, but we want content from the global desktop position
+        RenderViewport offscreenViewport(geo, scale, offscreenTarget);
 
         QRegion outputRegion = region.intersected(geo);
         outputRegion.translate(-geo.topLeft());
 
-        qDebug() << "Input region (global):" << region
-                 << "Geo:" << geo
-                 << "Intersected:" << region.intersected(geo)
-                 << "Final outputRegion (local):" << outputRegion;
         GLFramebuffer::pushFramebuffer(data.framebuffer.get());
         glViewport(0, 0, geo.width() * scale, geo.height() * scale);
         glClearColor(0.0, 0.0, 0.0, 1.0);
@@ -384,14 +381,6 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         // Convert global coordinates to local output coordinates
         QPoint localFocus = state->focusPoint - geo.topLeft();
         QPoint localPrev = state->prevPoint - geo.topLeft();
-
-        qDebug() << "Output:" << out->name()
-                 << "Geo:" << geo
-                 << "Global focus:" << state->focusPoint
-                 << "Local focus:" << localFocus
-                 << "Zoom:" << state->zoom
-                 << "Local Viewport: " << localViewport
-                 << "Offscreen Target Size: " << offscreenTarget.size() << "Offscreen Viewport: " << offscreenViewport.renderRect();
 
         qreal xTranslation = 0;
         qreal yTranslation = 0;
