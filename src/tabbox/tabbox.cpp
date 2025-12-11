@@ -1124,14 +1124,7 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
         return;
     }
 
-    // Allow wrap-around even on key auto-repeat to enable continuous cycling
-    // The original behavior would stop at the first/last window when holding the key,
-    // preventing users from cycling through all windows continuously
-    if (keyEvent.state == KeyboardKeyState::Repeated) {
-        // Remove the restriction to allow wrap-around during auto-repeat
-    }
-
-    // Finally apply the direction to iterate over the window list
+    // Apply the direction to iterate over the window list with built-in wrap-around
     KDEWalkThroughWindows(direction == Forward);
 }
 

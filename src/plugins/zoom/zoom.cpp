@@ -324,41 +324,34 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     }
 
     if (!anyZoomActive) {
-        // No zoom active anywhere, just pass through
         effects->paintScreen(renderTarget, viewport, mask, region, screen);
         return;
     }
 
-    // Only render outputs that actually need zoom to offscreen
-    // Others pass through normally
     const auto outputs = effects->screens();
     const auto scale = viewport.scale();
 
-    // First pass: Render scene normally to the main framebuffer
+    // First pass: Render scene normally
     effects->paintScreen(renderTarget, viewport, mask, region, screen);
 
-    // Second pass: For zoomed outputs only, render to offscreen and composite back
+    // Second pass: For zoomed outputs only
     for (Output *out : outputs) {
         ZoomScreenState *state = stateForScreen(out);
 
-        // Skip if this output doesn't need zoom
         if (state->zoom == 1.0 && state->targetZoom == 1.0) {
             continue;
         }
 
         const QRect geo = out->geometry();
-
-        // Only allocate/update offscreen buffer if zoom is active
         const QSize outputSize(geo.width() * scale, geo.height() * scale);
 
         OffscreenData &data = m_offscreenData[out];
 
-        // Lazy allocation - only create when needed
         if (!data.texture || data.texture->size() != outputSize) {
             const GLenum textureFormat = renderTarget.colorDescription() == ColorDescription::sRGB ? GL_RGBA8 : GL_RGBA16F;
             data.texture = GLTexture::allocate(textureFormat, outputSize);
             if (!data.texture) {
-                continue; // Skip this output if allocation failed
+                continue;
             }
             data.texture->setFilter(GL_LINEAR);
             data.texture->setWrapMode(GL_CLAMP_TO_EDGE);
@@ -369,7 +362,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         data.color = renderTarget.colorDescription();
         data.texture->setContentTransform(renderTarget.transform());
 
-        // Render this output to offscreen
+        // Render to offscreen
         RenderTarget offscreenTarget(data.framebuffer.get(), renderTarget.colorDescription());
         QRect localViewport(0, 0, geo.width(), geo.height());
         RenderViewport offscreenViewport(localViewport, scale, offscreenTarget);
@@ -377,6 +370,10 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         QRegion outputRegion = region.intersected(geo);
         outputRegion.translate(-geo.topLeft());
 
+        qDebug() << "Input region (global):" << region
+                 << "Geo:" << geo
+                 << "Intersected:" << region.intersected(geo)
+                 << "Final outputRegion (local):" << outputRegion;
         GLFramebuffer::pushFramebuffer(data.framebuffer.get());
         glViewport(0, 0, geo.width() * scale, geo.height() * scale);
         glClearColor(0.0, 0.0, 0.0, 1.0);
@@ -384,9 +381,17 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
         GLFramebuffer::popFramebuffer();
 
-        // Calculate zoom transformation
+        // Convert global coordinates to local output coordinates
         QPoint localFocus = state->focusPoint - geo.topLeft();
         QPoint localPrev = state->prevPoint - geo.topLeft();
+
+        qDebug() << "Output:" << out->name()
+                 << "Geo:" << geo
+                 << "Global focus:" << state->focusPoint
+                 << "Local focus:" << localFocus
+                 << "Zoom:" << state->zoom
+                 << "Local Viewport: " << localViewport
+                 << "Offscreen Target Size: " << offscreenTarget.size() << "Offscreen Viewport: " << offscreenViewport.renderRect();
 
         qreal xTranslation = 0;
         qreal yTranslation = 0;
@@ -397,9 +402,11 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             yTranslation = -int(localFocus.y() * (state->zoom - 1.0));
             state->prevPoint = state->focusPoint;
             break;
+
         case MouseTrackingCentered:
             state->prevPoint = state->focusPoint;
             // fall through
+
         case MouseTrackingDisabled: {
             int tX = int(geo.width() / 2.0 - localPrev.x() * state->zoom);
             int tY = int(geo.height() / 2.0 - localPrev.y() * state->zoom);
@@ -412,33 +419,37 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             xTranslation = std::clamp(tX, minX, maxX);
             yTranslation = std::clamp(tY, minY, maxY);
         } break;
+
         case MouseTrackingPush: {
             const int x = localFocus.x() * state->zoom - localPrev.x() * (state->zoom - 1.0);
             const int y = localFocus.y() * state->zoom - localPrev.y() * (state->zoom - 1.0);
             const int threshold = 4;
 
             state->xMove = state->yMove = 0;
+
             if (x < threshold) {
                 state->xMove = (x - threshold) / state->zoom;
             } else if (x > geo.width() - threshold) {
                 state->xMove = (x + threshold - geo.width()) / state->zoom;
             }
+
             if (y < threshold) {
-                state->xMove = (y - threshold) / state->zoom;
+                state->yMove = (y - threshold) / state->zoom; // FIXED: was xMove
             } else if (y > geo.height() - threshold) {
-                state->xMove = (y + threshold - geo.height()) / state->zoom;
+                state->yMove = (y + threshold - geo.height()) / state->zoom; // FIXED: was xMove
             }
+
             if (state->xMove) {
                 state->prevPoint.setX(state->prevPoint.x() + state->xMove);
             }
             if (state->yMove) {
                 state->prevPoint.setY(state->prevPoint.y() + state->yMove);
             }
+
             localPrev = state->prevPoint - geo.topLeft();
             xTranslation = -int(localPrev.x() * (state->zoom - 1.0));
             yTranslation = -int(localPrev.y() * (state->zoom - 1.0));
-            break;
-        }
+        } break;
         }
 
         // Focus tracking
@@ -455,7 +466,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             }
         }
 
-        // Clamp
+        // Clamp to prevent black borders
         if (m_mouseTracking != MouseTrackingDisabled && m_mouseTracking != MouseTrackingCentered) {
             int minX = int(geo.width() * (1.0 - state->zoom));
             int maxX = 0;
@@ -465,8 +476,8 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             xTranslation = std::clamp(int(xTranslation), minX, maxX);
             yTranslation = std::clamp(int(yTranslation), minY, maxY);
         }
-
-        // Clear the area where we'll composite the zoomed output
+        qDebug() << "xTranslation: " << xTranslation << " yTranslation: " << yTranslation << " for output " << out->name() << " geo: " << geo << " scale: " << scale;
+        // Clear and composite
         glEnable(GL_SCISSOR_TEST);
         const int scissorY = renderTarget.size().height() - (geo.y() + geo.height());
         glScissor(geo.x() * scale, scissorY * scale, geo.width() * scale, geo.height() * scale);
@@ -474,15 +485,19 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         glClearColor(0.0, 0.0, 0.0, 1.0);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Composite the zoomed output
         GLShader *shader = shaderForZoom(state->zoom);
         ShaderManager::instance()->pushShader(shader);
 
         QMatrix4x4 matrix = viewport.projectionMatrix();
-        matrix.translate(geo.x() * scale, geo.y() * scale);
-        matrix.translate(xTranslation * scale, yTranslation * scale);
-        matrix.scale(state->zoom, state->zoom);
 
+        // Move quad to the output's position on screen
+        matrix.translate(geo.x() * scale, geo.y() * scale);
+
+        // Apply zoom pan (moves the content within the output)
+        matrix.translate(xTranslation * scale, yTranslation * scale);
+
+        // Apply zoom scale (scales the content)
+        matrix.scale(state->zoom, state->zoom);
         shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, matrix);
         shader->setUniform(GLShader::IntUniform::TextureWidth, data.texture->width());
         shader->setUniform(GLShader::IntUniform::TextureHeight, data.texture->height());
@@ -494,6 +509,8 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         const float y1 = 0;
         const float x2 = geo.width() * scale;
         const float y2 = geo.height() * scale;
+
+        qDebug() << "Rendering quad: (" << x1 << "," << y1 << ") to (" << x2 << "," << y2 << ") for output " << out->name() << " with scale " << scale;
 
         GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
         vbo->reset();
@@ -514,38 +531,42 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         glDisable(GL_SCISSOR_TEST);
 
         // Draw cursor
-        if (m_mousePointer != MousePointerHide) {
-            if (effects->screenAt(effects->cursorPos().toPoint()) == out) {
-                GLTexture *cursorTexture = ensureCursorTexture();
-                if (cursorTexture) {
-                    const auto cursor = effects->cursorImage();
-                    QSizeF cursorSize = QSizeF(cursor.image().size()) / cursor.image().devicePixelRatio();
-                    if (m_mousePointer == MousePointerScale) {
-                        cursorSize *= state->zoom;
-                    }
+        if (m_mousePointer != MousePointerHide && effects->screenAt(effects->cursorPos().toPoint()) == out) {
+            GLTexture *cursorTexture = ensureCursorTexture();
+            if (cursorTexture) {
+                const auto cursor = effects->cursorImage();
+                QSizeF cursorSize = QSizeF(cursor.image().size()) / cursor.image().devicePixelRatio();
 
-                    QPoint localCursor = effects->cursorPos().toPoint() - geo.topLeft();
-                    const QPointF p = (localCursor - cursor.hotSpot()) * state->zoom + QPoint(xTranslation, yTranslation);
-                    const QPointF globalP = p + geo.topLeft();
-
-                    glEnable(GL_BLEND);
-                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                    auto cursorShader = ShaderManager::instance()->pushShader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
-                    cursorShader->setColorspaceUniforms(ColorDescription::sRGB, renderTarget.colorDescription(), RenderingIntent::Perceptual);
-                    QMatrix4x4 mvp = viewport.projectionMatrix();
-                    mvp.translate(globalP.x() * scale, globalP.y() * scale);
-                    cursorShader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, mvp);
-                    cursorTexture->render(cursorSize * scale);
-                    ShaderManager::instance()->popShader();
-                    glDisable(GL_BLEND);
+                // Handle cursor scaling
+                QPointF hotspotOffset = cursor.hotSpot();
+                if (m_mousePointer == MousePointerScale) {
+                    cursorSize *= state->zoom;
+                    hotspotOffset *= state->zoom;
                 }
+
+                // The cursor stays at its REAL global position
+                // We do NOT apply xTranslation/yTranslation because those pan the CONTENT, not the cursor
+                const QPointF globalP = effects->cursorPos() - hotspotOffset;
+
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                auto cursorShader = ShaderManager::instance()->pushShader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
+                cursorShader->setColorspaceUniforms(ColorDescription::sRGB, renderTarget.colorDescription(), RenderingIntent::Perceptual);
+                QMatrix4x4 mvp = viewport.projectionMatrix();
+                mvp.translate(globalP.x() * scale, globalP.y() * scale);
+                cursorShader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, mvp);
+                cursorTexture->render(cursorSize * scale);
+                ShaderManager::instance()->popShader();
+                glDisable(GL_BLEND);
             }
         }
     }
 }
-
 void ZoomEffect::postPaintScreen()
 {
+    // Call base implementation first to maintain proper effect chain
+    effects->postPaintScreen();
+
     bool anyZooming = false;
     for (const auto &[screen, state] : m_states) {
         if (state.zoom != state.targetZoom) {
@@ -559,10 +580,9 @@ void ZoomEffect::postPaintScreen()
     }
 
     if (anyZooming || isActive()) {
+        // Either animation is running or the zoom effect is active
         effects->addRepaintFull();
     }
-
-    effects->postPaintScreen();
 }
 
 void ZoomEffect::zoomIn()
