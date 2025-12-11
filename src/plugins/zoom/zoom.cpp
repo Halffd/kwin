@@ -344,7 +344,10 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 
         const QRect geo = out->geometry();
         const QSize outputSize(geo.width() * scale, geo.height() * scale);
-
+        // Skip if not zooming at all
+        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+            continue;
+        }
         OffscreenData &data = m_offscreenData[out];
 
         if (!data.texture || data.texture->size() != outputSize) {
@@ -364,8 +367,9 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 
         // Render to offscreen
         RenderTarget offscreenTarget(data.framebuffer.get(), renderTarget.colorDescription());
-        // CRITICAL FIX: The viewport needs to account for the output's position on the desktop!
+        // The viewport needs to account for the output's position on the desktop!
         // We're rendering into a local texture, but we want content from the global desktop position
+        // The geo is already in global coordinates, so we can use it directly
         RenderViewport offscreenViewport(geo, scale, offscreenTarget);
 
         QRegion outputRegion = region.intersected(geo);
@@ -377,7 +381,10 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         glClear(GL_COLOR_BUFFER_BIT);
         effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
         GLFramebuffer::popFramebuffer();
-
+        if (state->zoom == 1.0) {
+            continue;
+            // Texture is now filled, but don't composite yet - just continue to next output
+        }
         // Convert global coordinates to local output coordinates
         QPoint localFocus = state->focusPoint - geo.topLeft();
         QPoint localPrev = state->prevPoint - geo.topLeft();

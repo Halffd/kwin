@@ -100,13 +100,7 @@ KWin.TabBoxSwitcher {
                     focus: true
                     model: tabBox.model
                     currentIndex: tabBox.currentIndex
-                    cacheBuffer: cellWidth * 3 // Cache only nearby items to reduce memory usage
-                    displaced: Transition {
-                        NumberAnimation { properties: "x,y"; duration: 200 }
-                    }
-                    add: Transition {
-                        NumberAnimation { properties: "opacity"; from: 0; to: 1; duration: 200 }
-                    }
+                    smooth: false
 
                     readonly property int iconSize: Kirigami.Units.iconSizes.huge
                     readonly property int captionRowHeight: Kirigami.Units.gridUnit * 2
@@ -119,163 +113,83 @@ KWin.TabBoxSwitcher {
                     keyNavigationWraps: true
                     highlightMoveDuration: 0
 
-                    delegate: Item {
+                    delegate: MouseArea {
                         id: thumbnailGridItem
                         width: thumbnailGridView.cellWidth
                         height: thumbnailGridView.cellHeight
+                        focus: GridView.isCurrentItem
+                        hoverEnabled: true
 
                         Accessible.name: model.caption
                         Accessible.role: Accessible.ListItem
 
-                        // Load all thumbnails for smooth switching
-                        readonly property bool shouldLoadThumbnail: true
-                        property bool hovered: hoverHandler.hovered
-
-                        HoverHandler {
-                            id: hoverHandler
+                        onClicked: {
+                            tabBox.model.activate(index);
                         }
 
-                        MouseArea {
+                        ColumnLayout {
+                            id: columnLayout
+                            z: 0
+                            spacing: thumbnailGridView.columnSpacing
                             anchors.fill: parent
-                            onClicked: {
-                                tabBox.model.activate(index);
-                            }
-                        }
+                            anchors.leftMargin: hoverItem.margins.left * 0.8
+                            anchors.topMargin: hoverItem.margins.top * 0.8
+                            anchors.rightMargin: hoverItem.margins.right * 0.8
+                            anchors.bottomMargin: hoverItem.margins.bottom * 0.8
 
-                        Item {
-                            id: thumbnailItem
-                            anchors.fill: parent
-                            anchors.margins: Kirigami.Units.smallSpacing
 
+                            // KWin.WindowThumbnail needs a container
+                            // otherwise it will be drawn the same size as the parent ColumnLayout
                             Item {
-                                id: thumbnailContainer
-                                anchors {
-                                    top: parent.top
-                                    left: parent.left
-                                    right: parent.right
-                                    bottom: captionItem.top
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                KWin.WindowThumbnail {
+                                    anchors.fill: parent
+                                    wId: windowId
                                 }
 
-                                KSvg.FrameSvgItem {
-                                    id: thumbnailFrame
-                                    anchors.fill: parent
-                                    imagePath: "widgets/viewitem"
-                                    prefix: thumbnailGridView.currentIndex == index ? "selected+hover" : ""
+                                Kirigami.Icon {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    anchors.verticalCenter: parent.bottom
+                                    anchors.verticalCenterOffset: Math.round(-thumbnailGridView.iconSize / 4)
+                                    width: thumbnailGridView.iconSize
+                                    height: thumbnailGridView.iconSize
+
+                                    source: model.icon
                                 }
 
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: Kirigami.Units.smallSpacing
-                                    spacing: 0
-
-                                    Item {
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
-
-                                        Item {
-                                            anchors.fill: parent
-                                            // Show icon as placeholder while thumbnail is loading
-                                            Kirigami.Icon {
-                                                anchors.centerIn: parent
-                                                width: thumbnailGridView.iconSize / 2
-                                                height: thumbnailGridView.iconSize / 2
-                                                source: model.icon
-                                                opacity: thumbnailGridItem.shouldLoadThumbnail ? 0 : 0.6
-                                                Behavior on opacity { NumberAnimation { duration: 150 } }
-                                            }
-
-                                            KWin.WindowThumbnail {
-                                                anchors.fill: parent
-                                                wId: windowId
-                                                opacity: thumbnailGridItem.shouldLoadThumbnail ? 1 : 0
-                                                visible: thumbnailGridItem.shouldLoadThumbnail
-                                                Behavior on opacity {
-                                                    NumberAnimation {
-                                                        duration: 400
-                                                        easing.type: Easing.InOutQuad
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        Kirigami.Icon {
-                                            anchors {
-                                                left: parent.left
-                                                bottom: parent.bottom
-                                                margins: Kirigami.Units.smallSpacing
-                                            }
-                                            width: thumbnailGridView.iconSize * 0.3
-                                            height: thumbnailGridView.iconSize * 0.3
-                                            source: model.icon
-                                            visible: false
-                                        }
+                                PlasmaComponents3.ToolButton {
+                                    id: closeButton
+                                    anchors {
+                                        right: parent.right
+                                        top: parent.top
+                                        // Deliberately touch the inner edges of the frame
+                                        rightMargin: -columnLayout.anchors.rightMargin
+                                        topMargin: -columnLayout.anchors.topMargin
+                                    }
+                                    visible: model.closeable && typeof tabBox.model.close !== 'undefined' &&
+                                            (thumbnailGridItem.containsMouse
+                                            || closeButton.hovered
+                                            || thumbnailGridItem.focus
+                                            || Kirigami.Settings.tabletMode
+                                            || Kirigami.Settings.hasTransientTouchInput
+                                            )
+                                    icon.name: 'window-close-symbolic'
+                                    onClicked: {
+                                        tabBox.model.close(index);
                                     }
                                 }
                             }
 
-                            // Close button (top-right corner) - positioned at the container level
-                            PlasmaComponents3.ToolButton {
-                                anchors {
-                                    top: thumbnailContainer.top
-                                    right: thumbnailContainer.right
-                                    topMargin: Kirigami.Units.smallSpacing
-                                    rightMargin: Kirigami.Units.smallSpacing
-                                }
-                                z: 1000
-
-                                visible: model.closeable &&
-                                        typeof tabBox.model.close !== 'undefined' &&
-                                        (thumbnailGridItem.hovered ||
-                                         thumbnailGridView.currentIndex === index ||
-                                         Kirigami.Settings.tabletMode)
-
-                                width: Kirigami.Units.iconSizes.smallMedium
-                                height: Kirigami.Units.iconSizes.smallMedium
-
-                                icon.name: "window-close-symbolic"
-
-                                onClicked: {
-                                    tabBox.model.close(index);
-                                }
-
-                                // Tooltip
-                                PlasmaComponents3.ToolTip {
-                                    text: i18nd("kwin_x11", "Close window")
-                                }
-                            }
-
-                            Item {
-                                id: captionItem
-                                anchors {
-                                    left: parent.left
-                                    right: parent.right
-                                    bottom: parent.bottom
-                                }
-                                height: thumbnailGridView.captionRowHeight
-
-                                RowLayout {
-                                    anchors.fill: parent
-                                    spacing: Kirigami.Units.smallSpacing
-
-                                    Item {
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
-                                        Layout.leftMargin: Kirigami.Units.smallSpacing
-                                        Layout.rightMargin: Kirigami.Units.smallSpacing
-
-                                        PlasmaComponents3.Label {
-                                            id: captionLabel
-                                            anchors.fill: parent
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            text: model.caption
-                                            font.weight: thumbnailGridView.currentIndex == index ? Font.Bold : Font.Normal
-                                            elide: Text.ElideMiddle
-                                            color: thumbnailGridView.currentIndex == index ?
-                                                   Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
-                                        }
-                                    }
-                                }
+                            PlasmaComponents3.Label {
+                                Layout.fillWidth: true
+                                text: model.caption
+                                font.weight: thumbnailGridItem.focus ? Font.Bold : Font.Normal
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                textFormat: Text.PlainText
+                                elide: Text.ElideRight
                             }
                         }
                     } // GridView.delegate
@@ -283,11 +197,6 @@ KWin.TabBoxSwitcher {
                     highlight: KSvg.FrameSvgItem {
                         imagePath: "widgets/viewitem"
                         prefix: "hover"
-                    }
-
-                    // Animate thumbnail loading when current index changes
-                    Behavior on currentIndex {
-                        NumberAnimation { duration: 150 }
                     }
 
                     onCurrentIndexChanged: tabBox.currentIndex = thumbnailGridView.currentIndex;
@@ -310,15 +219,6 @@ KWin.TabBoxSwitcher {
                         thumbnailGridView.moveCurrentIndexUp();
                     } else if (event.key == Qt.Key_Down) {
                         thumbnailGridView.moveCurrentIndexDown();
-                    } else if (event.key == Qt.Key_Delete) {
-                        // Close the currently selected window
-                        if (thumbnailGridView.currentIndex >= 0 && thumbnailGridView.currentIndex < thumbnailGridView.count) {
-                            tabBox.model.close(thumbnailGridView.currentIndex);
-                            // If there's only one item left after closing, exit the tab box
-                            if (thumbnailGridView.count <= 1) {
-                                tabBox.model.activate(thumbnailGridView.currentIndex);
-                            }
-                        }
                     } else {
                         return;
                     }
