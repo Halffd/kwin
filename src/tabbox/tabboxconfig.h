@@ -279,7 +279,7 @@ public:
     }
     static QString defaultLayoutName()
     {
-        return QStringLiteral("thumbnail_grid");
+        return QStringLiteral("basic_list");
     }
 
 private:

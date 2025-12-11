@@ -100,7 +100,13 @@ KWin.TabBoxSwitcher {
                     focus: true
                     model: tabBox.model
                     currentIndex: tabBox.currentIndex
-                    smooth: false
+                    cacheBuffer: cellWidth * 3 // Cache only nearby items to reduce memory usage
+                    displaced: Transition {
+                        NumberAnimation { properties: "x,y"; duration: 200 }
+                    }
+                    add: Transition {
+                        NumberAnimation { properties: "opacity"; from: 0; to: 1; duration: 200 }
+                    }
 
                     readonly property int iconSize: Kirigami.Units.iconSizes.huge
                     readonly property int captionRowHeight: Kirigami.Units.gridUnit * 2
@@ -123,6 +129,10 @@ KWin.TabBoxSwitcher {
                         Accessible.name: model.caption
                         Accessible.role: Accessible.ListItem
 
+                        // Preload thumbnails for current item and adjacent items
+                        readonly property bool shouldLoadThumbnail: index >= (thumbnailGridView.currentIndex - 2) &&
+                                                                   index <= (thumbnailGridView.currentIndex + 2)
+
                         onClicked: {
                             tabBox.model.activate(index);
                         }
@@ -144,9 +154,31 @@ KWin.TabBoxSwitcher {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
 
-                                KWin.WindowThumbnail {
+                                Item {
                                     anchors.fill: parent
-                                    wId: windowId
+                                    // Show icon as placeholder while thumbnail is loading
+                                    Kirigami.Icon {
+                                        anchors.centerIn: parent
+                                        width: thumbnailGridView.iconSize / 2
+                                        height: thumbnailGridView.iconSize / 2
+                                        source: model.icon
+                                        opacity: thumbnailGridItem.shouldLoadThumbnail ? 0 : 0.6
+                                        Behavior on opacity { NumberAnimation { duration: 150 } }
+                                    }
+
+                                    KWin.WindowThumbnail {
+                                        anchors.fill: parent
+                                        wId: windowId
+                                        opacity: thumbnailGridItem.shouldLoadThumbnail ? 1 : 0  // Fade in when should load
+                                        visible: thumbnailGridItem.shouldLoadThumbnail
+                                        // Add a simple behavior for smooth opacity transition
+                                        Behavior on opacity {
+                                            NumberAnimation {
+                                                duration: 400
+                                                easing.type: Easing.InOutQuad
+                                            }
+                                        }
+                                    }
                                 }
 
                                 Kirigami.Icon {
@@ -199,6 +231,11 @@ KWin.TabBoxSwitcher {
                         prefix: "hover"
                     }
 
+                    // Animate thumbnail loading when current index changes
+                    Behavior on currentIndex {
+                        NumberAnimation { duration: 150 }
+                    }
+
                     onCurrentIndexChanged: tabBox.currentIndex = thumbnailGridView.currentIndex;
                 } // GridView
 
@@ -219,6 +256,15 @@ KWin.TabBoxSwitcher {
                         thumbnailGridView.moveCurrentIndexUp();
                     } else if (event.key == Qt.Key_Down) {
                         thumbnailGridView.moveCurrentIndexDown();
+                    } else if (event.key == Qt.Key_Delete) {
+                        // Close the currently selected window
+                        if (thumbnailGridView.currentIndex >= 0 && thumbnailGridView.currentIndex < thumbnailGridView.count) {
+                            tabBox.model.close(thumbnailGridView.currentIndex);
+                            // If there's only one item left after closing, exit the tab box
+                            if (thumbnailGridView.count <= 1) {
+                                tabBox.model.activate(thumbnailGridView.currentIndex);
+                            }
+                        }
                     } else {
                         return;
                     }

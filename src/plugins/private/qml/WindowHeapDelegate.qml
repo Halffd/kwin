@@ -116,114 +116,140 @@ ExpoCell {
         z: (activeDragHandler.active || returnAnimation.running) ? 1000
             : thumb.window.stackingOrder * (presentOnCurrentDesktop ? 1 : 0.001)
 
-        KWinComponents.WindowThumbnail {
-            id: thumbSource
-            wId: thumb.window.internalId
-            scale: targetScale
+        Item {
+            id: thumbSourceContainer
             width: mainContent.width
             height: mainContent.height
+            scale: targetScale
 
-            Binding on width {
-                value: mainContent.width
-                when: !returnAnimation.active
+            // Show icon as placeholder while thumbnail is loading
+            Kirigami.Icon {
+                anchors.centerIn: parent
+                width: Kirigami.Units.iconSizes.huge
+                height: Kirigami.Units.iconSizes.huge
+                source: thumb.window.icon
+                opacity: thumb.windowHeap.organized ? 0.3 : 0.6  // Show dim placeholder when heap is organized
+                Behavior on opacity { NumberAnimation { duration: 150 } }
             }
-            Binding on height {
-                value: mainContent.height
-                when: !returnAnimation.active
-            }
 
-            Drag.proposedAction: Qt.MoveAction
-            Drag.supportedActions: Qt.MoveAction
-            Drag.source: thumb.window
-            Drag.hotSpot: Qt.point(
-                thumb.activeDragHandler.centroid.pressPosition.x,
-                thumb.activeDragHandler.centroid.pressPosition.y)
-            Drag.keys: ["kwin-window"]
-
-            onXChanged: effect.checkItemDraggedOutOfScreen(thumbSource)
-            onYChanged: effect.checkItemDraggedOutOfScreen(thumbSource)
-
-            function saveDND() {
-                const oldGlobalRect = mapToItem(null, 0, 0, width, height);
-                thumb.windowHeap.saveDND(thumb.window.internalId, oldGlobalRect);
-            }
-            function restoreDND(oldGlobalRect: rect) {
-                const newGlobalRect = mapFromItem(null, oldGlobalRect);
-                // We need proper mapping for the heap geometry becuase they are positioned with
-                // translation transformations
-                const heapRect = thumb.windowHeap.mapToItem(null, Qt.size(thumb.windowHeap.width, thumb.windowHeap.height));
-                // Disable bindings
-                returnAnimation.active = true;
-                x = newGlobalRect.x;
-                y = newGlobalRect.y;
-                width = newGlobalRect.width;
-                height = newGlobalRect.height;
-
-                returnAnimation.restart();
-
-                // If we dropped on another desktop, don't make the window fly off  the screen
-                if ((oldGlobalRect.x < heapRect.x && heapRect.x + heapRect.width < oldGlobalRect.x + oldGlobalRect.width) ||
-                    (oldGlobalRect.y < heapRect.y && heapRect.y + heapRect.height < oldGlobalRect.y + oldGlobalRect.height)) {
-                    returnAnimation.complete();
+            KWinComponents.WindowThumbnail {
+                id: thumbSource
+                wId: thumb.window.internalId
+                scale: 1
+                width: thumbSourceContainer.width
+                height: thumbSourceContainer.height
+                opacity: thumb.presentOnCurrentDesktop ? 1 : 0.7
+                // Only show thumbnail when the window heap is organized and this item is visible
+                visible: thumb.windowHeap.organized
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: 300
+                        easing.type: Easing.InOutQuad
+                    }
                 }
-            }
-            function deleteDND() {
-                thumb.windowHeap.deleteDND(thumb.window.internalId);
-            }
 
-            // Not using FrameSvg hover element intentionally for stylistic reasons
-            Rectangle {
-                border.width: Kirigami.Units.largeSpacing
-                border.color: Kirigami.Theme.highlightColor
-                anchors.fill: parent
-                anchors.margins: -border.width
-                radius: Kirigami.Units.cornerRadius
-                color: "transparent"
-                visible: !thumb.windowHeap.dragActive && (hoverHandler.hovered || (thumb.selected && Window.window.activeFocusItem)) && windowHeap.effectiveOrganized
-            }
+                Binding on width {
+                    value: mainContent.width
+                    when: !returnAnimation.active
+                }
+                Binding on height {
+                    value: mainContent.height
+                    when: !returnAnimation.active
+                }
 
-            MouseArea {
-                anchors.fill: parent
-                acceptedButtons: Qt.NoButton
-                cursorShape: thumb.activeDragHandler.active ? Qt.ClosedHandCursor : Qt.ArrowCursor
-            }
-            ParallelAnimation {
-                id: returnAnimation
-                property bool active: false
-                onRunningChanged: active = running
-                NumberAnimation {
-                    target: thumbSource
-                    properties: "x,y"
-                    to: 0
-                    duration: thumb.windowHeap.animationDuration
-                    easing.type: Easing.InOutCubic
+                Drag.proposedAction: Qt.MoveAction
+                Drag.supportedActions: Qt.MoveAction
+                Drag.source: thumb.window
+                Drag.hotSpot: Qt.point(
+                    thumb.activeDragHandler.centroid.pressPosition.x,
+                    thumb.activeDragHandler.centroid.pressPosition.y)
+                Drag.keys: ["kwin-window"]
+
+                onXChanged: effect.checkItemDraggedOutOfScreen(thumbSource)
+                onYChanged: effect.checkItemDraggedOutOfScreen(thumbSource)
+
+                function saveDND() {
+                    const oldGlobalRect = mapToItem(null, 0, 0, width, height);
+                    thumb.windowHeap.saveDND(thumb.window.internalId, oldGlobalRect);
                 }
-                NumberAnimation {
-                    target: thumbSource
-                    property: "width"
-                    to: mainContent.width
-                    duration: thumb.windowHeap.animationDuration
-                    easing.type: Easing.InOutCubic
+                function restoreDND(oldGlobalRect: rect) {
+                    const newGlobalRect = mapFromItem(null, oldGlobalRect);
+                    // We need proper mapping for the heap geometry becuase they are positioned with
+                    // translation transformations
+                    const heapRect = thumb.windowHeap.mapToItem(null, Qt.size(thumb.windowHeap.width, thumb.windowHeap.height));
+                    // Disable bindings
+                    returnAnimation.active = true;
+                    x = newGlobalRect.x;
+                    y = newGlobalRect.y;
+                    width = newGlobalRect.width;
+                    height = newGlobalRect.height;
+
+                    returnAnimation.restart();
+
+                    // If we dropped on another desktop, don't make the window fly off  the screen
+                    if ((oldGlobalRect.x < heapRect.x && heapRect.x + heapRect.width < oldGlobalRect.x + oldGlobalRect.width) ||
+                        (oldGlobalRect.y < heapRect.y && heapRect.y + heapRect.height < oldGlobalRect.y + oldGlobalRect.height)) {
+                        returnAnimation.complete();
+                    }
                 }
-                NumberAnimation {
-                    target: thumbSource
-                    property: "height"
-                    to: mainContent.height
-                    duration: thumb.windowHeap.animationDuration
-                    easing.type: Easing.InOutCubic
+                function deleteDND() {
+                    thumb.windowHeap.deleteDND(thumb.window.internalId);
                 }
-                NumberAnimation {
-                    target: thumbSource
-                    property: "scale"
-                    to: 1
-                    duration: thumb.windowHeap.animationDuration
-                    easing.type: Easing.InOutCubic
+
+                // Not using FrameSvg hover element intentionally for stylistic reasons
+                Rectangle {
+                    border.width: Kirigami.Units.largeSpacing
+                    border.color: Kirigami.Theme.highlightColor
+                    anchors.fill: parent
+                    anchors.margins: -border.width
+                    radius: Kirigami.Units.cornerRadius
+                    color: "transparent"
+                    visible: !thumb.windowHeap.dragActive && (hoverHandler.hovered || (thumb.selected && Window.window.activeFocusItem)) && windowHeap.effectiveOrganized
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.NoButton
+                    cursorShape: thumb.activeDragHandler.active ? Qt.ClosedHandCursor : Qt.ArrowCursor
+                }
+                ParallelAnimation {
+                    id: returnAnimation
+                    property bool active: false
+                    onRunningChanged: active = running
+                    NumberAnimation {
+                        target: thumbSource
+                        properties: "x,y"
+                        to: 0
+                        duration: thumb.windowHeap.animationDuration
+                        easing.type: Easing.InOutCubic
+                    }
+                    NumberAnimation {
+                        target: thumbSource
+                        property: "width"
+                        to: mainContent.width
+                        duration: thumb.windowHeap.animationDuration
+                        easing.type: Easing.InOutCubic
+                    }
+                    NumberAnimation {
+                        target: thumbSource
+                        property: "height"
+                        to: mainContent.height
+                        duration: thumb.windowHeap.animationDuration
+                        easing.type: Easing.InOutCubic
+                    }
+                    NumberAnimation {
+                        target: thumbSource
+                        property: "scale"
+                        to: 1
+                        duration: thumb.windowHeap.animationDuration
+                        easing.type: Easing.InOutCubic
+                    }
                 }
             }
         }
 
         PC3.Label {
-            anchors.fill: thumbSource
+            anchors.fill: thumbSourceContainer
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             text: i18nd("kwin_x11", "Drag Down To Close")
@@ -244,8 +270,8 @@ ExpoCell {
             opacity: partialActivationFactor
             scale: Math.min(1.0, mainContent.width / Math.max(0.01, thumb.width))
             source: thumb.window.icon
-            anchors.horizontalCenter: thumbSource.horizontalCenter
-            anchors.verticalCenter: thumbSource.bottom
+            anchors.horizontalCenter: thumbSourceContainer.horizontalCenter
+            anchors.verticalCenter: thumbSourceContainer.bottom
             anchors.verticalCenterOffset: -Math.round(height / 4) * scale
             visible: !thumb.activeHidden && !activeDragHandler.active && !returnAnimation.running
             PC3.Label {
@@ -363,8 +389,8 @@ ExpoCell {
             LayoutMirroring.enabled: Qt.application.layoutDirection === Qt.RightToLeft
 
             anchors {
-                right: thumbSource.right
-                top: thumbSource.top
+                right: thumbSourceContainer.right
+                top: thumbSourceContainer.top
                 margins: Kirigami.Units.smallSpacing
             }
             active: thumb.closeButtonVisible && (hoverHandler.hovered || Kirigami.Settings.tabletMode || Kirigami.Settings.hasTransientTouchInput) && thumb.window.closeable && !thumb.activeDragHandler.active && !returnAnimation.running

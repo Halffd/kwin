@@ -277,7 +277,7 @@
     </group>
     <group name="TabBox">
         <entry name="DelayTime" type="Int">
-            <default>90</default>
+            <default>0</default>
         </entry>
         <entry name="DesktopMode" type="UInt">
             <default>1</default>

@@ -769,16 +769,33 @@ FocusScope {
             windowType: KWinComponents.WindowFilterModel.Dock
         }
 
-        KWinComponents.WindowThumbnail {
-            id: windowThumbnail
-            visible: !model.window.hidden && opacity > 0
-            wId: model.window.internalId
+        Item {
+            width: model.window.width
+            height: model.window.height
             x: model.window.x - targetScreen.geometry.x
             y: model.window.y - targetScreen.geometry.y
             z: model.window.stackingOrder
-            width: model.window.width
-            height: model.window.height
             opacity: 1 - (gridVal + overviewVal)
+
+            // Show icon as placeholder while thumbnail is loading
+            Kirigami.Icon {
+                anchors.centerIn: parent
+                width: Kirigami.Units.iconSizes.medium
+                height: Kirigami.Units.iconSizes.medium
+                source: model.window.icon
+                opacity: 0.6
+                visible: opacity > 0
+            }
+
+            KWinComponents.WindowThumbnail {
+                id: windowThumbnail
+                visible: !model.window.hidden && opacity > 0
+                wId: model.window.internalId
+                anchors.fill: parent
+                opacity: 1
+                // Only load when the overview is active to avoid unnecessary processing
+                enabled: (gridVal + overviewVal) < 1
+            }
         }
     }
 

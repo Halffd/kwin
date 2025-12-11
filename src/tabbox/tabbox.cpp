@@ -525,7 +525,7 @@ void TabBox::reconfigure()
 
     m_tabBox->setConfig(m_defaultConfig);
 
-    m_delayShowTime = config.readEntry<int>("DelayTime", 90);
+    m_delayShowTime = config.readEntry<int>("DelayTime", 0);
 
     QList<ElectricBorder> *borders = &m_borderActivate;
     QString borderConfig = QStringLiteral("BorderActivate");
@@ -1103,6 +1103,20 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
     if (direction == Steady) {
         if (keyEvent.key == Qt::Key_Escape) {
             close(true);
+        } else if (keyEvent.key == Qt::Key_Delete) {
+            // Close the currently selected window
+            if (Window *c = currentClient()) {
+                if (c->isCloseable()) {
+                    c->closeWindow();
+                    // If only one window is left, accept and activate it
+                    if (currentClientList().size() <= 1) {
+                        accept();
+                    } else {
+                        // Otherwise, continue with tab switcher but remove the closed window from the model
+                        reset(true); // partial reset
+                    }
+                }
+            }
         } else {
             QKeyEvent event(QEvent::KeyPress, keyEvent.key, Qt::NoModifier);
             grabbedKeyEvent(&event);
