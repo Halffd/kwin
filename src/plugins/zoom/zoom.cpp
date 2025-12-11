@@ -367,49 +367,49 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         const auto scale = viewport.scale();
         const QRect geo = out->geometry();
 
-        // Calculate zoom transformations for this output
+        // Convert global coordinates to local monitor coordinates for zoom calculations
+        QPoint localFocus = state->focusPoint - geo.topLeft();
+        QPoint localPrev = state->prevPoint - geo.topLeft();
+
+        // Calculate zoom transformations using LOCAL coordinates
         qreal xTranslation = 0;
         qreal yTranslation = 0;
 
         switch (m_mouseTracking) {
         case MouseTrackingProportional:
-            xTranslation = -int(state->focusPoint.x() * (state->zoom - 1.0));
-            yTranslation = -int(state->focusPoint.y() * (state->zoom - 1.0));
+            xTranslation = -int(localFocus.x() * (state->zoom - 1.0));
+            yTranslation = -int(localFocus.y() * (state->zoom - 1.0));
             state->prevPoint = state->focusPoint;
             break;
         case MouseTrackingCentered:
             state->prevPoint = state->focusPoint;
             // fall through
-        case MouseTrackingDisabled:
-            // Center the view on state->prevPoint
-            // T = Center - prevPoint * z
-            // But we want to clamp so we don't look outside the screen.
-            // Valid range for T is [geo.right() * (1 - z), geo.x() * (1 - z)]
-            {
-                int tX = int(geo.center().x() - state->prevPoint.x() * state->zoom);
-                int tY = int(geo.center().y() - state->prevPoint.y() * state->zoom);
+        case MouseTrackingDisabled: {
+            // Center on localPrev within THIS monitor
+            int tX = int(geo.width() / 2.0 - localPrev.x() * state->zoom);
+            int tY = int(geo.height() / 2.0 - localPrev.y() * state->zoom);
 
-                int minX = int((geo.x() + geo.width()) * (1.0 - state->zoom));
-                int maxX = int(geo.x() * (1.0 - state->zoom));
+            // Clamp to monitor bounds (using width/height, not absolute coords)
+            int minX = int(geo.width() * (1.0 - state->zoom));
+            int maxX = 0;
+            int minY = int(geo.height() * (1.0 - state->zoom));
+            int maxY = 0;
 
-                int minY = int((geo.y() + geo.height()) * (1.0 - state->zoom));
-                int maxY = int(geo.y() * (1.0 - state->zoom));
-
-                xTranslation = std::clamp(tX, minX, maxX);
-                yTranslation = std::clamp(tY, minY, maxY);
-            }
-            break;
+            xTranslation = std::clamp(tX, minX, maxX);
+            yTranslation = std::clamp(tY, minY, maxY);
+        } break;
         case MouseTrackingPush: {
             // touching an edge of the screen moves the zoom-area in that direction.
-            const int x = state->focusPoint.x() * state->zoom - state->prevPoint.x() * (state->zoom - 1.0);
-            const int y = state->focusPoint.y() * state->zoom - state->prevPoint.y() * (state->zoom - 1.0);
+            // Use local coordinates for push mode
+            const int x = localFocus.x() * state->zoom - localPrev.x() * (state->zoom - 1.0);
+            const int y = localFocus.y() * state->zoom - localPrev.y() * (state->zoom - 1.0);
             const int threshold = 4;
 
             // Bounds of the current screen
-            const int screenTop = geo.top();
-            const int screenLeft = geo.left();
-            const int screenRight = geo.left() + geo.width();
-            const int screenBottom = geo.top() + geo.height();
+            const int screenTop = 0; // Using 0 since we're using local coordinates
+            const int screenLeft = 0;
+            const int screenRight = geo.width();
+            const int screenBottom = geo.height();
 
             state->xMove = state->yMove = 0;
             if (x < screenLeft + threshold) {
@@ -428,14 +428,17 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             if (state->yMove) {
                 state->prevPoint.setY(state->prevPoint.y() + state->yMove);
             }
-            xTranslation = -int(state->prevPoint.x() * (state->zoom - 1.0));
-            yTranslation = -int(state->prevPoint.y() * (state->zoom - 1.0));
+            xTranslation = -int(localPrev.x() * (state->zoom - 1.0));
+            yTranslation = -int(localPrev.y() * (state->zoom - 1.0));
             break;
         }
         }
-        qDebug() << "PrevPoint: " << state->prevPoint << " xTranslation: " << xTranslation << "yTranslation: " << yTranslation;
+        qDebug() << "Monitor:" << out->name() << "Geo:" << geo
+                 << "GlobalFocus:" << state->focusPoint
+                 << "LocalFocus:" << localFocus
+                 << "Translation:" << xTranslation << yTranslation;
 
-        // use the focusPoint if focus tracking is enabled
+        // Focus tracking (also use local coords)
         if (isFocusTrackingEnabled() || isTextCaretTrackingEnabled()) {
             bool acceptFocus = true;
             if (m_mouseTracking != MouseTrackingDisabled && m_focusDelay > 0) {
@@ -445,18 +448,18 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
                 acceptFocus = msecs > m_focusDelay;
             }
             if (acceptFocus) {
-                xTranslation = -int(state->focusPoint.x() * (state->zoom - 1.0));
-                yTranslation = -int(state->focusPoint.y() * (state->zoom - 1.0));
+                xTranslation = -int(localFocus.x() * (state->zoom - 1.0));
+                yTranslation = -int(localFocus.y() * (state->zoom - 1.0));
                 state->prevPoint = state->focusPoint;
             }
         }
 
-        // Ensure that for proportional mode and others we strictly clamp to avoid black borders
+        // Clamp using monitor dimensions (not global coords)
         if (m_mouseTracking != MouseTrackingDisabled && m_mouseTracking != MouseTrackingCentered) {
-            int minX = int((geo.x() + geo.width()) * (1.0 - state->zoom));
-            int maxX = int(geo.x() * (1.0 - state->zoom));
-            int minY = int((geo.y() + geo.height()) * (1.0 - state->zoom));
-            int maxY = int(geo.y() * (1.0 - state->zoom));
+            int minX = int(geo.width() * (1.0 - state->zoom));
+            int maxX = 0;
+            int minY = int(geo.height() * (1.0 - state->zoom));
+            int maxY = 0;
 
             xTranslation = std::clamp(int(xTranslation), minX, maxX);
             yTranslation = std::clamp(int(yTranslation), minY, maxY);
@@ -497,7 +500,9 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
                         cursorSize *= state->zoom;
                     }
 
-                    const QPointF p = (effects->cursorPos() - cursor.hotSpot()) * state->zoom + QPoint(xTranslation, yTranslation);
+                    // Convert global cursor position to local coordinates for this output
+                    QPoint localCursorPosition = (effects->cursorPos() - cursor.hotSpot()).toPoint() - geo.topLeft();
+                    const QPointF p = localCursorPosition * state->zoom + QPoint(xTranslation, yTranslation);
 
                     glEnable(GL_BLEND);
                     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -613,8 +618,11 @@ void ZoomEffect::timelineFrameChanged(int /* frame */)
 {
     for (auto &[screen, state] : m_states) {
         QRect geo = screen->geometry();
-        state.prevPoint.setX(std::max(geo.x(), std::min(geo.x() + geo.width(), state.prevPoint.x() + state.xMove)));
-        state.prevPoint.setY(std::max(geo.y(), std::min(geo.y() + geo.height(), state.prevPoint.y() + state.yMove)));
+        // Use local coordinates for calculations within the monitor, then convert back to global
+        QPoint localPrev = state.prevPoint - geo.topLeft();
+        localPrev.setX(std::max(0, std::min(geo.width(), localPrev.x() + state.xMove)));
+        localPrev.setY(std::max(0, std::min(geo.height(), localPrev.y() + state.yMove)));
+        state.prevPoint = localPrev + geo.topLeft();
         state.focusPoint = state.prevPoint;
     }
     effects->addRepaintFull();
