@@ -10,20 +10,29 @@
 
 #include "atoms.h"
 #include "compositor.h"
+#include "core/graphicsbuffer.h"
+#include "core/shmgraphicsbufferallocator.h"
 #include "cursor.h"
 #include "pointer_input.h"
 #include "virtualdesktops.h"
+#include "wayland/surface.h"
 #include "wayland_server.h"
 #include "workspace.h"
+#include "x11eventfilter.h"
 #include "x11window.h"
 
 #include <KWayland/Client/surface.h>
-
+#include <QSocketNotifier>
+#include <drm_fourcc.h>
 #include <linux/input-event-codes.h>
 #include <netwm.h>
+#include <xcb/present.h>
+#include <xcb/xcb_event.h>
 #include <xcb/xcb_icccm.h>
 
 using namespace KWin;
+using namespace std::chrono_literals;
+
 static const QString s_socketName = QStringLiteral("wayland_test_x11_window-0");
 
 class X11WindowTest : public QObject
@@ -72,14 +81,6 @@ private Q_SLOTS:
     void testInitiallySkipTaskbar();
     void testRequestSkipTaskbar();
     void testOpacity();
-    void testDesktop_data();
-    void testDesktop();
-    void testInitialDesktop_data();
-    void testInitialDesktop();
-    void testChangeDesktop();
-    void testOnAllDesktops();
-    void testInitialOnAllDesktops();
-    void testChangeOnAllDesktops();
     void testNetWmKeyboardMove();
     void testNetWmKeyboardMoveCancel();
     void testNetWmKeyboardResize();
@@ -128,6 +129,8 @@ private Q_SLOTS:
     void testOverrideRedirectReparent();
     void testOverrideRedirectStackingAbove();
     void testOverrideRedirectStackingBelow();
+    void testRandrEmulation();
+    void testRestoreFocusToDestroyedWindow();
 };
 
 void X11WindowTest::initTestCase_data()
@@ -141,10 +144,13 @@ void X11WindowTest::initTestCase()
 {
     qRegisterMetaType<KWin::Window *>();
     QVERIFY(waylandServer()->init(s_socketName));
-    Test::setOutputConfig({QRect(0, 0, 1280, 1024)});
     kwinApp()->setConfig(KSharedConfig::openConfig(QString(), KConfig::SimpleConfig));
 
     kwinApp()->start();
+    Test::setOutputConfig({
+        QRect(0, 0, 1280, 1024),
+        QRect(1280, 0, 1280, 1024),
+    });
     QVERIFY(KWin::Compositor::self());
 }
 
@@ -163,7 +169,7 @@ void X11WindowTest::cleanup()
     Test::destroyWaylandConnection();
 }
 
-static X11Window *createWindow(xcb_connection_t *connection, const QRect &geometry, std::function<void(xcb_window_t)> setup = {})
+static X11Window *createWindow(xcb_connection_t *connection, const Rect &geometry, std::function<void(xcb_window_t)> setup = {})
 {
     xcb_window_t windowId = xcb_generate_id(connection);
     xcb_create_window(connection, XCB_COPY_FROM_PARENT, windowId, rootWindow(),
@@ -173,8 +179,7 @@ static X11Window *createWindow(xcb_connection_t *connection, const QRect &geomet
                       geometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
 
-    xcb_size_hints_t hints;
-    memset(&hints, 0, sizeof(hints));
+    xcb_size_hints_t hints{};
     xcb_icccm_size_hints_set_position(&hints, 1, geometry.x(), geometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, geometry.width(), geometry.height());
     xcb_icccm_set_wm_normal_hints(connection, windowId, &hints);
@@ -193,45 +198,6 @@ static X11Window *createWindow(xcb_connection_t *connection, const QRect &geomet
     return windowCreatedSpy.last().first().value<X11Window *>();
 }
 
-enum {
-    MWM_HINTS_FUNCTIONS = (1L << 0),
-
-    MWM_FUNC_ALL = (1L << 0),
-    MWM_FUNC_RESIZE = (1L << 1),
-    MWM_FUNC_MOVE = (1L << 2),
-    MWM_FUNC_MINIMIZE = (1L << 3),
-    MWM_FUNC_MAXIMIZE = (1L << 4),
-    MWM_FUNC_CLOSE = (1L << 5),
-
-    MWM_HINTS_DECORATIONS = (1L << 1),
-
-    MWM_DECOR_ALL = (1L << 0),
-    MWM_DECOR_BORDER = (1L << 1),
-    MWM_DECOR_RESIZEH = (1L << 2),
-    MWM_DECOR_TITLE = (1L << 3),
-    MWM_DECOR_MENU = (1L << 4),
-    MWM_DECOR_MINIMIZE = (1L << 5),
-    MWM_DECOR_MAXIMIZE = (1L << 6),
-};
-
-struct MotifHints
-{
-    uint32_t flags = 0;
-    uint32_t functions = 0;
-    uint32_t decorations = 0;
-    int32_t input_mode = 0;
-    uint32_t status = 0;
-};
-
-static void applyMotifHints(xcb_connection_t *connection, xcb_window_t window, const MotifHints &hints)
-{
-    if (hints.flags) {
-        xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window, atoms->motif_wm_hints, atoms->motif_wm_hints, 32, 5, &hints);
-    } else {
-        xcb_delete_property(connection, window, atoms->motif_wm_hints);
-    }
-}
-
 void X11WindowTest::testMaximizedFull()
 {
     // This test verifies that toggling maximized mode works as expected and state changes are propagated to the client.
@@ -239,11 +205,11 @@ void X11WindowTest::testMaximizedFull()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Make the window maximized.
-    const QRectF originalGeometry = window->frameGeometry();
-    const QRectF workArea = workspace()->clientArea(MaximizeArea, window);
+    const RectF originalGeometry = window->frameGeometry();
+    const RectF workArea = workspace()->clientArea(MaximizeArea, window);
     QSignalSpy maximizedChangedSpy(window, &Window::maximizedChanged);
     window->maximize(MaximizeFull);
     QCOMPARE(maximizedChangedSpy.count(), 1);
@@ -278,7 +244,7 @@ void X11WindowTest::testInitiallyMaximizedFull()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::Max, NET::Max);
     });
@@ -293,7 +259,7 @@ void X11WindowTest::testRequestMaximizedFull()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set maximized state.
     {
@@ -324,17 +290,17 @@ void X11WindowTest::testMaximizedVertical()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Make the window maximized.
-    const QRectF originalGeometry = window->frameGeometry();
-    const QRectF workArea = workspace()->clientArea(MaximizeArea, window);
+    const RectF originalGeometry = window->frameGeometry();
+    const RectF workArea = workspace()->clientArea(MaximizeArea, window);
     QSignalSpy maximizedChangedSpy(window, &Window::maximizedChanged);
     window->maximize(MaximizeVertical);
     QCOMPARE(maximizedChangedSpy.count(), 1);
     QCOMPARE(window->maximizeMode(), MaximizeVertical);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeVertical);
-    QCOMPARE(window->frameGeometry(), QRectF(originalGeometry.x(), workArea.y(), originalGeometry.width(), workArea.height()));
+    QCOMPARE(window->frameGeometry(), RectF(originalGeometry.x(), workArea.y(), originalGeometry.width(), workArea.height()));
     QCOMPARE(window->geometryRestore(), originalGeometry);
 
     {
@@ -363,7 +329,7 @@ void X11WindowTest::testInitiallyMaximizedVertical()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::MaxVert, NET::MaxVert);
     });
@@ -378,7 +344,7 @@ void X11WindowTest::testRequestMaximizedVertical()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set maximized state.
     {
@@ -409,17 +375,17 @@ void X11WindowTest::testMaximizedHorizontal()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Make the window maximized.
-    const QRectF originalGeometry = window->frameGeometry();
-    const QRectF workArea = workspace()->clientArea(MaximizeArea, window);
+    const RectF originalGeometry = window->frameGeometry();
+    const RectF workArea = workspace()->clientArea(MaximizeArea, window);
     QSignalSpy maximizedChangedSpy(window, &Window::maximizedChanged);
     window->maximize(MaximizeHorizontal);
     QCOMPARE(maximizedChangedSpy.count(), 1);
     QCOMPARE(window->maximizeMode(), MaximizeHorizontal);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeHorizontal);
-    QCOMPARE(window->frameGeometry(), QRectF(workArea.x(), originalGeometry.y(), workArea.width(), originalGeometry.height()));
+    QCOMPARE(window->frameGeometry(), RectF(workArea.x(), originalGeometry.y(), workArea.width(), originalGeometry.height()));
     QCOMPARE(window->geometryRestore(), originalGeometry);
 
     {
@@ -448,7 +414,7 @@ void X11WindowTest::testInitiallyMaximizedHorizontal()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::MaxHoriz, NET::MaxHoriz);
     });
@@ -463,7 +429,7 @@ void X11WindowTest::testRequestMaximizedHorizontal()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set maximized state.
     {
@@ -494,10 +460,10 @@ void X11WindowTest::testInteractiveMoveUnmaximizeFull()
     // Create the window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200));
 
     // Make the window maximized.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     window->maximize(MaximizeFull);
     QCOMPARE(window->maximizeMode(), MaximizeFull);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeFull);
@@ -520,10 +486,10 @@ void X11WindowTest::testInteractiveMoveUnmaximizeFull()
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 0);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeRestore);
-    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(QRectF(input()->pointer()->pos() - QPointF(originalGeometry.width() * xOffset, originalGeometry.height() * yOffset), originalGeometry.size()))));
+    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(RectF(input()->pointer()->pos() - QPointF(originalGeometry.width() * xOffset, originalGeometry.height() * yOffset), originalGeometry.size()))));
 
     // Move the window again.
-    const QRectF normalGeometry = window->frameGeometry();
+    const RectF normalGeometry = window->frameGeometry();
     Test::pointerMotionRelative(QPointF(0, 10), timestamp++);
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 1);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
@@ -542,7 +508,7 @@ void X11WindowTest::testInteractiveMoveUnmaximizeInitiallyFull()
     // Create the window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::Max, NET::Max);
     });
@@ -566,10 +532,10 @@ void X11WindowTest::testInteractiveMoveUnmaximizeInitiallyFull()
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 0);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeRestore);
-    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(QRectF(input()->pointer()->pos() - QPointF(restoredSize.width() * xOffset, restoredSize.height() * yOffset), restoredSize))));
+    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(RectF(input()->pointer()->pos() - QPointF(restoredSize.width() * xOffset, restoredSize.height() * yOffset), restoredSize))));
 
     // Move the window again.
-    const QRectF normalGeometry = window->frameGeometry();
+    const RectF normalGeometry = window->frameGeometry();
     Test::pointerMotionRelative(QPointF(0, 10), timestamp++);
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 1);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
@@ -588,10 +554,10 @@ void X11WindowTest::testInteractiveMoveUnmaximizeHorizontal()
     // Create the window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200));
 
     // Make the window maximized.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     window->maximize(MaximizeHorizontal);
     QCOMPARE(window->maximizeMode(), MaximizeHorizontal);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeHorizontal);
@@ -614,10 +580,10 @@ void X11WindowTest::testInteractiveMoveUnmaximizeHorizontal()
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 0);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeRestore);
-    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(QRectF(input()->pointer()->pos() - QPointF(originalGeometry.width() * xOffset, originalGeometry.height() * yOffset), originalGeometry.size()))));
+    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(RectF(input()->pointer()->pos() - QPointF(originalGeometry.width() * xOffset, originalGeometry.height() * yOffset), originalGeometry.size()))));
 
     // Move the window again.
-    const QRectF normalGeometry = window->frameGeometry();
+    const RectF normalGeometry = window->frameGeometry();
     Test::pointerMotionRelative(QPointF(10, 0), timestamp++);
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 1);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
@@ -636,7 +602,7 @@ void X11WindowTest::testInteractiveMoveUnmaximizeInitiallyHorizontal()
     // Create the window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::MaxHoriz, NET::MaxHoriz);
     });
@@ -660,10 +626,10 @@ void X11WindowTest::testInteractiveMoveUnmaximizeInitiallyHorizontal()
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 0);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeRestore);
-    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(QRectF(input()->pointer()->pos() - QPointF(restoredSize.width() * xOffset, restoredSize.height() * yOffset), restoredSize))));
+    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(RectF(input()->pointer()->pos() - QPointF(restoredSize.width() * xOffset, restoredSize.height() * yOffset), restoredSize))));
 
     // Move the window again.
-    const QRectF normalGeometry = window->frameGeometry();
+    const RectF normalGeometry = window->frameGeometry();
     Test::pointerMotionRelative(QPointF(10, 0), timestamp++);
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 1);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
@@ -682,10 +648,10 @@ void X11WindowTest::testInteractiveMoveUnmaximizeVertical()
     // Create the window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200));
 
     // Make the window maximized.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     window->maximize(MaximizeVertical);
     QCOMPARE(window->maximizeMode(), MaximizeVertical);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeVertical);
@@ -708,10 +674,10 @@ void X11WindowTest::testInteractiveMoveUnmaximizeVertical()
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 0);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeRestore);
-    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(QRectF(input()->pointer()->pos() - QPointF(originalGeometry.width() * xOffset, originalGeometry.height() * yOffset), originalGeometry.size()))));
+    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(RectF(input()->pointer()->pos() - QPointF(originalGeometry.width() * xOffset, originalGeometry.height() * yOffset), originalGeometry.size()))));
 
     // Move the window again.
-    const QRectF normalGeometry = window->frameGeometry();
+    const RectF normalGeometry = window->frameGeometry();
     Test::pointerMotionRelative(QPointF(0, 10), timestamp++);
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 1);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
@@ -730,7 +696,7 @@ void X11WindowTest::testInteractiveMoveUnmaximizeInitiallyVertical()
     // Create the window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::MaxVert, NET::MaxVert);
     });
@@ -754,10 +720,10 @@ void X11WindowTest::testInteractiveMoveUnmaximizeInitiallyVertical()
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 0);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
     QCOMPARE(window->requestedMaximizeMode(), MaximizeRestore);
-    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(QRectF(input()->pointer()->pos() - QPointF(restoredSize.width() * xOffset, restoredSize.height() * yOffset), restoredSize))));
+    QCOMPARE(window->frameGeometry(), Xcb::fromXNative(Xcb::toXNative(RectF(input()->pointer()->pos() - QPointF(restoredSize.width() * xOffset, restoredSize.height() * yOffset), restoredSize))));
 
     // Move the window again.
-    const QRectF normalGeometry = window->frameGeometry();
+    const RectF normalGeometry = window->frameGeometry();
     Test::pointerMotionRelative(QPointF(0, 10), timestamp++);
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 1);
     QCOMPARE(window->maximizeMode(), MaximizeRestore);
@@ -776,11 +742,11 @@ void X11WindowTest::testFullScreen()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Make the window maximized.
-    const QRectF originalGeometry = window->frameGeometry();
-    const QRectF screenArea = workspace()->clientArea(ScreenArea, window);
+    const RectF originalGeometry = window->frameGeometry();
+    const RectF screenArea = workspace()->clientArea(ScreenArea, window);
     QSignalSpy fullScreenChangedSpy(window, &Window::fullScreenChanged);
     window->setFullScreen(true);
     QCOMPARE(fullScreenChangedSpy.count(), 1);
@@ -815,7 +781,7 @@ void X11WindowTest::testInitiallyFullScreen()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::FullScreen, NET::FullScreen);
     });
@@ -830,7 +796,7 @@ void X11WindowTest::testRequestFullScreen()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set fullscreen state.
     {
@@ -861,7 +827,7 @@ void X11WindowTest::testKeepBelow()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set keep below.
     QSignalSpy keepBelowChangedSpy(window, &Window::keepBelowChanged);
@@ -893,7 +859,7 @@ void X11WindowTest::testInitiallyKeepBelow()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::KeepBelow, NET::KeepBelow);
     });
@@ -907,7 +873,7 @@ void X11WindowTest::testKeepAbove()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set keep above.
     QSignalSpy keepAboveChangedSpy(window, &Window::keepAboveChanged);
@@ -939,7 +905,7 @@ void X11WindowTest::testInitiallyKeepAbove()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::KeepAbove, NET::KeepAbove);
     });
@@ -953,7 +919,7 @@ void X11WindowTest::testMinimized()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Minimize.
     QSignalSpy minimizedChangedSpy(window, &Window::minimizedChanged);
@@ -985,9 +951,8 @@ void X11WindowTest::testInitiallyMinimized()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
-        xcb_icccm_wm_hints_t hints;
-        memset(&hints, 0, sizeof(hints));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+        xcb_icccm_wm_hints_t hints{};
         xcb_icccm_wm_hints_set_iconic(&hints);
         xcb_icccm_set_wm_hints(c.get(), windowId, &hints);
     });
@@ -1006,7 +971,7 @@ void X11WindowTest::testRequestMinimized()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set minimized state.
     {
@@ -1039,7 +1004,7 @@ void X11WindowTest::testSkipSwitcher()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set skip switcher.
     QSignalSpy skipSwitcherChangedSpy(window, &Window::skipSwitcherChanged);
@@ -1071,7 +1036,7 @@ void X11WindowTest::testInitiallySkipSwitcher()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::SkipSwitcher, NET::SkipSwitcher);
     });
@@ -1085,7 +1050,7 @@ void X11WindowTest::testRequestSkipSwitcher()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set the skip switcher state.
     {
@@ -1114,7 +1079,7 @@ void X11WindowTest::testSkipPager()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set skip pager.
     QSignalSpy skipPagerChangedSpy(window, &Window::skipPagerChanged);
@@ -1146,7 +1111,7 @@ void X11WindowTest::testInitiallySkipPager()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::SkipPager, NET::SkipPager);
     });
@@ -1160,7 +1125,7 @@ void X11WindowTest::testRequestSkipPager()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set the skip pager state.
     {
@@ -1189,7 +1154,7 @@ void X11WindowTest::testSkipTaskbar()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set skip taskbar.
     QSignalSpy skipTaskbarChangedSpy(window, &Window::skipTaskbarChanged);
@@ -1221,7 +1186,7 @@ void X11WindowTest::testInitiallySkipTaskbar()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
         info.setState(NET::SkipTaskbar, NET::SkipTaskbar);
     });
@@ -1235,7 +1200,7 @@ void X11WindowTest::testRequestSkipTaskbar()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200));
 
     // Set the skip taskbar state.
     {
@@ -1264,7 +1229,7 @@ void X11WindowTest::testOpacity()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *window = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::Properties(), NET::WM2Opacity);
         info.setOpacityF(0.5);
     });
@@ -1281,161 +1246,6 @@ void X11WindowTest::testOpacity()
     QCOMPARE(window->opacity(), 0.8);
 }
 
-void X11WindowTest::testDesktop_data()
-{
-    QTest::addColumn<uint>("desktopId");
-
-    QTest::addRow("first") << uint(1);
-    QTest::addRow("second") << uint(2);
-}
-
-void X11WindowTest::testDesktop()
-{
-    // This test verifies that desktop changes are propagated to the client.
-
-    // Create an xcb window.
-    Test::XcbConnectionPtr c = Test::createX11Connection();
-    QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
-
-    // Send the window to the given desktop.
-    QFETCH(uint, desktopId);
-    VirtualDesktop *desktop = VirtualDesktopManager::self()->desktopForX11Id(desktopId);
-    window->setDesktops({desktop});
-
-    {
-        Xcb::sync();
-        NETWinInfo info(c.get(), window->window(), kwinApp()->x11RootWindow(), NET::WMDesktop, NET::Properties2());
-        QCOMPARE(info.desktop(), desktopId);
-    }
-}
-
-void X11WindowTest::testInitialDesktop_data()
-{
-    QTest::addColumn<uint>("desktopId");
-
-    QTest::addRow("first") << uint(1);
-    QTest::addRow("second") << uint(2);
-}
-
-void X11WindowTest::testInitialDesktop()
-{
-    // This test verifies that a window can be shown initially on a particular virtual desktop.
-
-    QFETCH(uint, desktopId);
-    VirtualDesktop *desktop = VirtualDesktopManager::self()->desktopForX11Id(desktopId);
-
-    // Create an xcb window.
-    Test::XcbConnectionPtr c = Test::createX11Connection();
-    QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &desktopId](xcb_window_t windowId) {
-        NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMDesktop, NET::Properties2());
-        info.setDesktop(desktopId);
-    });
-    QCOMPARE(window->desktops(), (QList<VirtualDesktop *>{desktop}));
-}
-
-void X11WindowTest::testChangeDesktop()
-{
-    // This test verifies that the client can send its window to another virtual desktop.
-
-    // Create an xcb window.
-    Test::XcbConnectionPtr c = Test::createX11Connection();
-    QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
-        NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMDesktop, NET::Properties2());
-        info.setDesktop(1);
-    });
-
-    // Send the window to another desktop.
-    {
-        NETWinInfo info(c.get(), window->window(), kwinApp()->x11RootWindow(), NET::WMDesktop, NET::Properties2());
-        info.setDesktop(2);
-        xcb_flush(c.get());
-    }
-    QSignalSpy desktopsChangedSpy(window, &Window::desktopsChanged);
-    QVERIFY(desktopsChangedSpy.wait());
-    QCOMPARE(window->desktops(), (QList<VirtualDesktop *>{VirtualDesktopManager::self()->desktopForX11Id(2)}));
-}
-
-void X11WindowTest::testOnAllDesktops()
-{
-    // This test verifies that desktop changes are propagated to the client.
-
-    VirtualDesktop *activeDesktop = VirtualDesktopManager::self()->currentDesktop();
-
-    // Create an xcb window.
-    Test::XcbConnectionPtr c = Test::createX11Connection();
-    QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
-
-    {
-        NETWinInfo info(c.get(), window->window(), kwinApp()->x11RootWindow(), NET::WMDesktop, NET::Properties2());
-        QCOMPARE(info.desktop(), activeDesktop->x11DesktopNumber());
-    }
-
-    // Set the window on all desktops.
-    window->setOnAllDesktops(true);
-
-    {
-        Xcb::sync();
-        NETWinInfo info(c.get(), window->window(), kwinApp()->x11RootWindow(), NET::WMDesktop, NET::Properties2());
-        QCOMPARE(info.desktop(), -1);
-    }
-
-    // Unset the window on all desktops.
-    window->setOnAllDesktops(false);
-
-    {
-        Xcb::sync();
-        NETWinInfo info(c.get(), window->window(), kwinApp()->x11RootWindow(), NET::WMDesktop, NET::Properties2());
-        QCOMPARE(info.desktop(), activeDesktop->x11DesktopNumber());
-    }
-}
-
-void X11WindowTest::testInitialOnAllDesktops()
-{
-    // This test verifies that a client can show a window, which is already on all desktops.
-
-    // Create an xcb window.
-    Test::XcbConnectionPtr c = Test::createX11Connection();
-    QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
-        NETWinInfo info(c.get(), windowId, kwinApp()->x11RootWindow(), NET::WMDesktop, NET::Properties2());
-        info.setDesktop(-1);
-    });
-    QVERIFY(window->isOnAllDesktops());
-}
-
-void X11WindowTest::testChangeOnAllDesktops()
-{
-    // This test verifies that a client can set/unset its window on all desktops.
-
-    // Create an xcb window.
-    Test::XcbConnectionPtr c = Test::createX11Connection();
-    QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(0, 0, 100, 200));
-
-    // Set the window on all desktops.
-    {
-        NETWinInfo info(c.get(), window->window(), kwinApp()->x11RootWindow(), NET::WMDesktop, NET::Properties2());
-        info.setDesktop(-1);
-        xcb_flush(c.get());
-    }
-    QSignalSpy desktopsChangedSpy(window, &Window::desktopsChanged);
-    QVERIFY(desktopsChangedSpy.wait());
-    QVERIFY(window->isOnAllDesktops());
-
-    // Unset the window on all desktops.
-    {
-        NETWinInfo info(c.get(), window->window(), kwinApp()->x11RootWindow(), NET::WMDesktop, NET::Properties2());
-        info.setDesktop(1);
-        xcb_flush(c.get());
-    }
-    QVERIFY(desktopsChangedSpy.wait());
-    QCOMPARE(window->desktops(), (QList<VirtualDesktop *>{VirtualDesktopManager::self()->desktopForX11Id(1)}));
-}
-
 void X11WindowTest::testNetWmKeyboardMove()
 {
     // This test verifies that a client can initiate a keyboard interactive move operation.
@@ -1443,7 +1253,7 @@ void X11WindowTest::testNetWmKeyboardMove()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200));
 
     // Request interactive move.
     {
@@ -1459,7 +1269,7 @@ void X11WindowTest::testNetWmKeyboardMove()
     QVERIFY(window->isInteractiveMove());
 
     // Move the window to the right.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     quint32 timestamp = 0;
     Test::keyboardKeyPressed(KEY_RIGHT, timestamp++);
     Test::keyboardKeyReleased(KEY_RIGHT, timestamp++);
@@ -1480,7 +1290,7 @@ void X11WindowTest::testNetWmKeyboardMoveCancel()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200));
 
     // Request interactive move.
     {
@@ -1496,7 +1306,7 @@ void X11WindowTest::testNetWmKeyboardMoveCancel()
     QVERIFY(window->isInteractiveMove());
 
     // Move the window to the right.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     quint32 timestamp = 0;
     Test::keyboardKeyPressed(KEY_RIGHT, timestamp++);
     Test::keyboardKeyReleased(KEY_RIGHT, timestamp++);
@@ -1520,7 +1330,7 @@ void X11WindowTest::testNetWmKeyboardResize()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200));
 
     // Request interactive resize.
     {
@@ -1536,7 +1346,7 @@ void X11WindowTest::testNetWmKeyboardResize()
     QVERIFY(window->isInteractiveResize());
 
     // Move the window to the right, the frame geometry will be updated some time later.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     quint32 timestamp = 0;
     Test::keyboardKeyPressed(KEY_RIGHT, timestamp++);
     Test::keyboardKeyReleased(KEY_RIGHT, timestamp++);
@@ -1557,7 +1367,7 @@ void X11WindowTest::testNetWmKeyboardResizeCancel()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200));
 
     // Request interactive resize.
     {
@@ -1573,7 +1383,7 @@ void X11WindowTest::testNetWmKeyboardResizeCancel()
     QVERIFY(window->isInteractiveResize());
 
     // Move the window to the right, the frame geometry will be updated some time later.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     quint32 timestamp = 0;
     Test::keyboardKeyPressed(KEY_RIGHT, timestamp++);
     Test::keyboardKeyReleased(KEY_RIGHT, timestamp++);
@@ -1597,10 +1407,10 @@ void X11WindowTest::testNetWmButtonMove()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200));
 
     // Request interactive move.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     quint32 timestamp = 0;
     Test::pointerButtonPressed(BTN_LEFT, timestamp++);
     {
@@ -1633,7 +1443,7 @@ void X11WindowTest::testNetWmButtonMoveNotPressed()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200));
 
     // Request interactive move.
     {
@@ -1652,10 +1462,10 @@ void X11WindowTest::testNetWmButtonMoveCancel()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 100, 200));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 100, 200));
 
     // Request interactive move.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     quint32 timestamp = 0;
     Test::pointerButtonPressed(BTN_LEFT, timestamp++);
     auto releaseButton = qScopeGuard([&timestamp]() {
@@ -1690,7 +1500,7 @@ void X11WindowTest::testNetWmButtonMoveCancel()
 
 void X11WindowTest::testNetWmButtonSize_data()
 {
-    QTest::addColumn<Gravity>("gravity");
+    QTest::addColumn<Gravity::Kind>("gravity");
     QTest::addColumn<NET::Direction>("direction");
 
     QTest::addRow("top-left") << Gravity::TopLeft << NET::Direction::TopLeft;
@@ -1727,7 +1537,7 @@ static QPointF directionToVector(NET::Direction direction, const QSizeF &size)
     }
 }
 
-static QRectF expandRect(const QRectF &rect, NET::Direction direction, const QSizeF &amount)
+static RectF expandRect(const RectF &rect, NET::Direction direction, const QSizeF &amount)
 {
     switch (direction) {
     case NET::Direction::TopLeft:
@@ -1755,15 +1565,16 @@ void X11WindowTest::testNetWmButtonSize()
 {
     // This test verifies that a client can initiate an interactive move operation controlled by the pointer.
 
+    QFETCH(Gravity::Kind, gravity);
     QFETCH(NET::Direction, direction);
 
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 300, 400));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 300, 400));
 
     // Request interactive move.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     const QPointF initialPointer = window->frameGeometry().center() + directionToVector(direction, originalGeometry.size() * 0.5);
     quint32 timestamp = 0;
     Test::pointerButtonPressed(BTN_LEFT, timestamp++);
@@ -1779,7 +1590,7 @@ void X11WindowTest::testNetWmButtonSize()
     QVERIFY(interactiveMoveResizeStartedSpy.wait());
     QCOMPARE(interactiveMoveResizeSteppedSpy.count(), 0);
     QVERIFY(window->isInteractiveResize());
-    QTEST(window->interactiveMoveResizeGravity(), "gravity");
+    QCOMPARE(window->interactiveMoveResizeGravity(), gravity);
 
     // Resize the window a tiny bit.
     Test::pointerMotionRelative(directionToVector(direction, QSizeF(8, 8)), timestamp++);
@@ -1799,7 +1610,7 @@ void X11WindowTest::testNetWmButtonSizeNotPressed()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 300, 400));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 300, 400));
 
     // Request interactive move.
     {
@@ -1818,10 +1629,10 @@ void X11WindowTest::testNetWmButtonSizeCancel()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *window = createWindow(c.get(), QRect(100, 100, 300, 400));
+    X11Window *window = createWindow(c.get(), Rect(100, 100, 300, 400));
 
     // Request interactive resize.
-    const QRectF originalGeometry = window->frameGeometry();
+    const RectF originalGeometry = window->frameGeometry();
     quint32 timestamp = 0;
     Test::pointerButtonPressed(BTN_LEFT, timestamp++);
     auto releaseButton = qScopeGuard([&timestamp]() {
@@ -1862,7 +1673,7 @@ void X11WindowTest::testMinimumSize()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    const QRect windowGeometry(0, 0, 100, 200);
+    const Rect windowGeometry(0, 0, 100, 200);
     xcb_window_t windowId = xcb_generate_id(c.get());
     xcb_create_window(c.get(), XCB_COPY_FROM_PARENT, windowId, rootWindow(),
                       windowGeometry.x(),
@@ -1870,8 +1681,7 @@ void X11WindowTest::testMinimumSize()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints;
-    memset(&hints, 0, sizeof(hints));
+    xcb_size_hints_t hints{};
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_size_hints_set_min_size(&hints, windowGeometry.width(), windowGeometry.height());
@@ -1967,7 +1777,7 @@ void X11WindowTest::testMaximumSize()
     // Create an xcb window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    const QRect windowGeometry(0, 0, 100, 200);
+    const Rect windowGeometry(0, 0, 100, 200);
     xcb_window_t windowId = xcb_generate_id(c.get());
     xcb_create_window(c.get(), XCB_COPY_FROM_PARENT, windowId, rootWindow(),
                       windowGeometry.x(),
@@ -1975,8 +1785,7 @@ void X11WindowTest::testMaximumSize()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints;
-    memset(&hints, 0, sizeof(hints));
+    xcb_size_hints_t hints{};
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_size_hints_set_max_size(&hints, windowGeometry.width(), windowGeometry.height());
@@ -2085,7 +1894,7 @@ void X11WindowTest::testTrimCaption()
     // create an xcb window
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    const QRect windowGeometry(0, 0, 100, 200);
+    const Rect windowGeometry(0, 0, 100, 200);
     xcb_window_t windowId = xcb_generate_id(c.get());
     xcb_create_window(c.get(), XCB_COPY_FROM_PARENT, windowId, rootWindow(),
                       windowGeometry.x(),
@@ -2093,8 +1902,7 @@ void X11WindowTest::testTrimCaption()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints;
-    memset(&hints, 0, sizeof(hints));
+    xcb_size_hints_t hints{};
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
@@ -2127,12 +1935,11 @@ void X11WindowTest::testFullscreenLayerWithActiveWaylandWindow()
 {
     // this test verifies that an X11 fullscreen window does not stay in the active layer
     // when a Wayland window is active, see BUG: 375759
-    QCOMPARE(workspace()->outputs().count(), 1);
 
     // first create an X11 window
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    const QRect windowGeometry(0, 0, 100, 200);
+    const Rect windowGeometry(0, 0, 100, 200);
     xcb_window_t windowId = xcb_generate_id(c.get());
     xcb_create_window(c.get(), XCB_COPY_FROM_PARENT, windowId, rootWindow(),
                       windowGeometry.x(),
@@ -2140,8 +1947,7 @@ void X11WindowTest::testFullscreenLayerWithActiveWaylandWindow()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints;
-    memset(&hints, 0, sizeof(hints));
+    xcb_size_hints_t hints{};
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
@@ -2254,7 +2060,7 @@ void X11WindowTest::testFocusInWithWaylandLastActiveWindow()
     // create an X11 window
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    const QRect windowGeometry(0, 0, 100, 200);
+    const Rect windowGeometry(0, 0, 100, 200);
     xcb_window_t windowId = xcb_generate_id(c.get());
     xcb_create_window(c.get(), XCB_COPY_FROM_PARENT, windowId, rootWindow(),
                       windowGeometry.x(),
@@ -2262,8 +2068,7 @@ void X11WindowTest::testFocusInWithWaylandLastActiveWindow()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints;
-    memset(&hints, 0, sizeof(hints));
+    xcb_size_hints_t hints{};
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
@@ -2285,7 +2090,7 @@ void X11WindowTest::testFocusInWithWaylandLastActiveWindow()
     QVERIFY(waylandWindow);
     QVERIFY(waylandWindow->isActive());
     // activate no window
-    workspace()->setActiveWindow(nullptr);
+    workspace()->activateWindow(nullptr);
     QVERIFY(!waylandWindow->isActive());
     QVERIFY(!workspace()->activeWindow());
     // and close Wayland window again
@@ -2311,7 +2116,7 @@ void X11WindowTest::testCaptionChanges()
     // BUG: 383444
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    const QRect windowGeometry(0, 0, 100, 200);
+    const Rect windowGeometry(0, 0, 100, 200);
     xcb_window_t windowId = xcb_generate_id(c.get());
     xcb_create_window(c.get(), XCB_COPY_FROM_PARENT, windowId, rootWindow(),
                       windowGeometry.x(),
@@ -2319,8 +2124,7 @@ void X11WindowTest::testCaptionChanges()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints;
-    memset(&hints, 0, sizeof(hints));
+    xcb_size_hints_t hints{};
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
@@ -2382,7 +2186,7 @@ void X11WindowTest::testFullscreenWindowGroups()
 
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    const QRect windowGeometry(0, 0, 100, 200);
+    const Rect windowGeometry(0, 0, 100, 200);
     xcb_window_t windowId = xcb_generate_id(c.get());
     xcb_create_window(c.get(), XCB_COPY_FROM_PARENT, windowId, rootWindow(),
                       windowGeometry.x(),
@@ -2390,8 +2194,7 @@ void X11WindowTest::testFullscreenWindowGroups()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints;
-    memset(&hints, 0, sizeof(hints));
+    xcb_size_hints_t hints{};
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
@@ -2421,8 +2224,7 @@ void X11WindowTest::testFullscreenWindowGroups()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints2;
-    memset(&hints2, 0, sizeof(hints2));
+    xcb_size_hints_t hints2{};
     xcb_icccm_size_hints_set_position(&hints2, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints2, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), w2, &hints2);
@@ -2458,9 +2260,8 @@ void X11WindowTest::testActivateFocusedWindow()
 
     QSignalSpy windowCreatedSpy(workspace(), &Workspace::windowAdded);
 
-    const QRect windowGeometry(0, 0, 100, 200);
-    xcb_size_hints_t hints;
-    memset(&hints, 0, sizeof(hints));
+    const Rect windowGeometry(0, 0, 100, 200);
+    xcb_size_hints_t hints{};
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
 
@@ -2520,7 +2321,7 @@ void X11WindowTest::testReentrantMoveResize()
     // Create a test window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    const QRect windowGeometry(0, 0, 100, 200);
+    const Rect windowGeometry(0, 0, 100, 200);
     xcb_window_t windowId = xcb_generate_id(c.get());
     xcb_create_window(c.get(), XCB_COPY_FROM_PARENT, windowId, rootWindow(),
                       windowGeometry.x(),
@@ -2528,8 +2329,7 @@ void X11WindowTest::testReentrantMoveResize()
                       windowGeometry.width(),
                       windowGeometry.height(),
                       0, XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, nullptr);
-    xcb_size_hints_t hints;
-    memset(&hints, 0, sizeof(hints));
+    xcb_size_hints_t hints{};
     xcb_icccm_size_hints_set_position(&hints, 1, windowGeometry.x(), windowGeometry.y());
     xcb_icccm_size_hints_set_size(&hints, 1, windowGeometry.width(), windowGeometry.height());
     xcb_icccm_set_wm_normal_hints(c.get(), windowId, &hints);
@@ -2545,7 +2345,7 @@ void X11WindowTest::testReentrantMoveResize()
 
     // Let's pretend that there is a script that really wants the window to be at (100, 100).
     connect(window, &Window::frameGeometryChanged, this, [window]() {
-        window->moveResize(QRectF(QPointF(100, 100), window->size()));
+        window->moveResize(RectF(QPointF(100, 100), window->size()));
     });
 
     // Trigger the lambda above.
@@ -2565,8 +2365,8 @@ void X11WindowTest::testTransient()
     // Create a parent and a child windows.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *parent = createWindow(c.get(), QRect(0, 0, 100, 200));
-    X11Window *child = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
+    X11Window *parent = createWindow(c.get(), Rect(0, 0, 100, 200));
+    X11Window *child = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
         xcb_icccm_set_wm_transient_for(c.get(), windowId, parent->window());
     });
     QVERIFY(child->isTransient());
@@ -2579,14 +2379,14 @@ void X11WindowTest::testGroupTransient()
     // Create the leader, a follower and a dialog window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *leader = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *leader = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
     });
-    X11Window *follower = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *follower = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
     });
-    X11Window *dialog = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *dialog = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
         xcb_icccm_set_wm_transient_for(c.get(), windowId, kwinApp()->x11RootWindow());
@@ -2599,7 +2399,9 @@ void X11WindowTest::testGroupTransient()
     // The group transient should not act as transient for unrelated windows.
     Test::XcbConnectionPtr c1 = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *unrelated = createWindow(c1.get(), QRect(0, 0, 100, 200));
+    X11Window *unrelated = createWindow(c1.get(), Rect(0, 0, 100, 200), [&c1](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c1.get(), windowId, 7, "foo\0foo");
+    });
     QVERIFY(!unrelated->hasTransient(dialog, true));
 }
 
@@ -2610,8 +2412,8 @@ void X11WindowTest::testCloseTransient()
     // Create a parent and a child windows.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *parent = createWindow(c.get(), QRect(0, 0, 100, 200));
-    X11Window *child = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
+    X11Window *parent = createWindow(c.get(), Rect(0, 0, 100, 200));
+    X11Window *child = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
         xcb_icccm_set_wm_transient_for(c.get(), windowId, parent->window());
     });
     QCOMPARE(child->transientFor(), parent);
@@ -2633,8 +2435,8 @@ void X11WindowTest::testCloseInactiveTransient()
     // Create a parent and a child windows.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *parent = createWindow(c.get(), QRect(0, 0, 100, 200));
-    X11Window *child = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
+    X11Window *parent = createWindow(c.get(), Rect(0, 0, 100, 200));
+    X11Window *child = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
         xcb_icccm_set_wm_transient_for(c.get(), windowId, parent->window());
     });
     QCOMPARE(child->transientFor(), parent);
@@ -2643,7 +2445,9 @@ void X11WindowTest::testCloseInactiveTransient()
     // Show another window.
     Test::XcbConnectionPtr c1 = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *unrelated = createWindow(c1.get(), QRect(0, 0, 100, 200));
+    X11Window *unrelated = createWindow(c1.get(), Rect(0, 0, 100, 200), [&c1](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c1.get(), windowId, 7, "foo\0foo");
+    });
     QCOMPARE(workspace()->activeWindow(), unrelated);
 
     // Close the child.
@@ -2662,14 +2466,14 @@ void X11WindowTest::testCloseGroupTransient()
     // Create the leader, a follower and a dialog window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *leader = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *leader = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
     });
-    X11Window *follower = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *follower = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
     });
-    X11Window *dialog = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *dialog = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
         xcb_icccm_set_wm_transient_for(c.get(), windowId, kwinApp()->x11RootWindow());
@@ -2696,14 +2500,14 @@ void X11WindowTest::testCloseInactiveGroupTransient()
     // Create the leader, a follower and a dialog window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *leader = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *leader = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
     });
-    X11Window *follower = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *follower = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
     });
-    X11Window *dialog = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *dialog = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
         xcb_icccm_set_wm_transient_for(c.get(), windowId, kwinApp()->x11RootWindow());
@@ -2717,7 +2521,9 @@ void X11WindowTest::testCloseInactiveGroupTransient()
     // Show another window.
     Test::XcbConnectionPtr c1 = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *unrelated = createWindow(c1.get(), QRect(0, 0, 100, 200));
+    X11Window *unrelated = createWindow(c1.get(), Rect(0, 0, 100, 200), [&c1](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c1.get(), windowId, 7, "foo\0foo");
+    });
     QCOMPARE(workspace()->activeWindow(), unrelated);
 
     // Close the dialog.
@@ -2734,8 +2540,8 @@ void X11WindowTest::testModal()
     // Create a parent and a child windows.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *parent = createWindow(c.get(), QRect(0, 0, 100, 200));
-    X11Window *child = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
+    X11Window *parent = createWindow(c.get(), Rect(0, 0, 100, 200));
+    X11Window *child = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
         xcb_icccm_set_wm_transient_for(c.get(), windowId, parent->window());
     });
     QVERIFY(!child->isModal());
@@ -2774,7 +2580,9 @@ void X11WindowTest::testModal()
     // It should be okay to activate an unrelated window.
     Test::XcbConnectionPtr c1 = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *unrelated = createWindow(c1.get(), QRect(0, 0, 100, 200));
+    X11Window *unrelated = createWindow(c1.get(), Rect(0, 0, 100, 200), [&c1](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c1.get(), windowId, 7, "foo\0foo");
+    });
     QCOMPARE(workspace()->activeWindow(), unrelated);
 }
 
@@ -2785,14 +2593,14 @@ void X11WindowTest::testGroupModal()
     // Create the leader, a follower and a dialog window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *leader = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *leader = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
     });
-    X11Window *follower = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *follower = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
     });
-    X11Window *dialog = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *dialog = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
         xcb_icccm_set_wm_transient_for(c.get(), windowId, kwinApp()->x11RootWindow());
@@ -2836,7 +2644,9 @@ void X11WindowTest::testGroupModal()
     // It should be okay to activate an unrelated window.
     Test::XcbConnectionPtr c1 = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *unrelated = createWindow(c1.get(), QRect(0, 0, 100, 200));
+    X11Window *unrelated = createWindow(c1.get(), Rect(0, 0, 100, 200), [&c1](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c1.get(), windowId, 7, "foo\0foo");
+    });
     QCOMPARE(workspace()->activeWindow(), unrelated);
 }
 
@@ -2847,8 +2657,8 @@ void X11WindowTest::testCloseModal()
     // Create a parent and a child windows.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *parent = createWindow(c.get(), QRect(0, 0, 100, 200));
-    X11Window *child = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
+    X11Window *parent = createWindow(c.get(), Rect(0, 0, 100, 200));
+    X11Window *child = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
         xcb_icccm_set_wm_transient_for(c.get(), windowId, parent->window());
     });
     QVERIFY(!child->isModal());
@@ -2881,8 +2691,8 @@ void X11WindowTest::testCloseInactiveModal()
     // Create a parent and a child windows.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *parent = createWindow(c.get(), QRect(0, 0, 100, 200));
-    X11Window *child = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
+    X11Window *parent = createWindow(c.get(), Rect(0, 0, 100, 200));
+    X11Window *child = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &parent](xcb_window_t windowId) {
         xcb_icccm_set_wm_transient_for(c.get(), windowId, parent->window());
     });
     QVERIFY(!child->isModal());
@@ -2902,7 +2712,9 @@ void X11WindowTest::testCloseInactiveModal()
     // Show another window.
     Test::XcbConnectionPtr c1 = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *unrelated = createWindow(c1.get(), QRect(0, 0, 100, 200));
+    X11Window *unrelated = createWindow(c1.get(), Rect(0, 0, 100, 200), [&c1](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c1.get(), windowId, 7, "foo\0foo");
+    });
     QCOMPARE(workspace()->activeWindow(), unrelated);
 
     // Close the child.
@@ -2921,14 +2733,14 @@ void X11WindowTest::testCloseGroupModal()
     // Create the leader, a follower and a dialog window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *leader = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *leader = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
     });
-    X11Window *follower = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *follower = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
     });
-    X11Window *dialog = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *dialog = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
         xcb_icccm_set_wm_transient_for(c.get(), windowId, kwinApp()->x11RootWindow());
@@ -2964,14 +2776,14 @@ void X11WindowTest::testCloseInactiveGroupModal()
     // Create the leader, a follower and a dialog window.
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *leader = createWindow(c.get(), QRect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
+    X11Window *leader = createWindow(c.get(), Rect(0, 0, 100, 200), [&c](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
     });
-    X11Window *follower = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *follower = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
     });
-    X11Window *dialog = createWindow(c.get(), QRect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
+    X11Window *dialog = createWindow(c.get(), Rect(0, 0, 100, 200), [&c, &leader](xcb_window_t windowId) {
         const xcb_window_t leaderId = leader->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
         xcb_icccm_set_wm_transient_for(c.get(), windowId, kwinApp()->x11RootWindow());
@@ -2994,7 +2806,9 @@ void X11WindowTest::testCloseInactiveGroupModal()
     // Show another window.
     Test::XcbConnectionPtr c1 = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
-    X11Window *unrelated = createWindow(c1.get(), QRect(0, 0, 100, 200));
+    X11Window *unrelated = createWindow(c1.get(), Rect(0, 0, 100, 200), [&c1](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c1.get(), windowId, 7, "foo\0foo");
+    });
     QCOMPARE(workspace()->activeWindow(), unrelated);
 
     // Close the dialog.
@@ -3012,15 +2826,21 @@ void X11WindowTest::testStackAboveFromApplication()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window1 = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
     });
-    X11Window *window2 = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window2 = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_window_t leaderId = window1->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
     });
-    X11Window *window3 = createWindow(c.get(), QRect(0, 0, 100, 100));
-    X11Window *window4 = createWindow(c.get(), QRect(0, 0, 100, 100));
+    X11Window *window3 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+    });
+    X11Window *window4 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "baz\0baz");
+    });
 
     // window1 and window2 belong to the same application, window1 will be raised only above window2.
     root.restackRequest(window1->window(), NET::FromApplication, XCB_WINDOW_NONE, XCB_STACK_MODE_ABOVE, XCB_CURRENT_TIME);
@@ -3042,15 +2862,21 @@ void X11WindowTest::testStackAboveFromTool()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window1 = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
     });
-    X11Window *window2 = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window2 = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_window_t leaderId = window1->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
     });
-    X11Window *window3 = createWindow(c.get(), QRect(0, 0, 100, 100));
-    X11Window *window4 = createWindow(c.get(), QRect(0, 0, 100, 100));
+    X11Window *window3 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+    });
+    X11Window *window4 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "baz\0baz");
+    });
 
     // window1 and window2 belong to the same application, but window1 will be raised globally because of the from_tool flag.
     root.restackRequest(window1->window(), NET::FromTool, XCB_WINDOW_NONE, XCB_STACK_MODE_ABOVE, XCB_CURRENT_TIME);
@@ -3072,9 +2898,15 @@ void X11WindowTest::testStackAboveSibling()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(0, 0, 100, 100));
-    X11Window *window2 = createWindow(c.get(), QRect(0, 0, 100, 100));
-    X11Window *window3 = createWindow(c.get(), QRect(0, 0, 100, 100));
+    X11Window *window1 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
+    });
+    X11Window *window2 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+    });
+    X11Window *window3 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "baz\0baz");
+    });
 
     // Restack window1 above window3.
     root.restackRequest(window1->window(), NET::FromApplication, window3->window(), XCB_STACK_MODE_ABOVE, XCB_CURRENT_TIME);
@@ -3102,15 +2934,21 @@ void X11WindowTest::testStackBelowFromApplication()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(0, 0, 100, 100));
-    X11Window *window2 = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
-        xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
+    X11Window *window1 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
     });
-    X11Window *window3 = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window2 = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+    });
+    X11Window *window3 = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_window_t leaderId = window2->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
     });
-    X11Window *window4 = createWindow(c.get(), QRect(0, 0, 100, 100));
+    X11Window *window4 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "baz\0baz");
+    });
 
     root.restackRequest(window3->window(), NET::FromApplication, XCB_WINDOW_NONE, XCB_STACK_MODE_BELOW, XCB_CURRENT_TIME);
     xcb_flush(c.get());
@@ -3130,15 +2968,21 @@ void X11WindowTest::testStackBelowFromTool()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(0, 0, 100, 100));
-    X11Window *window2 = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
-        xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
+    X11Window *window1 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
     });
-    X11Window *window3 = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window2 = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+    });
+    X11Window *window3 = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_window_t leaderId = window2->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
     });
-    X11Window *window4 = createWindow(c.get(), QRect(0, 0, 100, 100));
+    X11Window *window4 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "baz\0baz");
+    });
 
     // window2 and window3 belong to the same application, but window3 will be lowered globally because of the from_tool flag.
     root.restackRequest(window3->window(), NET::FromApplication, XCB_WINDOW_NONE, XCB_STACK_MODE_BELOW, XCB_CURRENT_TIME);
@@ -3160,9 +3004,15 @@ void X11WindowTest::testStackBelowSibling()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(0, 0, 100, 100));
-    X11Window *window2 = createWindow(c.get(), QRect(0, 0, 100, 100));
-    X11Window *window3 = createWindow(c.get(), QRect(0, 0, 100, 100));
+    X11Window *window1 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
+    });
+    X11Window *window2 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+    });
+    X11Window *window3 = createWindow(c.get(), Rect(0, 0, 100, 100), [&c](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "baz\0baz");
+    });
 
     // Restack window3 below window2.
     root.restackRequest(window3->window(), NET::FromApplication, window2->window(), XCB_STACK_MODE_BELOW, XCB_CURRENT_TIME);
@@ -3190,26 +3040,29 @@ void X11WindowTest::testStackTopIfFromApplication()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(100, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window1 = createWindow(c.get(), Rect(100, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
-    X11Window *window2 = createWindow(c.get(), QRect(200, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window2 = createWindow(c.get(), Rect(200, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_window_t leaderId = window1->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
-    X11Window *window3 = createWindow(c.get(), QRect(300, 0, 100, 100), [&](xcb_window_t windowId) {
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+    X11Window *window3 = createWindow(c.get(), Rect(300, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
 
     // Restack window1 above window2, no change will occur because there's no overlap.
@@ -3239,23 +3092,26 @@ void X11WindowTest::testStackTopIfFromTool()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(100, 0, 100, 100), [&](xcb_window_t windowId) {
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+    X11Window *window1 = createWindow(c.get(), Rect(100, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
-    X11Window *window2 = createWindow(c.get(), QRect(200, 0, 100, 100), [&](xcb_window_t windowId) {
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+    X11Window *window2 = createWindow(c.get(), Rect(200, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
-    X11Window *window3 = createWindow(c.get(), QRect(300, 0, 100, 100), [&](xcb_window_t windowId) {
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+    X11Window *window3 = createWindow(c.get(), Rect(300, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "baz\0baz");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
 
     // Restack window1 above window2, no change will occur because there's no overlap.
@@ -3285,26 +3141,29 @@ void X11WindowTest::testStackBottomIfFromApplication()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(100, 0, 100, 100), [&](xcb_window_t windowId) {
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+    X11Window *window1 = createWindow(c.get(), Rect(100, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
-    X11Window *window2 = createWindow(c.get(), QRect(200, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window2 = createWindow(c.get(), Rect(200, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
-    X11Window *window3 = createWindow(c.get(), QRect(300, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window3 = createWindow(c.get(), Rect(300, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_window_t leaderId = window2->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
 
     // Restack window3 below window2, no change will occur because there's no overlap.
@@ -3334,26 +3193,29 @@ void X11WindowTest::testStackBottomIfFromTool()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(100, 0, 100, 100), [&](xcb_window_t windowId) {
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+    X11Window *window1 = createWindow(c.get(), Rect(100, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
-    X11Window *window2 = createWindow(c.get(), QRect(200, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window2 = createWindow(c.get(), Rect(200, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
-    X11Window *window3 = createWindow(c.get(), QRect(300, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window3 = createWindow(c.get(), Rect(300, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_window_t leaderId = window2->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
 
     // Restack window3 below window2, no change will occur because there's no overlap.
@@ -3383,26 +3245,29 @@ void X11WindowTest::testStackOppositeFromApplication()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(100, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window1 = createWindow(c.get(), Rect(100, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
-    X11Window *window2 = createWindow(c.get(), QRect(200, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window2 = createWindow(c.get(), Rect(200, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_window_t leaderId = window1->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
-    X11Window *window3 = createWindow(c.get(), QRect(300, 0, 100, 100), [&](xcb_window_t windowId) {
-        applyMotifHints(c.get(), windowId, MotifHints{
-                                               .flags = MWM_HINTS_DECORATIONS,
-                                               .decorations = 0,
-                                           });
+    X11Window *window3 = createWindow(c.get(), Rect(300, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+        Test::applyMotifHints(c.get(), windowId, Test::MotifHints{
+                                                     .flags = Test::MWM_HINTS_DECORATIONS,
+                                                     .decorations = 0,
+                                                 });
     });
 
     // window2 is above window1, so it will be lowered
@@ -3437,14 +3302,18 @@ void X11WindowTest::testStackOppositeFromTool()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(100, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window1 = createWindow(c.get(), Rect(100, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &windowId);
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
     });
-    X11Window *window2 = createWindow(c.get(), QRect(200, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *window2 = createWindow(c.get(), Rect(200, 0, 100, 100), [&](xcb_window_t windowId) {
         xcb_window_t leaderId = window1->window();
         xcb_change_property(c.get(), XCB_PROP_MODE_REPLACE, windowId, atoms->wm_client_leader, XCB_ATOM_WINDOW, 32, 1, &leaderId);
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
     });
-    X11Window *window3 = createWindow(c.get(), QRect(300, 0, 100, 100));
+    X11Window *window3 = createWindow(c.get(), Rect(300, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+    });
 
     // window2 is above window1, so it will be lowered
     root.restackRequest(window2->window(), NET::FromTool, window1->window(), XCB_STACK_MODE_OPPOSITE, XCB_CURRENT_TIME);
@@ -3478,9 +3347,15 @@ void X11WindowTest::testStackOppositeNoSibling()
     QVERIFY(!xcb_connection_has_error(c.get()));
     NETRootInfo root(c.get(), NET::Properties());
 
-    X11Window *window1 = createWindow(c.get(), QRect(100, 0, 100, 100));
-    X11Window *window2 = createWindow(c.get(), QRect(200, 0, 100, 100));
-    X11Window *window3 = createWindow(c.get(), QRect(300, 0, 100, 100));
+    X11Window *window1 = createWindow(c.get(), Rect(100, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "foo\0foo");
+    });
+    X11Window *window2 = createWindow(c.get(), Rect(200, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "bar\0bar");
+    });
+    X11Window *window3 = createWindow(c.get(), Rect(300, 0, 100, 100), [&](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(c.get(), windowId, 7, "baz\0baz");
+    });
 
     root.restackRequest(window2->window(), NET::FromTool, XCB_WINDOW_NONE, XCB_STACK_MODE_OPPOSITE, XCB_CURRENT_TIME);
     xcb_flush(c.get());
@@ -3504,8 +3379,8 @@ void X11WindowTest::testOverrideRedirectReparent()
     Test::XcbConnectionPtr c = Test::createX11Connection();
     QVERIFY(!xcb_connection_has_error(c.get()));
 
-    X11Window *parent = createWindow(c.get(), QRect(0, 0, 200, 200));
-    X11Window *child = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *parent = createWindow(c.get(), Rect(0, 0, 200, 200));
+    X11Window *child = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         quint32 value = 1;
         xcb_change_window_attributes(c.get(), windowId, XCB_CW_OVERRIDE_REDIRECT, &value);
     });
@@ -3520,12 +3395,12 @@ void X11WindowTest::testOverrideRedirectStackingAbove()
 {
     Test::XcbConnectionPtr c = Test::createX11Connection();
     xcb_window_t windowAId = 0;
-    X11Window *windowA = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *windowA = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         windowAId = windowId;
         quint32 value = 1;
         xcb_change_window_attributes(c.get(), windowId, XCB_CW_OVERRIDE_REDIRECT, &value);
     });
-    X11Window *windowB = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *windowB = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         quint32 value = 1;
         xcb_change_window_attributes(c.get(), windowId, XCB_CW_OVERRIDE_REDIRECT, &value);
 
@@ -3544,12 +3419,12 @@ void X11WindowTest::testOverrideRedirectStackingBelow()
 {
     Test::XcbConnectionPtr c = Test::createX11Connection();
     xcb_window_t windowAId = 0;
-    X11Window *windowA = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *windowA = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         windowAId = windowId;
         quint32 value = 1;
         xcb_change_window_attributes(c.get(), windowId, XCB_CW_OVERRIDE_REDIRECT, &value);
     });
-    X11Window *windowB = createWindow(c.get(), QRect(0, 0, 100, 100), [&](xcb_window_t windowId) {
+    X11Window *windowB = createWindow(c.get(), Rect(0, 0, 100, 100), [&](xcb_window_t windowId) {
         quint32 value = 1;
         xcb_change_window_attributes(c.get(), windowId, XCB_CW_OVERRIDE_REDIRECT, &value);
 
@@ -3562,6 +3437,397 @@ void X11WindowTest::testOverrideRedirectStackingBelow()
     QVERIFY(workspace()->windows().count() == 2);
     QVERIFY(workspace()->stackingOrder().indexOf(windowA) == 1);
     QVERIFY(workspace()->stackingOrder().indexOf(windowB) == 0);
+}
+
+class X11Display;
+
+class X11Object
+{
+public:
+    explicit X11Object(X11Display *display);
+    virtual ~X11Object();
+
+    virtual void handle(xcb_generic_event_t *event) = 0;
+
+    X11Display *m_display;
+};
+
+class X11Display : public QObject
+{
+    Q_OBJECT
+
+public:
+    static std::unique_ptr<X11Display> create()
+    {
+        auto connection = Test::createX11Connection();
+        if (!connection) {
+            return nullptr;
+        }
+        return std::unique_ptr<X11Display>(new X11Display(std::move(connection)));
+    }
+
+    xcb_connection_t *connection() const
+    {
+        return m_connection.get();
+    }
+
+    void addObject(X11Object *object)
+    {
+        m_objects.append(object);
+    }
+
+    void removeObject(X11Object *object)
+    {
+        m_objects.removeOne(object);
+    }
+
+private:
+    X11Display(Test::XcbConnectionPtr connection)
+        : m_connection(std::move(connection))
+        , m_notifier(new QSocketNotifier(xcb_get_file_descriptor(m_connection.get()), QSocketNotifier::Read))
+    {
+        xcb_screen_t *screen = xcb_setup_roots_iterator(xcb_get_setup(m_connection.get())).data;
+
+        connect(m_notifier.get(), &QSocketNotifier::activated, this, &X11Display::dispatchEvents);
+        connect(QCoreApplication::eventDispatcher(), &QAbstractEventDispatcher::aboutToBlock, this, &X11Display::dispatchEvents);
+        connect(QCoreApplication::eventDispatcher(), &QAbstractEventDispatcher::awake, this, &X11Display::dispatchEvents);
+    }
+
+    void dispatchEvents()
+    {
+        xcb_generic_event_t *event;
+        while ((event = xcb_poll_for_event(m_connection.get()))) {
+            const auto objects = m_objects; // The object list can change while handling events.
+            for (X11Object *object : objects) {
+                object->handle(event);
+            }
+            std::free(event);
+        }
+
+        xcb_flush(m_connection.get());
+    }
+
+    Test::XcbConnectionPtr m_connection;
+    std::unique_ptr<QSocketNotifier> m_notifier;
+    QList<X11Object *> m_objects;
+};
+
+X11Object::X11Object(X11Display *display)
+    : m_display(display)
+{
+    m_display->addObject(this);
+}
+
+X11Object::~X11Object()
+{
+    m_display->removeObject(this);
+}
+
+class X11TestWindow : public QObject, public X11Object
+{
+    Q_OBJECT
+public:
+    X11TestWindow(X11Display *display, const QSize &size)
+        : X11Object(display)
+        , m_window(createWindow(m_display->connection(), Rect(QPoint(), size)))
+        , m_size(size)
+    {
+        // request confgure events
+        uint32_t value = XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+        xcb_change_window_attributes_checked(m_display->connection(), m_window->window(), XCB_CW_EVENT_MASK, &value);
+    }
+
+    void handle(xcb_generic_event_t *event) override
+    {
+        const uint8_t eventType = event->response_type & ~0x80;
+        if (eventType != XCB_CONFIGURE_NOTIFY) {
+            return;
+        }
+        auto configureEvent = reinterpret_cast<xcb_configure_notify_event_t *>(event);
+        present(QSize(configureEvent->width, configureEvent->height));
+        Q_EMIT handledConfigure();
+    }
+
+    bool waitForAndProcessConfigure(const QSize &expectedSize)
+    {
+        QSignalSpy configure(this, &X11TestWindow::handledConfigure);
+        const auto t = std::chrono::steady_clock::now();
+        while (std::chrono::steady_clock::now() < t + 5s) {
+            if (!configure.wait()) {
+                return false;
+            }
+            if (m_size == expectedSize) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool present(const QSize &size)
+    {
+        m_size = size;
+        ShmGraphicsBufferAllocator allocator;
+        GraphicsBufferRef buffer = allocator.allocate(GraphicsBufferOptions{
+            .size = size,
+            .format = DRM_FORMAT_XRGB8888,
+            .modifiers = QList<uint64_t>{DRM_FORMAT_MOD_LINEAR},
+            .software = true,
+        });
+        if (!buffer) {
+            return false;
+        }
+        // xcb_shm_attach_fd() takes the ownership of the passed shm file descriptor.
+        FileDescriptor poolFileDescriptor = buffer->shmAttributes()->fd.duplicate();
+        if (!poolFileDescriptor.isValid()) {
+            return false;
+        }
+
+        xcb_shm_seg_t segment = xcb_generate_id(m_display->connection());
+        xcb_shm_attach_fd(m_display->connection(), segment, poolFileDescriptor.take(), 0);
+
+        xcb_pixmap_t pixmap = xcb_generate_id(m_display->connection());
+        xcb_shm_create_pixmap(m_display->connection(), pixmap, m_window->window(), size.width(), size.height(), 24, segment, 0);
+        xcb_shm_detach(m_display->connection(), segment);
+
+        xcb_xfixes_region_t valid = 0;
+        xcb_xfixes_region_t update = 0;
+        uint32_t serial = 0;
+        uint32_t options = 0;
+        uint64_t targetMsc = 0;
+
+        xcb_present_pixmap(m_display->connection(),
+                           m_window->window(),
+                           pixmap,
+                           serial,
+                           valid,
+                           update,
+                           0,
+                           0,
+                           XCB_NONE,
+                           XCB_NONE,
+                           XCB_NONE,
+                           options,
+                           targetMsc,
+                           0,
+                           0,
+                           0,
+                           nullptr);
+        return true;
+    }
+
+Q_SIGNALS:
+    void handledConfigure();
+
+public:
+    X11Window *const m_window;
+    QSize m_size;
+};
+
+void X11WindowTest::testRandrEmulation()
+{
+    // This test verifies that randr mode emulation for fullscreen X11 clients works
+    const auto x11Display = X11Display::create();
+    QVERIFY(x11Display);
+
+    xcb_randr_select_input(x11Display->connection(), rootWindow(), XCB_RANDR_NOTIFY_MASK_OUTPUT_CHANGE);
+
+    X11TestWindow window(x11Display.get(), QSize(100, 100));
+
+    // present something, so that Xwayland creates a surface for the window
+    QSignalSpy surface(window.m_window, &X11Window::surfaceChanged);
+    QVERIFY(window.present(QSize(100, 100)));
+    QVERIFY(window.m_window->surface() || surface.wait());
+    QVERIFY(window.m_window->surface());
+
+    window.m_window->move(QPointF(0, 0));
+
+    // change the resolution through randr, to any non-current mode
+    // NOTE that randr emulation is per connection, this doesn't affect other X11 clients!
+    auto screenResources = xcb_randr_get_screen_resources_reply(x11Display->connection(),
+                                                                xcb_randr_get_screen_resources(x11Display->connection(), kwinApp()->x11RootWindow()),
+                                                                nullptr);
+    auto x11Outputs = xcb_randr_get_screen_resources_outputs(screenResources);
+    auto allModes = xcb_randr_get_screen_resources_modes(screenResources);
+
+    // find the correct output
+    xcb_randr_get_output_info_reply_t *outputInfo = nullptr;
+    xcb_randr_get_crtc_info_reply_t *crtcInfo = nullptr;
+    int outputNum = 0;
+    for (; outputNum < screenResources->num_outputs; outputNum++) {
+        outputInfo = xcb_randr_get_output_info_reply(x11Display->connection(),
+                                                     xcb_randr_get_output_info(x11Display->connection(), x11Outputs[outputNum], screenResources->config_timestamp),
+                                                     nullptr);
+        QVERIFY(outputInfo);
+        crtcInfo = xcb_randr_get_crtc_info_reply(x11Display->connection(),
+                                                 xcb_randr_get_crtc_info(x11Display->connection(), outputInfo->crtc, screenResources->config_timestamp),
+                                                 nullptr);
+        QVERIFY(crtcInfo);
+        if (crtcInfo->x == 0 && crtcInfo->y == 0) {
+            break;
+        }
+    }
+
+    auto outputModes = xcb_randr_get_output_info_modes(outputInfo);
+    const auto originalModeSize = QSize(crtcInfo->width, crtcInfo->height);
+    xcb_randr_mode_t emulatedMode = 0;
+    QSize emulatedSize;
+    for (int i = 0; i < screenResources->num_modes; i++) {
+        const bool isOutputMode = std::ranges::any_of(std::span(outputModes, outputInfo->num_modes), [id = allModes[i].id](xcb_randr_mode_t mode) {
+            return mode == id;
+        });
+        if (!isOutputMode) {
+            continue;
+        }
+        QSize size(allModes[i].width, allModes[i].height);
+        if (size != originalModeSize) {
+            emulatedMode = allModes[i].id;
+            emulatedSize = size;
+            auto cookie = xcb_randr_set_crtc_config(x11Display->connection(),
+                                                    outputInfo->crtc,
+                                                    screenResources->config_timestamp,
+                                                    screenResources->config_timestamp,
+                                                    crtcInfo->x,
+                                                    crtcInfo->y,
+                                                    allModes[i].id,
+                                                    XCB_RANDR_ROTATION_ROTATE_0,
+                                                    1,
+                                                    &x11Outputs[outputNum]);
+            xcb_generic_error_t *err = nullptr;
+            auto reply = xcb_randr_set_crtc_config_reply(x11Display->connection(), cookie, &err);
+            QVERIFY(reply);
+            QCOMPARE(reply->status, XCB_RANDR_SET_CONFIG_SUCCESS);
+            break;
+        }
+    }
+    QVERIFY(emulatedMode != 0);
+
+    // Now make the window fullscreen
+    {
+        NETWinInfo info(x11Display->connection(), window.m_window->window(), kwinApp()->x11RootWindow(), NET::WMState, NET::Properties2());
+        info.setState(NET::FullScreen, NET::FullScreen);
+        xcb_flush(x11Display->connection());
+    }
+
+    // wait for the window to be reconfigured, and react to it
+    QSignalSpy commit(window.m_window->surface(), &SurfaceInterface::committed);
+    QVERIFY(window.waitForAndProcessConfigure(emulatedSize));
+    QCOMPARE(window.m_window->isFullScreen(), true);
+    QCOMPARE(window.m_window->moveResizeGeometry().size(), workspace()->outputs().front()->geometryF().size());
+
+    // Xwayland should set the viewport to scale it up to fullscreen.
+    // Note that Xwayland could be doing other commits in between,
+    // so we can't just wait for the first commit
+    auto t = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() < t + 5s) {
+        if (window.m_window->surface()->bufferSourceBox().size() == emulatedSize
+            && window.m_window->surface()->size() == workspace()->outputs().front()->geometryF().size()) {
+            break;
+        }
+        QVERIFY(commit.wait());
+    }
+
+    // if the window is moved to the other screen, which does not have an emulated mode,
+    // the window should get resized back to the normal screen size
+    const auto outputs = workspace()->outputs();
+    const auto it = std::ranges::find_if(outputs, [&window](LogicalOutput *output) {
+        return output != window.m_window->moveResizeOutput();
+    });
+    QCOMPARE_NE(it, outputs.end());
+    LogicalOutput *otherOutput = *it;
+    window.m_window->sendToOutput(otherOutput);
+
+    // wait for the window to be reconfigured, and react to it
+    QVERIFY(window.waitForAndProcessConfigure(originalModeSize));
+    QCOMPARE(window.m_window->isFullScreen(), true);
+    QCOMPARE(window.m_window->moveResizeGeometry(), otherOutput->geometryF());
+
+    // Xwayland should reset the viewport to the new fullscreen size.
+    // Note that Xwayland could be doing other commits in between,
+    // so we can't just wait for the first commit
+    t = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() < t + 5s) {
+        if (window.m_window->surface()->bufferSourceBox().size() == originalModeSize
+            && window.m_window->surface()->size() == otherOutput->geometryF().size()) {
+            break;
+        }
+        QVERIFY(commit.wait());
+    }
+}
+
+/**
+ * A tiny helper to destroy a window when another window gets a FocusIn event.
+ */
+class DestroyWindowOnFocusInTask : public X11EventFilter
+{
+public:
+    explicit DestroyWindowOnFocusInTask(xcb_window_t triggerId, xcb_window_t windowId)
+        : X11EventFilter(XCB_FOCUS_IN)
+        , m_triggerId(triggerId)
+        , m_windowId(windowId)
+    {
+    }
+
+    bool event(xcb_generic_event_t *event) override
+    {
+        if (XCB_EVENT_RESPONSE_TYPE(event) == XCB_FOCUS_IN) {
+            const auto focusInEvent = reinterpret_cast<xcb_focus_in_event_t *>(event);
+            if (focusInEvent->event == m_triggerId) {
+                xcb_destroy_window(kwinApp()->x11Connection(), m_windowId);
+                xcb_flush(kwinApp()->x11Connection());
+            }
+        }
+        return false;
+    }
+
+private:
+    xcb_window_t m_triggerId;
+    xcb_window_t m_windowId;
+};
+
+void X11WindowTest::testRestoreFocusToDestroyedWindow()
+{
+    // This test verifies that the Workspace::activeWindow() won't get stuck with the wrong value after
+    // attempting to restore the focus to a destroyed window. This case is interesting because of the
+    // following event sequence: a client focuses itself, the wm rejects that and attempts to restore
+    // focus to a destroyed window (this will fail, X server focus will not change), the wm finally
+    // receives the corresponding DestroyNotify event, and activates the client that attempted to focus
+    // itself, this will not generate a FocusIn event. If the wm waits for the FocusIn event to update
+    // its internal state, e.g. currently active window, it may end up with the wrong state in case it
+    // doesn't consider that extreme corner case.
+
+    // Note that the window class is set so the focus stealing prevention policies consider the
+    // two windows belonging to different applications.
+    Test::XcbConnectionPtr firstConnection = Test::createX11Connection();
+    X11Window *firstWindow = createWindow(firstConnection.get(), Rect(0, 0, 100, 100), [&firstConnection](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(firstConnection.get(), windowId, 7, "foo\0foo");
+    });
+    QCOMPARE(workspace()->activeWindow(), firstWindow);
+
+    Test::XcbConnectionPtr secondConnection = Test::createX11Connection();
+    X11Window *secondWindow = createWindow(secondConnection.get(), Rect(100, 0, 100, 100), [&secondConnection](xcb_window_t windowId) {
+        xcb_icccm_set_wm_class(secondConnection.get(), windowId, 7, "bar\0bar");
+    });
+    QCOMPARE(workspace()->activeWindow(), secondWindow);
+
+    // Try to "steal" input focus.
+    xcb_set_input_focus(firstConnection.get(), XCB_INPUT_FOCUS_POINTER_ROOT, firstWindow->window(), XCB_TIME_CURRENT_TIME);
+    xcb_flush(firstConnection.get());
+
+    // The main purpose of this event filter is to destroy the active window to create a situation
+    // where the active window is already destroyed when the window manager processes the FocusIn event
+    // from the first window.
+    //
+    // The second window cannot be destroyed using the secondConnection because it looks like the window
+    // manager side will receive the DestroyNotify event first no matter which order the XSetInputFocus()
+    // and XDestroyWindow() requests are called. Performing roundtrips to the X server doesn't help either.
+    // So we install an event filter to destroy the active window right before the wm processes the
+    // FocusIn event.
+    auto activeWindowDestroyer = std::make_unique<DestroyWindowOnFocusInTask>(firstWindow->window(), secondWindow->window());
+
+    // Let the window manager side catch up with the X11 events.
+    QSignalSpy windowActivatedSpy(workspace(), &Workspace::windowActivated);
+    QVERIFY(windowActivatedSpy.wait());
+    QCOMPARE(workspace()->activeWindow(), firstWindow);
 }
 
 WAYLANDTEST_MAIN(X11WindowTest)

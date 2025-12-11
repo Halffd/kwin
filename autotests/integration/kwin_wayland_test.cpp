@@ -8,8 +8,10 @@
 */
 #include "kwin_wayland_test.h"
 
+#include "backends/drm/drm_backend.h"
 #include "backends/virtual/virtual_backend.h"
-#include "compositor_wayland.h"
+#include "compositor.h"
+#include "core/outputconfiguration.h"
 #include "core/session.h"
 #include "effect/effecthandler.h"
 #include "input.h"
@@ -18,6 +20,8 @@
 #include "pluginmanager.h"
 #include "wayland_server.h"
 #include "workspace.h"
+
+#include <KWayland/Client/seat.h>
 
 #if KWIN_BUILD_X11
 #include "utils/xcbutils.h"
@@ -35,6 +39,8 @@
 
 // system
 #include <iostream>
+#include <ranges>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -48,8 +54,8 @@ Q_IMPORT_PLUGIN(KWinIdleTimePoller)
 namespace KWin
 {
 
-WaylandTestApplication::WaylandTestApplication(OperationMode mode, int &argc, char **argv)
-    : Application(mode, argc, argv)
+WaylandTestApplication::WaylandTestApplication(int &argc, char **argv, bool runOnKMS)
+    : Application(argc, argv)
 {
     QStandardPaths::setTestModeEnabled(true);
 
@@ -57,6 +63,8 @@ WaylandTestApplication::WaylandTestApplication(OperationMode mode, int &argc, ch
         QStringLiteral("kaccessrc"),
         QStringLiteral("kglobalshortcutsrc"),
         QStringLiteral("kcminputrc"),
+        QStringLiteral("kxkbrc"),
+        QStringLiteral("kwinoutputconfig.json"),
     };
     for (const QString &config : configs) {
         if (const QString &fileName = QStandardPaths::locate(QStandardPaths::ConfigLocation, config); !fileName.isEmpty()) {
@@ -68,7 +76,9 @@ WaylandTestApplication::WaylandTestApplication(OperationMode mode, int &argc, ch
 #if KWIN_BUILD_ACTIVITIES
     setUseKActivities(false);
 #endif
-    qputenv("KWIN_COMPOSE", QByteArrayLiteral("Q"));
+    if (!runOnKMS) {
+        qputenv("KWIN_COMPOSE", QByteArrayLiteral("Q"));
+    }
     qputenv("XDG_CURRENT_DESKTOP", QByteArrayLiteral("KDE"));
     qunsetenv("XKB_DEFAULT_RULES");
     qunsetenv("XKB_DEFAULT_MODEL");
@@ -90,8 +100,20 @@ WaylandTestApplication::WaylandTestApplication(OperationMode mode, int &argc, ch
     removeLibraryPath(ownPath);
     addLibraryPath(ownPath);
 
-    setSession(Session::create(Session::Type::Noop));
-    setOutputBackend(std::make_unique<VirtualBackend>());
+    if (runOnKMS) {
+        // in order to allow running the test manually on a tty,
+        // we need the real session. This doesn't work in CI though,
+        // so manually check for that and use the noop session instead
+        if (qEnvironmentVariable("CI") == "true") {
+            setSession(Session::create(Session::Type::Noop));
+        } else {
+            setSession(Session::create());
+        }
+        setOutputBackend(std::make_unique<DrmBackend>(session()));
+    } else {
+        setSession(Session::create(Session::Type::Noop));
+        setOutputBackend(std::make_unique<VirtualBackend>());
+    }
     m_waylandServer.reset(WaylandServer::create());
     setProcessStartupEnvironment(QProcessEnvironment::systemEnvironment());
 }
@@ -193,7 +215,8 @@ void WaylandTestApplication::performStartup()
     createVirtualInputDevices();
     createTabletModeManager();
 
-    auto compositor = WaylandCompositor::create();
+    auto compositor = Compositor::create();
+    compositor->createRenderer();
     createWorkspace();
     createColorManager();
     createPlugins();
@@ -275,17 +298,16 @@ void Test::FractionalScaleV1::wp_fractional_scale_v1_preferred_scale(uint32_t sc
 
 void Test::setOutputConfig(const QList<QRect> &geometries)
 {
-    QList<VirtualBackend::OutputInfo> converted;
-    std::transform(geometries.begin(), geometries.end(), std::back_inserter(converted), [](const auto &geometry) {
-        return VirtualBackend::OutputInfo{
+    setOutputConfig(geometries | std::views::transform([](const QRect &geometry) {
+        return OutputInfo{
             .geometry = geometry,
         };
-    });
-    static_cast<VirtualBackend *>(kwinApp()->outputBackend())->setVirtualOutputs(converted);
+    }) | std::ranges::to<QList>());
 }
 
 void Test::setOutputConfig(const QList<OutputInfo> &infos)
 {
+    Q_ASSERT(qobject_cast<VirtualBackend *>(kwinApp()->outputBackend()));
     QList<VirtualBackend::OutputInfo> converted;
     std::transform(infos.begin(), infos.end(), std::back_inserter(converted), [](const auto &info) {
         return VirtualBackend::OutputInfo{
@@ -302,6 +324,94 @@ void Test::setOutputConfig(const QList<OutputInfo> &infos)
         };
     });
     static_cast<VirtualBackend *>(kwinApp()->outputBackend())->setVirtualOutputs(converted);
+
+    const auto outputs = kwinApp()->outputBackend()->outputs();
+    OutputConfiguration config;
+    for (int i = 0; i < outputs.size(); i++) {
+        const auto &info = infos[i];
+        *config.changeSet(outputs[i]) = OutputChangeSet{
+            .desiredModeSize = info.geometry.size() * info.scale,
+            .enabled = true,
+            .pos = info.geometry.topLeft(),
+            .scale = info.scale,
+            .scaleSetting = info.scale,
+        };
+    }
+    workspace()->applyOutputConfiguration(config);
+}
+
+Test::SimpleKeyboard::SimpleKeyboard(QObject *parent)
+    : QObject(parent)
+    , m_keyboard(Test::waylandSeat()->createKeyboard(parent))
+{
+    static const int EVDEV_OFFSET = 8;
+
+    connect(m_keyboard, &KWayland::Client::Keyboard::keymapChanged, this, [this](int fd, uint32_t size) {
+        char *map_shm = static_cast<char *>(
+            mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0));
+        close(fd);
+
+        Q_ASSERT(map_shm != MAP_FAILED);
+
+        m_keymap = XkbKeymapPtr(
+            xkb_keymap_new_from_string(
+                m_ctx.get(),
+                map_shm,
+                XKB_KEYMAP_FORMAT_TEXT_V1,
+                XKB_KEYMAP_COMPILE_NO_FLAGS),
+            &xkb_keymap_unref);
+
+        munmap(map_shm, size);
+        Q_ASSERT(m_keymap);
+
+        m_state = XkbStatePtr(xkb_state_new(m_keymap.get()), &xkb_state_unref);
+        Q_ASSERT(m_state);
+    });
+
+    connect(m_keyboard, &KWayland::Client::Keyboard::modifiersChanged, this, [this](quint32 depressed, quint32 latched, quint32 locked, quint32 group) {
+        if (!m_state) {
+            return;
+        }
+        xkb_state_update_mask(
+            m_state.get(),
+            depressed,
+            latched,
+            locked,
+            0, 0,
+            group);
+    });
+
+    connect(m_keyboard, &KWayland::Client::Keyboard::keyChanged, this, [this](quint32 key, KWayland::Client::Keyboard::KeyState state, quint32 time) {
+        if (!m_state) {
+            return;
+        }
+
+        xkb_keycode_t kc = key + EVDEV_OFFSET;
+
+        if (state == KWayland::Client::Keyboard::KeyState::Pressed) {
+            const xkb_keysym_t *syms;
+            int nsyms = xkb_state_key_get_syms(m_state.get(), kc, &syms);
+            for (int i = 0; i < nsyms; i++) {
+                char buf[64];
+                int len = xkb_keysym_to_utf8(syms[i], buf, sizeof(buf));
+                if (len > 1) {
+                    m_receviedText.append(QString::fromUtf8(buf, len - 1)); // xkb_keysym_to_utf8 contains terminating byte
+                    Q_EMIT receviedTextChanged();
+                }
+                Q_EMIT keySymRecevied(syms[i]);
+            }
+        }
+    });
+}
+
+KWayland::Client::Keyboard *Test::SimpleKeyboard::keyboard()
+{
+    return m_keyboard;
+}
+
+QString Test::SimpleKeyboard::receviedText()
+{
+    return m_receviedText;
 }
 }
 

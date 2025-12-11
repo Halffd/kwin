@@ -25,9 +25,12 @@
 #endif
 
 #include "core/output.h"
+#include "input.h"
 #include "rulebooksettings.h"
 #include "rulesettings.h"
+#include "wayland_server.h"
 #include "workspace.h"
+#include "xdgactivationv1.h"
 
 namespace KWin
 {
@@ -39,6 +42,7 @@ Rules::Rules()
     , windowrolematch(UnimportantMatch)
     , titlematch(UnimportantMatch)
     , clientmachinematch(UnimportantMatch)
+    , tagmatch(UnimportantMatch)
     , types(NET::AllTypesMask)
     , placementrule(UnusedForceRule)
     , positionrule(UnusedSetRule)
@@ -54,7 +58,6 @@ Rules::Rules()
     , maximizevertrule(UnusedSetRule)
     , maximizehorizrule(UnusedSetRule)
     , minimizerule(UnusedSetRule)
-    , shaderule(UnusedSetRule)
     , skiptaskbarrule(UnusedSetRule)
     , skippagerrule(UnusedSetRule)
     , skipswitcherrule(UnusedSetRule)
@@ -110,6 +113,7 @@ void Rules::readFromSettings(const RuleSettings *settings)
     READ_MATCH_STRING(windowrole, );
     READ_MATCH_STRING(title, );
     READ_MATCH_STRING(clientmachine, .toLower());
+    READ_MATCH_STRING(tag, );
     types = WindowTypes(settings->types());
     READ_FORCE_RULE(placement, );
     READ_SET_RULE(position);
@@ -134,7 +138,6 @@ void Rules::readFromSettings(const RuleSettings *settings)
     READ_SET_RULE(maximizevert);
     READ_SET_RULE(maximizehoriz);
     READ_SET_RULE(minimize);
-    READ_SET_RULE(shade);
     READ_SET_RULE(skiptaskbar);
     READ_SET_RULE(skippager);
     READ_SET_RULE(skipswitcher);
@@ -149,8 +152,8 @@ void Rules::readFromSettings(const RuleSettings *settings)
     }
 
     READ_FORCE_RULE(blockcompositing, );
-    READ_FORCE_RULE(fsplevel, );
-    READ_FORCE_RULE(fpplevel, );
+    READ_FORCE_RULE(fsplevel, FocusStealingPreventionLevel);
+    READ_FORCE_RULE(fpplevel, FocusStealingPreventionLevel);
     READ_FORCE_RULE(acceptfocus, );
     READ_FORCE_RULE(closeable, );
     READ_FORCE_RULE(autogroup, );
@@ -205,6 +208,7 @@ void Rules::write(RuleSettings *settings) const
     WRITE_MATCH_STRING(windowrole, Windowrole, false);
     WRITE_MATCH_STRING(title, Title, false);
     WRITE_MATCH_STRING(clientmachine, Clientmachine, false);
+    WRITE_MATCH_STRING(tag, Tag, false);
     settings->setTypes(types);
     WRITE_FORCE_RULE(placement, Placement, );
     WRITE_SET_RULE(position, Position, );
@@ -220,7 +224,6 @@ void Rules::write(RuleSettings *settings) const
     WRITE_SET_RULE(maximizevert, Maximizevert, );
     WRITE_SET_RULE(maximizehoriz, Maximizehoriz, );
     WRITE_SET_RULE(minimize, Minimize, );
-    WRITE_SET_RULE(shade, Shade, );
     WRITE_SET_RULE(skiptaskbar, Skiptaskbar, );
     WRITE_SET_RULE(skippager, Skippager, );
     WRITE_SET_RULE(skipswitcher, Skipswitcher, );
@@ -237,8 +240,11 @@ void Rules::write(RuleSettings *settings) const
     };
     WRITE_FORCE_RULE(decocolor, Decocolor, colorToString);
     WRITE_FORCE_RULE(blockcompositing, Blockcompositing, );
-    WRITE_FORCE_RULE(fsplevel, Fsplevel, );
-    WRITE_FORCE_RULE(fpplevel, Fpplevel, );
+    const auto focusStealingLevelToInt = [](FocusStealingPreventionLevel fsp) {
+        return int(fsp);
+    };
+    WRITE_FORCE_RULE(fsplevel, Fsplevel, focusStealingLevelToInt);
+    WRITE_FORCE_RULE(fpplevel, Fpplevel, focusStealingLevelToInt);
     WRITE_FORCE_RULE(acceptfocus, Acceptfocus, );
     WRITE_FORCE_RULE(closeable, Closeable, );
     WRITE_FORCE_RULE(autogroup, Autogroup, );
@@ -273,7 +279,6 @@ bool Rules::isEmpty() const
         && maximizevertrule == UnusedSetRule
         && maximizehorizrule == UnusedSetRule
         && minimizerule == UnusedSetRule
-        && shaderule == UnusedSetRule
         && skiptaskbarrule == UnusedSetRule
         && skippagerrule == UnusedSetRule
         && skipswitcherrule == UnusedSetRule
@@ -442,6 +447,22 @@ bool Rules::matchClientMachine(const QString &match_machine, bool local) const
     return true;
 }
 
+bool Rules::matchTag(const QString &match_tag) const
+{
+    if (tagmatch != UnimportantMatch) {
+        if (tagmatch == RegExpMatch && !QRegularExpression(tag).match(match_tag).hasMatch()) {
+            return false;
+        }
+        if (tagmatch == ExactMatch && tag != match_tag) {
+            return false;
+        }
+        if (tagmatch == SubstringMatch && !match_tag.contains(tag)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 #ifndef KCMRULES
 bool Rules::match(const Window *c) const
 {
@@ -464,6 +485,9 @@ bool Rules::match(const Window *c) const
         QObject::connect(c, &Window::captionNormalChanged, c, &Window::evaluateWindowRules, Qt::UniqueConnection);
     }
     if (!matchTitle(c->captionNormal())) {
+        return false;
+    }
+    if (!matchTag(c->tag())) {
         return false;
     }
     return true;
@@ -527,10 +551,6 @@ bool Rules::update(Window *c, int selection)
     if NOW_REMEMBER (Minimize, minimize) {
         updated = updated || minimize != c->isMinimized();
         minimize = c->isMinimized();
-    }
-    if NOW_REMEMBER (Shade, shade) {
-        updated = updated || (shade != (c->shadeMode() != ShadeNone));
-        shade = c->shadeMode() != ShadeNone;
     }
     if NOW_REMEMBER (SkipTaskbar, skiptaskbar) {
         updated = updated || skiptaskbar != c->skipTaskbar();
@@ -659,20 +679,6 @@ bool Rules::applyMaximizeVert(MaximizeMode &mode, bool init) const
 }
 
 APPLY_RULE(minimize, Minimize, bool)
-
-bool Rules::applyShade(ShadeMode &sh, bool init) const
-{
-    if (checkSetRule(shaderule, init)) {
-        if (!this->shade) {
-            sh = ShadeNone;
-        }
-        if (this->shade && sh == ShadeNone) {
-            sh = ShadeNormal;
-        }
-    }
-    return checkSetStop(shaderule);
-}
-
 APPLY_RULE(skiptaskbar, SkipTaskbar, bool)
 APPLY_RULE(skippager, SkipPager, bool)
 APPLY_RULE(skipswitcher, SkipSwitcher, bool)
@@ -682,8 +688,8 @@ APPLY_RULE(fullscreen, FullScreen, bool)
 APPLY_RULE(noborder, NoBorder, bool)
 APPLY_FORCE_RULE(decocolor, DecoColor, QString)
 APPLY_FORCE_RULE(blockcompositing, BlockCompositing, bool)
-APPLY_FORCE_RULE(fsplevel, FSP, int)
-APPLY_FORCE_RULE(fpplevel, FPP, int)
+APPLY_FORCE_RULE(fsplevel, FSP, FocusStealingPreventionLevel)
+APPLY_FORCE_RULE(fpplevel, FPP, FocusStealingPreventionLevel)
 APPLY_FORCE_RULE(acceptfocus, AcceptFocus, bool)
 APPLY_FORCE_RULE(closeable, Closeable, bool)
 APPLY_FORCE_RULE(autogroup, Autogrouping, bool)
@@ -731,7 +737,6 @@ bool Rules::discardUsed(bool withdrawn)
     DISCARD_USED_SET_RULE(maximizevert);
     DISCARD_USED_SET_RULE(maximizehoriz);
     DISCARD_USED_SET_RULE(minimize);
-    DISCARD_USED_SET_RULE(shade);
     DISCARD_USED_SET_RULE(skiptaskbar);
     DISCARD_USED_SET_RULE(skippager);
     DISCARD_USED_SET_RULE(skipswitcher);
@@ -864,7 +869,7 @@ MaximizeMode WindowRules::checkMaximize(MaximizeMode mode, bool init) const
     return static_cast<MaximizeMode>((vert ? MaximizeVertical : 0) | (horiz ? MaximizeHorizontal : 0));
 }
 
-Output *WindowRules::checkOutput(Output *output, bool init) const
+LogicalOutput *WindowRules::checkOutput(LogicalOutput *output, bool init) const
 {
     if (rules.isEmpty()) {
         return output;
@@ -875,12 +880,23 @@ Output *WindowRules::checkOutput(Output *output, bool init) const
             break;
         }
     }
-    Output *ruleOutput = workspace()->outputs().value(ret);
+    LogicalOutput *ruleOutput = workspace()->outputs().value(ret);
     return ruleOutput ? ruleOutput : output;
 }
 
+DecorationPolicy WindowRules::checkDecorationPolicy(DecorationPolicy policy, bool init) const
+{
+    if (checkNoBorder(true, init) == false) {
+        return DecorationPolicy::Server;
+    }
+    if (checkNoBorder(false, init) == true) {
+        return DecorationPolicy::None;
+    }
+
+    return policy;
+}
+
 CHECK_RULE(Minimize, bool)
-CHECK_RULE(Shade, ShadeMode)
 CHECK_RULE(SkipTaskbar, bool)
 CHECK_RULE(SkipPager, bool)
 CHECK_RULE(SkipSwitcher, bool)
@@ -890,8 +906,8 @@ CHECK_RULE(FullScreen, bool)
 CHECK_RULE(NoBorder, bool)
 CHECK_FORCE_RULE(DecoColor, QString)
 CHECK_FORCE_RULE(BlockCompositing, bool)
-CHECK_FORCE_RULE(FSP, int)
-CHECK_FORCE_RULE(FPP, int)
+CHECK_FORCE_RULE(FSP, FocusStealingPreventionLevel)
+CHECK_FORCE_RULE(FPP, FocusStealingPreventionLevel)
 CHECK_FORCE_RULE(AcceptFocus, bool)
 CHECK_FORCE_RULE(Closeable, bool)
 CHECK_FORCE_RULE(Autogrouping, bool)
@@ -950,8 +966,11 @@ void RuleBook::edit(Window *c, bool whole_app)
         args << QStringLiteral("whole-app");
     }
     QProcess *p = new QProcess(this);
-    p->setArguments({"kcm_kwinrules_x11", "--args", args.join(QLatin1Char(' '))});
-    p->setProcessEnvironment(kwinApp()->processStartupEnvironment());
+    p->setArguments({"kcm_kwinrules", "--args", args.join(QLatin1Char(' '))});
+    const QString token = waylandServer()->xdgActivationIntegration()->requestPrivilegedToken(nullptr, input()->lastInteractionSerial(), waylandServer()->seat(), "kcm_kwinrules");
+    QProcessEnvironment env = kwinApp()->processStartupEnvironment();
+    env.insert(QStringLiteral("XDG_ACTIVATION_TOKEN"), token);
+    p->setProcessEnvironment(env);
     p->setProgram(QStandardPaths::findExecutable("kcmshell6"));
     p->setProcessChannelMode(QProcess::MergedChannels);
     connect(p, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), p, &QProcess::deleteLater);

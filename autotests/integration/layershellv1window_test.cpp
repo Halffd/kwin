@@ -15,6 +15,7 @@
 #include "window.h"
 #include "workspace.h"
 
+#include <KWayland/Client/connection_thread.h>
 #include <KWayland/Client/output.h>
 #include <KWayland/Client/surface.h>
 
@@ -56,17 +57,18 @@ private Q_SLOTS:
     void testUnmap();
     void testScreenEdge_data();
     void testScreenEdge();
+    void testUnconfiguredBuffer();
 };
 
 void LayerShellV1WindowTest::initTestCase()
 {
     QVERIFY(waylandServer()->init(s_socketName));
+
+    kwinApp()->start();
     Test::setOutputConfig({
         QRect(0, 0, 1280, 1024),
         QRect(1280, 0, 1280, 1024),
     });
-
-    kwinApp()->start();
     const auto outputs = workspace()->outputs();
     QCOMPARE(outputs.count(), 2);
     QCOMPARE(outputs[0]->geometry(), QRect(0, 0, 1280, 1024));
@@ -130,31 +132,31 @@ void LayerShellV1WindowTest::testOutput()
 void LayerShellV1WindowTest::testAnchor_data()
 {
     QTest::addColumn<int>("anchor");
-    QTest::addColumn<QRectF>("expectedGeometry");
+    QTest::addColumn<RectF>("expectedGeometry");
 
     QTest::addRow("left") << int(Test::LayerSurfaceV1::anchor_left)
-                          << QRectF(0, 450, 280, 124);
+                          << RectF(0, 450, 280, 124);
 
     QTest::addRow("top left") << (Test::LayerSurfaceV1::anchor_top | Test::LayerSurfaceV1::anchor_left)
-                              << QRectF(0, 0, 280, 124);
+                              << RectF(0, 0, 280, 124);
 
     QTest::addRow("top") << int(Test::LayerSurfaceV1::anchor_top)
-                         << QRectF(500, 0, 280, 124);
+                         << RectF(500, 0, 280, 124);
 
     QTest::addRow("top right") << (Test::LayerSurfaceV1::anchor_top | Test::LayerSurfaceV1::anchor_right)
-                               << QRectF(1000, 0, 280, 124);
+                               << RectF(1000, 0, 280, 124);
 
     QTest::addRow("right") << int(Test::LayerSurfaceV1::anchor_right)
-                           << QRectF(1000, 450, 280, 124);
+                           << RectF(1000, 450, 280, 124);
 
     QTest::addRow("bottom right") << (Test::LayerSurfaceV1::anchor_bottom | Test::LayerSurfaceV1::anchor_right)
-                                  << QRectF(1000, 900, 280, 124);
+                                  << RectF(1000, 900, 280, 124);
 
     QTest::addRow("bottom") << int(Test::LayerSurfaceV1::anchor_bottom)
-                            << QRectF(500, 900, 280, 124);
+                            << RectF(500, 900, 280, 124);
 
     QTest::addRow("bottom left") << (Test::LayerSurfaceV1::anchor_bottom | Test::LayerSurfaceV1::anchor_left)
-                                 << QRectF(0, 900, 280, 124);
+                                 << RectF(0, 900, 280, 124);
 }
 
 void LayerShellV1WindowTest::testAnchor()
@@ -192,39 +194,39 @@ void LayerShellV1WindowTest::testMargins_data()
 {
     QTest::addColumn<int>("anchor");
     QTest::addColumn<QMargins>("margins");
-    QTest::addColumn<QRectF>("expectedGeometry");
+    QTest::addColumn<RectF>("expectedGeometry");
 
     QTest::addRow("left") << int(Test::LayerSurfaceV1::anchor_left)
                           << QMargins(100, 0, 0, 0)
-                          << QRectF(100, 450, 280, 124);
+                          << RectF(100, 450, 280, 124);
 
     QTest::addRow("top left") << (Test::LayerSurfaceV1::anchor_top | Test::LayerSurfaceV1::anchor_left)
                               << QMargins(100, 200, 0, 0)
-                              << QRectF(100, 200, 280, 124);
+                              << RectF(100, 200, 280, 124);
 
     QTest::addRow("top") << int(Test::LayerSurfaceV1::anchor_top)
                          << QMargins(0, 200, 0, 0)
-                         << QRectF(500, 200, 280, 124);
+                         << RectF(500, 200, 280, 124);
 
     QTest::addRow("top right") << (Test::LayerSurfaceV1::anchor_top | Test::LayerSurfaceV1::anchor_right)
                                << QMargins(0, 200, 300, 0)
-                               << QRectF(700, 200, 280, 124);
+                               << RectF(700, 200, 280, 124);
 
     QTest::addRow("right") << int(Test::LayerSurfaceV1::anchor_right)
                            << QMargins(0, 0, 300, 0)
-                           << QRectF(700, 450, 280, 124);
+                           << RectF(700, 450, 280, 124);
 
     QTest::addRow("bottom right") << (Test::LayerSurfaceV1::anchor_bottom | Test::LayerSurfaceV1::anchor_right)
                                   << QMargins(0, 0, 300, 400)
-                                  << QRectF(700, 500, 280, 124);
+                                  << RectF(700, 500, 280, 124);
 
     QTest::addRow("bottom") << int(Test::LayerSurfaceV1::anchor_bottom)
                             << QMargins(0, 0, 0, 400)
-                            << QRectF(500, 500, 280, 124);
+                            << RectF(500, 500, 280, 124);
 
     QTest::addRow("bottom left") << (Test::LayerSurfaceV1::anchor_bottom | Test::LayerSurfaceV1::anchor_left)
                                  << QMargins(100, 0, 0, 400)
-                                 << QRectF(100, 500, 280, 124);
+                                 << RectF(100, 500, 280, 124);
 }
 
 void LayerShellV1WindowTest::testMargins()
@@ -436,11 +438,12 @@ void LayerShellV1WindowTest::testPlacementAreaAfterOutputLayoutChange()
     // This test verifies that layer shell windows correctly react to output layout changes.
 
     // The output where the layer surface should be placed.
-    Output *output = workspace()->activeOutput();
+    LogicalOutput *logicalOutput = workspace()->activeOutput();
+    BackendOutput *backendOutput = logicalOutput->backendOutput();
 
     // Create a layer surface with an exclusive zone.
     std::unique_ptr<KWayland::Client::Surface> surface(Test::createSurface());
-    std::unique_ptr<Test::LayerSurfaceV1> shellSurface(Test::createLayerSurfaceV1(surface.get(), QStringLiteral("dock"), Test::waylandOutput(output->name())));
+    std::unique_ptr<Test::LayerSurfaceV1> shellSurface(Test::createLayerSurfaceV1(surface.get(), QStringLiteral("dock"), Test::waylandOutput(backendOutput->name())));
     shellSurface->set_layer(Test::LayerShellV1::layer_top);
     shellSurface->set_anchor(Test::LayerSurfaceV1::anchor_bottom);
     shellSurface->set_size(100, 50);
@@ -454,25 +457,25 @@ void LayerShellV1WindowTest::testPlacementAreaAfterOutputLayoutChange()
     shellSurface->ack_configure(configureRequestedSpy.last().at(0).toUInt());
     Window *window = Test::renderAndWaitForShown(surface.get(), configureRequestedSpy.last().at(1).toSize(), Qt::red);
     QVERIFY(window);
-    QCOMPARE(workspace()->clientArea(PlacementArea, window), output->geometry().adjusted(0, 0, 0, -50));
+    QCOMPARE(workspace()->clientArea(PlacementArea, window), logicalOutput->geometry().adjusted(0, 0, 0, -50));
 
     // Move the output 100px down.
     OutputConfiguration config1;
     {
-        auto changeSet = config1.changeSet(output);
-        changeSet->pos = output->geometry().topLeft() + QPoint(0, 100);
+        auto changeSet = config1.changeSet(backendOutput);
+        changeSet->pos = logicalOutput->geometry().topLeft() + QPoint(0, 100);
     }
     workspace()->applyOutputConfiguration(config1);
-    QCOMPARE(workspace()->clientArea(PlacementArea, window), output->geometry().adjusted(0, 0, 0, -50));
+    QCOMPARE(workspace()->clientArea(PlacementArea, window), logicalOutput->geometry().adjusted(0, 0, 0, -50));
 
     // Move the output back to its original position.
     OutputConfiguration config2;
     {
-        auto changeSet = config2.changeSet(output);
-        changeSet->pos = output->geometry().topLeft() - QPoint(0, 100);
+        auto changeSet = config2.changeSet(backendOutput);
+        changeSet->pos = logicalOutput->geometry().topLeft() - QPoint(0, 100);
     }
     workspace()->applyOutputConfiguration(config2);
-    QCOMPARE(workspace()->clientArea(PlacementArea, window), output->geometry().adjusted(0, 0, 0, -50));
+    QCOMPARE(workspace()->clientArea(PlacementArea, window), logicalOutput->geometry().adjusted(0, 0, 0, -50));
 
     // Destroy the window.
     shellSurface.reset();
@@ -483,19 +486,19 @@ void LayerShellV1WindowTest::testFill_data()
 {
     QTest::addColumn<int>("anchor");
     QTest::addColumn<QSize>("desiredSize");
-    QTest::addColumn<QRectF>("expectedGeometry");
+    QTest::addColumn<RectF>("expectedGeometry");
 
     QTest::addRow("horizontal") << (Test::LayerSurfaceV1::anchor_left | Test::LayerSurfaceV1::anchor_right)
                                 << QSize(0, 124)
-                                << QRectF(0, 450, 1280, 124);
+                                << RectF(0, 450, 1280, 124);
 
     QTest::addRow("vertical") << (Test::LayerSurfaceV1::anchor_top | Test::LayerSurfaceV1::anchor_bottom)
                               << QSize(280, 0)
-                              << QRectF(500, 0, 280, 1024);
+                              << RectF(500, 0, 280, 1024);
 
     QTest::addRow("all") << (Test::LayerSurfaceV1::anchor_left | Test::LayerSurfaceV1::anchor_top | Test::LayerSurfaceV1::anchor_right | Test::LayerSurfaceV1::anchor_bottom)
                          << QSize(0, 0)
-                         << QRectF(0, 0, 1280, 1024);
+                         << RectF(0, 0, 1280, 1024);
 }
 
 void LayerShellV1WindowTest::testFill()
@@ -566,8 +569,8 @@ void LayerShellV1WindowTest::testStack()
     QVERIFY(window2);
 
     // Check that the second layer surface is placed next to the first.
-    QCOMPARE(window1->frameGeometry(), QRect(0, 450, 80, 124));
-    QCOMPARE(window2->frameGeometry(), QRect(80, 450, 200, 124));
+    QCOMPARE(window1->frameGeometry(), RectF(0, 450, 80, 124));
+    QCOMPARE(window2->frameGeometry(), RectF(80, 450, 200, 124));
 
     // Check that the work area has been adjusted accordingly.
     QCOMPARE(workspace()->clientArea(PlacementArea, window1), QRect(280, 0, 1000, 1024));
@@ -841,6 +844,21 @@ void LayerShellV1WindowTest::testScreenEdge()
         QVERIFY(hiddenChangedSpy.wait());
         QVERIFY(window->isShown());
     }
+}
+
+void LayerShellV1WindowTest::testUnconfiguredBuffer()
+{
+    // This test verifies that a protocol error is posted when a client attaches a buffer to
+    // the initial commit.
+
+    std::unique_ptr<KWayland::Client::Surface> surface(Test::createSurface());
+    std::unique_ptr<Test::LayerSurfaceV1> shellSurface(Test::createLayerSurfaceV1(surface.get(), QStringLiteral("test")));
+    shellSurface->set_anchor(Test::LayerSurfaceV1::anchor_bottom);
+    shellSurface->set_size(100, 50);
+    Test::render(surface.get(), QSize(100, 50), Qt::blue);
+
+    QSignalSpy connectionErrorSpy(Test::waylandConnection(), &KWayland::Client::ConnectionThread::errorOccurred);
+    QVERIFY(connectionErrorSpy.wait());
 }
 
 } // namespace KWin

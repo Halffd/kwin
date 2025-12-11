@@ -34,32 +34,32 @@ static const QList<QColor> s_colors{
 
 ShowPaintEffect::ShowPaintEffect() = default;
 
-void ShowPaintEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
+void ShowPaintEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen)
 {
     m_painted = QRegion();
-    effects->paintScreen(renderTarget, viewport, mask, region, screen);
+    effects->paintScreen(renderTarget, viewport, mask, deviceRegion, screen);
     if (effects->isOpenGLCompositing()) {
-        paintGL(renderTarget, viewport.projectionMatrix(), viewport.scale());
+        paintGL(renderTarget, viewport);
     } else if (effects->compositingType() == QPainterCompositing) {
-        paintQPainter();
+        paintQPainter(viewport);
     }
     if (++m_colorIndex == s_colors.count()) {
         m_colorIndex = 0;
     }
 }
 
-void ShowPaintEffect::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, QRegion region, WindowPaintData &data)
+void ShowPaintEffect::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data)
 {
-    m_painted += region;
-    effects->paintWindow(renderTarget, viewport, w, mask, region, data);
+    m_painted += deviceRegion;
+    effects->paintWindow(renderTarget, viewport, w, mask, deviceRegion, data);
 }
 
-void ShowPaintEffect::paintGL(const RenderTarget &renderTarget, const QMatrix4x4 &projection, qreal scale)
+void ShowPaintEffect::paintGL(const RenderTarget &renderTarget, const RenderViewport &viewport)
 {
     GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
     vbo->reset();
     ShaderBinder binder(ShaderTrait::UniformColor | ShaderTrait::TransformColorspace);
-    binder.shader()->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, projection);
+    binder.shader()->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, viewport.projectionMatrix());
     binder.shader()->setColorspaceUniforms(ColorDescription::sRGB, renderTarget.colorDescription(), RenderingIntent::Perceptual);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -68,26 +68,26 @@ void ShowPaintEffect::paintGL(const RenderTarget &renderTarget, const QMatrix4x4
     binder.shader()->setUniform(GLShader::ColorUniform::Color, color);
     QList<QVector2D> verts;
     verts.reserve(m_painted.rectCount() * 12);
-    for (const QRect &r : m_painted) {
-        const auto deviceRect = snapToPixelGridF(scaledRect(r, scale));
-        verts.push_back(QVector2D(deviceRect.x() + deviceRect.width(), deviceRect.y()));
-        verts.push_back(QVector2D(deviceRect.x(), deviceRect.y()));
-        verts.push_back(QVector2D(deviceRect.x(), deviceRect.y() + deviceRect.height()));
-        verts.push_back(QVector2D(deviceRect.x(), deviceRect.y() + deviceRect.height()));
-        verts.push_back(QVector2D(deviceRect.x() + deviceRect.width(), deviceRect.y() + deviceRect.height()));
-        verts.push_back(QVector2D(deviceRect.x() + deviceRect.width(), deviceRect.y()));
+    for (const QRect &deviceRect : m_painted) {
+        const auto r = deviceRect.translated(viewport.scaledRenderRect().topLeft());
+        verts.push_back(QVector2D(r.x() + r.width(), r.y()));
+        verts.push_back(QVector2D(r.x(), r.y()));
+        verts.push_back(QVector2D(r.x(), r.y() + r.height()));
+        verts.push_back(QVector2D(r.x(), r.y() + r.height()));
+        verts.push_back(QVector2D(r.x() + r.width(), r.y() + r.height()));
+        verts.push_back(QVector2D(r.x() + r.width(), r.y()));
     }
     vbo->setVertices(verts);
     vbo->render(GL_TRIANGLES);
     glDisable(GL_BLEND);
 }
 
-void ShowPaintEffect::paintQPainter()
+void ShowPaintEffect::paintQPainter(const RenderViewport &viewport)
 {
     QColor color = s_colors[m_colorIndex];
     color.setAlphaF(s_alpha);
-    for (const QRect &r : m_painted) {
-        effects->scenePainter()->fillRect(r, color);
+    for (const QRect deviceRect : m_painted) {
+        effects->scenePainter()->fillRect(viewport.mapFromDeviceCoordinates(deviceRect), color);
     }
 }
 

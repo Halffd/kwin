@@ -131,7 +131,7 @@ void WindowThumbnailSource::update()
     }
 
     RenderTarget offscreenRenderTarget(m_offscreenTarget.get());
-    RenderViewport offscreenViewport(geometry, devicePixelRatio, offscreenRenderTarget);
+    RenderViewport offscreenViewport(geometry, devicePixelRatio, offscreenRenderTarget, QPoint());
     GLFramebuffer::pushFramebuffer(m_offscreenTarget.get());
     glClearColor(0.0, 0.0, 0.0, 0.0);
     glClear(GL_COLOR_BUFFER_BIT);

@@ -18,10 +18,12 @@
 #include "xwaylandlauncher.h"
 #include "xwldrophandler.h"
 
-#include "core/output.h"
+#include "core/backendoutput.h"
 #include "keyboard_input.h"
+#include "main_wayland.h"
 #include "utils/common.h"
 #include "utils/xcbutils.h"
+#include "wayland/display.h"
 #include "wayland_server.h"
 #include "waylandwindow.h"
 #include "workspace.h"
@@ -98,13 +100,11 @@ public:
                 // Since this is in the filter chain some key events may have been filtered out
                 // This loop makes sure all key press events are reset before we switch back to the
                 // Xwayland client and the state is correctly restored.
-                for (auto it = m_states.constBegin(); it != m_states.constEnd(); ++it) {
-                    if (it.value() == KeyboardKeyState::Pressed) {
-                        keyboard->sendKey(it.key(), KeyboardKeyState::Released, waylandServer()->xWaylandConnection());
-                    }
+                for (const quint32 &scanCode : std::as_const(m_pressedKeys)) {
+                    keyboard->sendKey(scanCode, KeyboardKeyState::Released, waylandServer()->xWaylandConnection(), waylandServer()->display()->nextSerial());
                 }
                 m_modifiers = {};
-                m_states.clear();
+                m_pressedKeys.clear();
             }
         });
     }
@@ -117,224 +117,97 @@ public:
             Qt::MetaModifier,
         };
 
-        static const QSet<quint32> characterKeys = {
-            Qt::Key_Any,
-            Qt::Key_Space,
-            Qt::Key_Exclam,
-            Qt::Key_QuoteDbl,
-            Qt::Key_NumberSign,
-            Qt::Key_Dollar,
-            Qt::Key_Percent,
-            Qt::Key_Ampersand,
-            Qt::Key_Apostrophe,
-            Qt::Key_ParenLeft,
-            Qt::Key_ParenRight,
-            Qt::Key_Asterisk,
-            Qt::Key_Plus,
-            Qt::Key_Comma,
-            Qt::Key_Minus,
-            Qt::Key_Period,
-            Qt::Key_Slash,
-            Qt::Key_0,
-            Qt::Key_1,
-            Qt::Key_2,
-            Qt::Key_3,
-            Qt::Key_4,
-            Qt::Key_5,
-            Qt::Key_6,
-            Qt::Key_7,
-            Qt::Key_8,
-            Qt::Key_9,
-            Qt::Key_Colon,
-            Qt::Key_Semicolon,
-            Qt::Key_Less,
-            Qt::Key_Equal,
-            Qt::Key_Greater,
-            Qt::Key_Question,
-            Qt::Key_At,
-            Qt::Key_A,
-            Qt::Key_B,
-            Qt::Key_C,
-            Qt::Key_D,
-            Qt::Key_E,
-            Qt::Key_F,
-            Qt::Key_G,
-            Qt::Key_H,
-            Qt::Key_I,
-            Qt::Key_J,
-            Qt::Key_K,
-            Qt::Key_L,
-            Qt::Key_M,
-            Qt::Key_N,
-            Qt::Key_O,
-            Qt::Key_P,
-            Qt::Key_Q,
-            Qt::Key_R,
-            Qt::Key_S,
-            Qt::Key_T,
-            Qt::Key_U,
-            Qt::Key_V,
-            Qt::Key_W,
-            Qt::Key_X,
-            Qt::Key_Y,
-            Qt::Key_Z,
-            Qt::Key_BracketLeft,
-            Qt::Key_Backslash,
-            Qt::Key_BracketRight,
-            Qt::Key_AsciiCircum,
-            Qt::Key_Underscore,
-            Qt::Key_QuoteLeft,
-            Qt::Key_BraceLeft,
-            Qt::Key_Bar,
-            Qt::Key_BraceRight,
-            Qt::Key_AsciiTilde,
-            Qt::Key_nobreakspace,
-            Qt::Key_exclamdown,
-            Qt::Key_cent,
-            Qt::Key_sterling,
-            Qt::Key_currency,
-            Qt::Key_yen,
-            Qt::Key_brokenbar,
-            Qt::Key_section,
-            Qt::Key_diaeresis,
-            Qt::Key_copyright,
-            Qt::Key_ordfeminine,
-            Qt::Key_guillemotleft,
-            Qt::Key_notsign,
-            Qt::Key_hyphen,
-            Qt::Key_registered,
-            Qt::Key_macron,
-            Qt::Key_degree,
-            Qt::Key_plusminus,
-            Qt::Key_twosuperior,
-            Qt::Key_threesuperior,
-            Qt::Key_acute,
-            Qt::Key_micro,
-            Qt::Key_paragraph,
-            Qt::Key_periodcentered,
-            Qt::Key_cedilla,
-            Qt::Key_onesuperior,
-            Qt::Key_masculine,
-            Qt::Key_guillemotright,
-            Qt::Key_onequarter,
-            Qt::Key_onehalf,
-            Qt::Key_threequarters,
-            Qt::Key_questiondown,
-            Qt::Key_Agrave,
-            Qt::Key_Aacute,
-            Qt::Key_Acircumflex,
-            Qt::Key_Atilde,
-            Qt::Key_Adiaeresis,
-            Qt::Key_Aring,
-            Qt::Key_AE,
-            Qt::Key_Ccedilla,
-            Qt::Key_Egrave,
-            Qt::Key_Eacute,
-            Qt::Key_Ecircumflex,
-            Qt::Key_Ediaeresis,
-            Qt::Key_Igrave,
-            Qt::Key_Iacute,
-            Qt::Key_Icircumflex,
-            Qt::Key_Idiaeresis,
-            Qt::Key_ETH,
-            Qt::Key_Ntilde,
-            Qt::Key_Ograve,
-            Qt::Key_Oacute,
-            Qt::Key_Ocircumflex,
-            Qt::Key_Otilde,
-            Qt::Key_Odiaeresis,
-            Qt::Key_multiply,
-            Qt::Key_Ooblique,
-            Qt::Key_Ugrave,
-            Qt::Key_Uacute,
-            Qt::Key_Ucircumflex,
-            Qt::Key_Udiaeresis,
-            Qt::Key_Yacute,
-            Qt::Key_THORN,
-            Qt::Key_ssharp,
-            Qt::Key_division,
-            Qt::Key_ydiaeresis,
-            Qt::Key_Multi_key,
-            Qt::Key_Codeinput,
-            Qt::Key_SingleCandidate,
-            Qt::Key_MultipleCandidate,
-            Qt::Key_PreviousCandidate,
-            Qt::Key_Mode_switch,
-            Qt::Key_Kanji,
-            Qt::Key_Muhenkan,
-            Qt::Key_Henkan,
-            Qt::Key_Romaji,
-            Qt::Key_Hiragana,
-            Qt::Key_Katakana,
-            Qt::Key_Hiragana_Katakana,
-            Qt::Key_Zenkaku,
-            Qt::Key_Hankaku,
-            Qt::Key_Zenkaku_Hankaku,
-            Qt::Key_Touroku,
-            Qt::Key_Massyo,
-            Qt::Key_Kana_Lock,
-            Qt::Key_Kana_Shift,
-            Qt::Key_Eisu_Shift,
-            Qt::Key_Eisu_toggle,
-            Qt::Key_Hangul,
-            Qt::Key_Hangul_Start,
-            Qt::Key_Hangul_End,
-            Qt::Key_Hangul_Hanja,
-            Qt::Key_Hangul_Jamo,
-            Qt::Key_Hangul_Romaja,
-            Qt::Key_Hangul_Jeonja,
-            Qt::Key_Hangul_Banja,
-            Qt::Key_Hangul_PreHanja,
-            Qt::Key_Hangul_PostHanja,
-            Qt::Key_Hangul_Special,
-            Qt::Key_Dead_Grave,
-            Qt::Key_Dead_Acute,
-            Qt::Key_Dead_Circumflex,
-            Qt::Key_Dead_Tilde,
-            Qt::Key_Dead_Macron,
-            Qt::Key_Dead_Breve,
-            Qt::Key_Dead_Abovedot,
-            Qt::Key_Dead_Diaeresis,
-            Qt::Key_Dead_Abovering,
-            Qt::Key_Dead_Doubleacute,
-            Qt::Key_Dead_Caron,
-            Qt::Key_Dead_Cedilla,
-            Qt::Key_Dead_Ogonek,
-            Qt::Key_Dead_Iota,
-            Qt::Key_Dead_Voiced_Sound,
-            Qt::Key_Dead_Semivoiced_Sound,
-            Qt::Key_Dead_Belowdot,
-            Qt::Key_Dead_Hook,
-            Qt::Key_Dead_Horn,
-            Qt::Key_Dead_Stroke,
-            Qt::Key_Dead_Abovecomma,
-            Qt::Key_Dead_Abovereversedcomma,
-            Qt::Key_Dead_Doublegrave,
-            Qt::Key_Dead_Belowring,
-            Qt::Key_Dead_Belowmacron,
-            Qt::Key_Dead_Belowcircumflex,
-            Qt::Key_Dead_Belowtilde,
-            Qt::Key_Dead_Belowbreve,
-            Qt::Key_Dead_Belowdiaeresis,
-            Qt::Key_Dead_Invertedbreve,
-            Qt::Key_Dead_Belowcomma,
-            Qt::Key_Dead_Currency,
-            Qt::Key_Dead_a,
-            Qt::Key_Dead_A,
-            Qt::Key_Dead_e,
-            Qt::Key_Dead_E,
-            Qt::Key_Dead_i,
-            Qt::Key_Dead_I,
-            Qt::Key_Dead_o,
-            Qt::Key_Dead_O,
-            Qt::Key_Dead_u,
-            Qt::Key_Dead_U,
-            Qt::Key_Dead_Small_Schwa,
-            Qt::Key_Dead_Capital_Schwa,
-            Qt::Key_Dead_Greek,
-            Qt::Key_Dead_Lowline,
-            Qt::Key_Dead_Aboveverticalline,
-            Qt::Key_Dead_Belowverticalline,
+        static const auto isSpecialKey = [](quint32 key) {
+            // All keys prior to 0x01000000 (Qt::Key_Escape) are considered as character keys.
+            if (key < 0x01000000) {
+                return false;
+            }
+
+            static const QSet<quint32> excludedKeys = {
+                Qt::Key_Multi_key,
+                Qt::Key_Codeinput,
+                Qt::Key_SingleCandidate,
+                Qt::Key_MultipleCandidate,
+                Qt::Key_PreviousCandidate,
+                Qt::Key_Mode_switch,
+                Qt::Key_Kanji,
+                Qt::Key_Muhenkan,
+                Qt::Key_Henkan,
+                Qt::Key_Romaji,
+                Qt::Key_Hiragana,
+                Qt::Key_Katakana,
+                Qt::Key_Hiragana_Katakana,
+                Qt::Key_Zenkaku,
+                Qt::Key_Hankaku,
+                Qt::Key_Zenkaku_Hankaku,
+                Qt::Key_Touroku,
+                Qt::Key_Massyo,
+                Qt::Key_Kana_Lock,
+                Qt::Key_Kana_Shift,
+                Qt::Key_Eisu_Shift,
+                Qt::Key_Eisu_toggle,
+                Qt::Key_Hangul,
+                Qt::Key_Hangul_Start,
+                Qt::Key_Hangul_End,
+                Qt::Key_Hangul_Hanja,
+                Qt::Key_Hangul_Jamo,
+                Qt::Key_Hangul_Romaja,
+                Qt::Key_Hangul_Jeonja,
+                Qt::Key_Hangul_Banja,
+                Qt::Key_Hangul_PreHanja,
+                Qt::Key_Hangul_PostHanja,
+                Qt::Key_Hangul_Special,
+                Qt::Key_Dead_Grave,
+                Qt::Key_Dead_Acute,
+                Qt::Key_Dead_Circumflex,
+                Qt::Key_Dead_Tilde,
+                Qt::Key_Dead_Macron,
+                Qt::Key_Dead_Breve,
+                Qt::Key_Dead_Abovedot,
+                Qt::Key_Dead_Diaeresis,
+                Qt::Key_Dead_Abovering,
+                Qt::Key_Dead_Doubleacute,
+                Qt::Key_Dead_Caron,
+                Qt::Key_Dead_Cedilla,
+                Qt::Key_Dead_Ogonek,
+                Qt::Key_Dead_Iota,
+                Qt::Key_Dead_Voiced_Sound,
+                Qt::Key_Dead_Semivoiced_Sound,
+                Qt::Key_Dead_Belowdot,
+                Qt::Key_Dead_Hook,
+                Qt::Key_Dead_Horn,
+                Qt::Key_Dead_Stroke,
+                Qt::Key_Dead_Abovecomma,
+                Qt::Key_Dead_Abovereversedcomma,
+                Qt::Key_Dead_Doublegrave,
+                Qt::Key_Dead_Belowring,
+                Qt::Key_Dead_Belowmacron,
+                Qt::Key_Dead_Belowcircumflex,
+                Qt::Key_Dead_Belowtilde,
+                Qt::Key_Dead_Belowbreve,
+                Qt::Key_Dead_Belowdiaeresis,
+                Qt::Key_Dead_Invertedbreve,
+                Qt::Key_Dead_Belowcomma,
+                Qt::Key_Dead_Currency,
+                Qt::Key_Dead_a,
+                Qt::Key_Dead_A,
+                Qt::Key_Dead_e,
+                Qt::Key_Dead_E,
+                Qt::Key_Dead_i,
+                Qt::Key_Dead_I,
+                Qt::Key_Dead_o,
+                Qt::Key_Dead_O,
+                Qt::Key_Dead_u,
+                Qt::Key_Dead_U,
+                Qt::Key_Dead_Small_Schwa,
+                Qt::Key_Dead_Capital_Schwa,
+                Qt::Key_Dead_Greek,
+                Qt::Key_Dead_Lowline,
+                Qt::Key_Dead_Aboveverticalline,
+                Qt::Key_Dead_Belowverticalline,
+            };
+
+            return !excludedKeys.contains(key);
         };
 
         switch (mode) {
@@ -344,13 +217,13 @@ public:
             break;
         case NonCharacterKeys:
             m_filterKey = [](int key, Qt::KeyboardModifiers) {
-                return !characterKeys.contains(key);
+                return isSpecialKey(key);
             };
             m_filterMouse = eavesdropsMouse;
             break;
         case AllKeysWithModifier:
             m_filterKey = [](int key, Qt::KeyboardModifiers m) {
-                return m.testAnyFlags(modifierKeys) || !characterKeys.contains(key);
+                return m.testAnyFlags(modifierKeys) || isSpecialKey(key);
             };
             m_filterMouse = eavesdropsMouse;
             break;
@@ -373,8 +246,15 @@ public:
             return false;
         }
 
-        if (!m_filterKey || !m_filterKey(event->key, event->modifiers)) {
+        // If there's an active keystroke, keep sending events regardless what the key filter says.
+        if (!m_pressedKeys.contains(event->nativeScanCode) && (!m_filterKey || !m_filterKey(event->key, event->modifiers))) {
             return false;
+        }
+
+        if (event->state == KeyboardKeyState::Released) {
+            if (!m_pressedKeys.remove(event->nativeScanCode)) {
+                return false;
+            }
         }
 
         auto keyboard = waylandServer()->seat()->keyboard();
@@ -387,13 +267,16 @@ public:
             }
         }
 
-        if (!updateKey(event->nativeScanCode, event->state)) {
-            return false;
+        if (event->state == KeyboardKeyState::Pressed) {
+            if (m_pressedKeys.contains(event->nativeScanCode)) {
+                return false;
+            }
+            m_pressedKeys.insert(event->nativeScanCode);
         }
 
         auto xkb = input()->keyboard()->xkb();
 
-        keyboard->sendKey(event->nativeScanCode, event->state, xwaylandClient);
+        keyboard->sendKey(event->nativeScanCode, event->state, xwaylandClient, event->serial);
 
         bool changed = false;
         if (m_modifiers.depressed != xkb->modifierState().depressed) {
@@ -433,6 +316,11 @@ public:
         if (!m_filterMouse) {
             return false;
         }
+        if (event->button == Qt::MouseButton::LeftButton
+            || event->button == Qt::MouseButton::RightButton
+            || event->button == Qt::MouseButton::MiddleButton) {
+            return false;
+        }
 
         auto pointer = waylandServer()->seat()->pointer();
         auto surface = pointer->focusedSurface();
@@ -448,21 +336,7 @@ public:
         return false;
     }
 
-    bool updateKey(quint32 key, KeyboardKeyState state)
-    {
-        auto it = m_states.find(key);
-        if (it == m_states.end()) {
-            m_states.insert(key, state);
-            return true;
-        }
-        if (it.value() == state) {
-            return false;
-        }
-        it.value() = state;
-        return true;
-    }
-
-    QHash<quint32, KeyboardKeyState> m_states;
+    QSet<quint32> m_pressedKeys;
     struct Modifiers
     {
         quint32 depressed = 0;
@@ -648,23 +522,20 @@ void Xwayland::updatePrimary()
         return;
     }
     Xcb::RandR::ScreenResources resources(kwinApp()->x11RootWindow());
-    xcb_randr_crtc_t *crtcs = resources.crtcs();
-    if (!crtcs) {
+    auto outputs = resources.outputs();
+    if (!outputs) {
+        qCWarning(KWIN_XWL) << "Failed to get RandR screen resources or CRTCs for updating primary output.";
         return;
     }
 
-    Output *const primaryOutput = workspace()->outputOrder().front();
-    const QRect primaryOutputGeometry = Xcb::toXNative(primaryOutput->geometryF());
-    for (int i = 0; i < resources->num_crtcs; ++i) {
-        Xcb::RandR::CrtcInfo crtcInfo(crtcs[i], resources->config_timestamp);
-        const QRect geometry = crtcInfo.rect();
-        if (geometry.topLeft() == primaryOutputGeometry.topLeft()) {
-            auto outputs = crtcInfo.outputs();
-            if (outputs && crtcInfo->num_outputs > 0) {
-                qCDebug(KWIN_XWL) << "Setting primary" << primaryOutput << outputs[0];
-                xcb_randr_set_output_primary(kwinApp()->x11Connection(), kwinApp()->x11RootWindow(), outputs[0]);
-                break;
-            }
+    LogicalOutput *const primaryOutput = workspace()->outputOrder().front();
+    const QString primaryOutputName = primaryOutput->name();
+    for (int i = 0; i < resources->num_outputs; i++) {
+        Xcb::RandR::OutputInfo outputInfo(outputs[i], resources->config_timestamp);
+        if (outputInfo.name() == primaryOutputName) {
+            qCDebug(KWIN_XWL) << "Setting primary" << primaryOutput << outputs[i];
+            xcb_randr_set_output_primary(kwinApp()->x11Connection(), kwinApp()->x11RootWindow(), outputs[i]);
+            return;
         }
     }
 }
@@ -705,7 +576,6 @@ void Xwayland::destroyX11Connection()
 
     Q_EMIT m_app->x11ConnectionAboutToBeDestroyed();
 
-    Xcb::setInputFocus(XCB_INPUT_FOCUS_POINTER_ROOT);
     m_app->destroyAtoms();
     m_app->removeNativeX11EventFilter();
 
@@ -734,12 +604,12 @@ void Xwayland::runXWaylandStartupScripts()
     }
 }
 
-DragEventReply Xwayland::dragMoveFilter(Window *target)
+bool Xwayland::dragMoveFilter(Window *target, const QPointF &position)
 {
     if (m_dataBridge) {
-        return m_dataBridge->dragMoveFilter(target);
+        return m_dataBridge->dragMoveFilter(target, position);
     } else {
-        return DragEventReply::Wayland;
+        return false;
     }
 }
 

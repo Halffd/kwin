@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include "core/output.h"
+#include "core/backendoutput.h"
 
 #include <QList>
 #include <QPoint>
@@ -35,17 +35,19 @@ public:
         Preexisting,
         Generated,
     };
-    std::optional<std::tuple<OutputConfiguration, QList<Output *>, ConfigType>> queryConfig(const QList<Output *> &outputs, bool isLidClosed, QOrientationReading *orientation, bool isTabletMode);
-    void storeConfig(const QList<Output *> &allOutputs, bool isLidClosed, const OutputConfiguration &config, const QList<Output *> &outputOrder);
-    std::pair<OutputConfiguration, QList<Output *>> generateConfig(const QList<Output *> &outputs, bool isLidClosed);
+    std::optional<std::pair<OutputConfiguration, ConfigType>> queryConfig(const QList<BackendOutput *> &outputs, bool isLidClosed, QOrientationReading *orientation, bool isTabletMode);
+    void storeConfig(const QList<BackendOutput *> &allOutputs, bool isLidClosed, const OutputConfiguration &config);
 
-    bool isAutoRotateActive(const QList<Output *> &outputs, bool isTabletMode) const;
+    void applyMirroring(OutputConfiguration &config, const QList<BackendOutput *> &outputs);
+    bool isAutoRotateActive(const QList<BackendOutput *> &outputs, bool isTabletMode) const;
 
 private:
-    void applyOrientationReading(OutputConfiguration &config, const QList<Output *> &outputs, QOrientationReading *orientation, bool isTabletMode);
-    std::optional<std::pair<OutputConfiguration, QList<Output *>>> generateLidClosedConfig(const QList<Output *> &outputs);
-    std::shared_ptr<OutputMode> chooseMode(Output *output) const;
-    double chooseScale(Output *output, OutputMode *mode) const;
+    OutputConfiguration generateConfig(const QList<BackendOutput *> &outputs, bool isLidClosed);
+    void registerOutputs(const QList<BackendOutput *> &outputs);
+    void applyOrientationReading(OutputConfiguration &config, const QList<BackendOutput *> &outputs, QOrientationReading *orientation, bool isTabletMode);
+    std::optional<OutputConfiguration> generateLidClosedConfig(const QList<BackendOutput *> &outputs);
+    std::shared_ptr<OutputMode> chooseMode(BackendOutput *output) const;
+    double chooseScale(BackendOutput *output, OutputMode *mode) const;
     void load();
     void save();
 
@@ -63,25 +65,32 @@ private:
         QString mstPath;
         // actual state
         std::optional<ModeData> mode;
-        std::optional<double> scale;
+        std::optional<double> scaleSetting;
         std::optional<OutputTransform> transform;
         std::optional<OutputTransform> manualTransform;
         std::optional<uint32_t> overscan;
-        std::optional<Output::RgbRange> rgbRange;
+        std::optional<BackendOutput::RgbRange> rgbRange;
         std::optional<VrrPolicy> vrrPolicy;
         std::optional<bool> highDynamicRange;
         std::optional<uint32_t> referenceLuminance;
         std::optional<bool> wideColorGamut;
-        std::optional<Output::AutoRotationPolicy> autoRotation;
+        std::optional<BackendOutput::AutoRotationPolicy> autoRotation;
         std::optional<QString> iccProfilePath;
-        std::optional<Output::ColorProfileSource> colorProfileSource;
+        std::optional<BackendOutput::ColorProfileSource> colorProfileSource;
         std::optional<double> maxPeakBrightnessOverride;
         std::optional<double> maxAverageBrightnessOverride;
         std::optional<double> minBrightnessOverride;
         std::optional<double> sdrGamutWideness;
         std::optional<double> brightness;
         std::optional<bool> allowSdrSoftwareBrightness;
-        std::optional<Output::ColorPowerTradeoff> colorPowerTradeoff;
+        std::optional<BackendOutput::ColorPowerTradeoff> colorPowerTradeoff;
+        std::optional<QString> uuid;
+        std::optional<bool> detectedDdcCi;
+        std::optional<bool> allowDdcCi;
+        std::optional<uint32_t> maxBitsPerColor;
+        std::optional<BackendOutput::EdrPolicy> edrPolicy;
+        std::optional<double> sharpness;
+        std::optional<QList<CustomModeDefinition>> customModes;
     };
     struct SetupState
     {
@@ -89,6 +98,7 @@ private:
         QPoint position;
         bool enabled;
         int priority;
+        QString replicationSource;
     };
     struct Setup
     {
@@ -96,9 +106,9 @@ private:
         QList<SetupState> outputs;
     };
 
-    std::pair<OutputConfiguration, QList<Output *>> setupToConfig(Setup *setup, const std::unordered_map<Output *, size_t> &outputMap) const;
-    std::optional<std::pair<Setup *, std::unordered_map<Output *, size_t>>> findSetup(const QList<Output *> &outputs, bool lidClosed);
-    std::optional<size_t> findOutput(Output *output, const QList<Output *> &allOutputs) const;
+    OutputConfiguration setupToConfig(Setup *setup, const std::unordered_map<BackendOutput *, size_t> &outputMap) const;
+    std::optional<std::pair<Setup *, std::unordered_map<BackendOutput *, size_t>>> findSetup(const QList<BackendOutput *> &outputs, bool lidClosed);
+    std::optional<size_t> findOutput(BackendOutput *output, const QList<BackendOutput *> &allOutputs) const;
 
     QList<OutputState> m_outputs;
     QList<Setup> m_setups;

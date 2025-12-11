@@ -94,13 +94,11 @@ private:
  *
  * @see OutputDeviceV2Interface
  */
-class KWIN_EXPORT OutputDeviceModeV2Interface : public QObject
+class KWIN_EXPORT OutputDeviceModeV2Interface
 {
-    Q_OBJECT
-
 public:
-    OutputDeviceModeV2Interface(std::shared_ptr<OutputMode> handle, QObject *parent = nullptr);
-    ~OutputDeviceModeV2Interface() override;
+    OutputDeviceModeV2Interface(std::shared_ptr<OutputMode> handle);
+    ~OutputDeviceModeV2Interface();
 
     std::weak_ptr<OutputMode> handle() const;
 
@@ -110,5 +108,4 @@ private:
     friend class OutputDeviceModeV2InterfacePrivate;
     std::unique_ptr<OutputDeviceModeV2InterfacePrivate> d;
 };
-
 }

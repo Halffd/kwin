@@ -1,23 +1,23 @@
-# Spanish translations for kcm_kwin_virtualdesktops_x11.po package.
+# Spanish translations for kcm_kwin_virtualdesktops.po package.
 # Copyright (C) 2007-2025 This file is copyright:
-# This file is distributed under the same license as the kwin-x11 package.
+# This file is distributed under the same license as the kwin package.
 #
 # SPDX-FileCopyrightText: 2007 Jaime Robles <jaime@robles.nu>
 # SPDX-FileCopyrightText: 2010, 2013, 2014, 2018, 2019, 2021, 2022, 2024, 2025 Eloy Cuadra <ecuadra@eloihr.net>
 # SPDX-FileCopyrightText: 2012 Javier Vinal <fjvinal@gmail.com>
 msgid ""
 msgstr ""
-"Project-Id-Version: kcm_kwin_virtualdesktops_x11\n"
+"Project-Id-Version: kcm_kwin_virtualdesktops\n"
 "Report-Msgid-Bugs-To: https://bugs.kde.org\n"
-"POT-Creation-Date: 2025-11-17 11:53+0000\n"
-"PO-Revision-Date: 2025-05-18 15:03+0100\n"
+"POT-Creation-Date: 2025-12-09 00:44+0000\n"
+"PO-Revision-Date: 2025-12-09 11:50+0100\n"
 "Last-Translator: Eloy Cuadra <ecuadra@eloihr.net>\n"
 "Language-Team: Spanish <kde-l10n-es@kde.org>\n"
 "Language: es\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"X-Generator: Lokalize 24.02.2\n"
+"X-Generator: Lokalize 25.08.3\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
 
 #, kde-format
@@ -65,25 +65,31 @@ msgctxt "@action:button"
 msgid "Add Desktop"
 msgstr "Añadir escritorio"
 
-#: ui/main.qml:123
+#: ui/main.qml:82
 #, kde-format
-msgctxt "@info:tooltip"
+msgctxt "@action:button"
 msgid "Rename"
 msgstr "Cambiar nombre"
 
-#: ui/main.qml:135
-#, kde-format
-msgctxt "@info:tooltip"
-msgid "Confirm new name"
-msgstr "Confirmar nuevo nombre"
-
-#: ui/main.qml:144
+#: ui/main.qml:92
 #, kde-format
 msgctxt "@info:tooltip"
 msgid "Remove"
 msgstr "Eliminar"
 
-#: ui/main.qml:177
+#: ui/main.qml:107
+#, kde-format
+msgctxt "@info:tooltip"
+msgid "Apply new name"
+msgstr "Aplicar nuevo nombre"
+
+#: ui/main.qml:120
+#, kde-format
+msgctxt "@info:tooltip"
+msgid "Cancel rename"
+msgstr "Cancelar cambio de nombre"
+
+#: ui/main.qml:165
 #, kde-format
 msgid ""
 "Virtual desktops have been changed outside this settings application. Saving "
@@ -93,37 +99,37 @@ msgstr ""
 "de preferencias. Si guarda ahora estas preferencias se sobrescribirán las "
 "modificaciones."
 
-#: ui/main.qml:193
+#: ui/main.qml:181
 #, kde-format
 msgid "Row %1"
 msgstr "Fila %1"
 
-#: ui/main.qml:207
+#: ui/main.qml:195
 #, kde-format
 msgid "Options:"
 msgstr "Opciones:"
 
-#: ui/main.qml:209
+#: ui/main.qml:197
 #, kde-format
 msgid "Navigation wraps around"
 msgstr "Navegación cíclica"
 
-#: ui/main.qml:227
+#: ui/main.qml:215
 #, kde-format
 msgid "Show animation when switching:"
 msgstr "Mostrar animación al cambiar:"
 
-#: ui/main.qml:278
+#: ui/main.qml:266
 #, kde-format
 msgid "Show on-screen display when switching:"
 msgstr "Mostrar información en la pantalla al cambiar:"
 
-#: ui/main.qml:297
+#: ui/main.qml:285
 #, kde-format
 msgid "%1 ms"
 msgstr "%1 ms"
 
-#: ui/main.qml:321
+#: ui/main.qml:309
 #, kde-format
 msgid "Show desktop layout indicators"
 msgstr "Mostrar indicadores de disposición de escritorio"

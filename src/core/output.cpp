@@ -21,7 +21,7 @@
 namespace KWin
 {
 
-QDebug operator<<(QDebug debug, const Output *output)
+QDebug operator<<(QDebug debug, const LogicalOutput *output)
 {
     QDebugStateSaver saver(debug);
     debug.nospace();
@@ -31,13 +31,13 @@ QDebug operator<<(QDebug debug, const Output *output)
         debug << ", geometry=" << output->geometry();
         debug << ", scale=" << output->scale();
         if (debug.verbosity() > 2) {
-            debug << ", manufacturer=" << output->manufacturer();
-            debug << ", model=" << output->model();
-            debug << ", serialNumber=" << output->serialNumber();
+            debug << ", manufacturer=" << output->backendOutput()->manufacturer();
+            debug << ", model=" << output->backendOutput()->model();
+            debug << ", serialNumber=" << output->backendOutput()->serialNumber();
         }
         debug << ')';
     } else {
-        debug << "Output(0x0)";
+        debug << "LogicalOutput(0x0)";
     }
     return debug;
 }
@@ -341,25 +341,42 @@ QMatrix4x4 OutputTransform::toMatrix() const
     return matrix;
 }
 
-Output::Output(QObject *parent)
-    : QObject(parent)
+QRegion OutputTransform::map(const QRegion &region, const QSize &bounds) const
+{
+    QRegion ret;
+    for (const QRect &rect : region) {
+        ret |= map(rect, bounds);
+    }
+    return ret;
+}
+
+LogicalOutput::LogicalOutput(BackendOutput *backendOutput)
+    : m_backendOutput(backendOutput)
 {
     QJSEngine::setObjectOwnership(this, QJSEngine::CppOwnership);
+    connect(backendOutput, &BackendOutput::positionChanged, this, &LogicalOutput::geometryChanged);
+    connect(backendOutput, &BackendOutput::currentModeChanged, this, &LogicalOutput::geometryChanged);
+    connect(backendOutput, &BackendOutput::transformChanged, this, &LogicalOutput::geometryChanged);
+    connect(backendOutput, &BackendOutput::scaleChanged, this, &LogicalOutput::geometryChanged);
+    connect(backendOutput, &BackendOutput::scaleChanged, this, &LogicalOutput::scaleChanged);
+    // TODO dpms being kind of on the backend output and kind of here isn't great
+    connect(backendOutput, &BackendOutput::aboutToChange, this, &LogicalOutput::aboutToChange);
+    connect(backendOutput, &BackendOutput::changed, this, &LogicalOutput::changed);
+    connect(backendOutput, &BackendOutput::blendingColorChanged, this, &LogicalOutput::blendingColorChanged);
+    connect(backendOutput, &BackendOutput::transformChanged, this, &LogicalOutput::transformChanged);
+    connect(backendOutput, &BackendOutput::currentModeChanged, this, &LogicalOutput::currentModeChanged);
 }
 
-Output::~Output()
+LogicalOutput::~LogicalOutput()
 {
-    if (m_brightnessDevice) {
-        m_brightnessDevice->setOutput(nullptr);
-    }
 }
 
-void Output::ref()
+void LogicalOutput::ref()
 {
     m_refCount++;
 }
 
-void Output::unref()
+void LogicalOutput::unref()
 {
     Q_ASSERT(m_refCount > 0);
     m_refCount--;
@@ -368,293 +385,64 @@ void Output::unref()
     }
 }
 
-QString Output::name() const
-{
-    return m_information.name;
-}
-
-QUuid Output::uuid() const
-{
-    return m_uuid;
-}
-
-OutputTransform Output::transform() const
-{
-    return m_state.transform;
-}
-
-OutputTransform Output::manualTransform() const
-{
-    return m_state.manualTransform;
-}
-
-QString Output::eisaId() const
-{
-    return m_information.eisaId;
-}
-
-QString Output::manufacturer() const
-{
-    return m_information.manufacturer;
-}
-
-QString Output::model() const
-{
-    return m_information.model;
-}
-
-QString Output::serialNumber() const
-{
-    return m_information.serialNumber;
-}
-
-bool Output::isInternal() const
-{
-    return m_information.internal;
-}
-
-std::chrono::milliseconds Output::dimAnimationTime()
-{
-    // See kscreen.kcfg
-    return std::chrono::milliseconds(KSharedConfig::openConfig()->group(QStringLiteral("Effect-Kscreen")).readEntry("Duration", 250));
-}
-
-QRect Output::mapFromGlobal(const QRect &rect) const
+QRect LogicalOutput::mapFromGlobal(const QRect &rect) const
 {
     return rect.translated(-geometry().topLeft());
 }
 
-QRectF Output::mapFromGlobal(const QRectF &rect) const
+QRectF LogicalOutput::mapFromGlobal(const QRectF &rect) const
 {
     return rect.translated(-geometry().topLeft());
 }
 
-QRectF Output::mapToGlobal(const QRectF &rect) const
+QRectF LogicalOutput::mapToGlobal(const QRectF &rect) const
 {
     return rect.translated(geometry().topLeft());
 }
 
-QPointF Output::mapToGlobal(const QPointF &pos) const
+QRegion LogicalOutput::mapToGlobal(const QRegion &region) const
+{
+    return region.translated(geometry().topLeft());
+}
+
+QPointF LogicalOutput::mapToGlobal(const QPointF &pos) const
 {
     return pos + geometry().topLeft();
 }
 
-QPointF Output::mapFromGlobal(const QPointF &pos) const
+QPointF LogicalOutput::mapFromGlobal(const QPointF &pos) const
 {
     return pos - geometry().topLeft();
 }
 
-Output::Capabilities Output::capabilities() const
+qreal LogicalOutput::scale() const
 {
-    return m_information.capabilities;
+    return m_backendOutput->scale();
 }
 
-qreal Output::scale() const
+QRect LogicalOutput::geometry() const
 {
-    return m_state.scale;
+    return QRect(m_backendOutput->position(), m_backendOutput->pixelSize() / scale());
 }
 
-QRect Output::geometry() const
+QRectF LogicalOutput::geometryF() const
 {
-    return QRect(m_state.position, pixelSize() / scale());
+    return QRectF(m_backendOutput->position(), QSizeF(m_backendOutput->pixelSize()) / scale());
 }
 
-QRectF Output::geometryF() const
+QSize LogicalOutput::modeSize() const
 {
-    return QRectF(m_state.position, QSizeF(pixelSize()) / scale());
+    return m_backendOutput->modeSize();
 }
 
-QSize Output::physicalSize() const
-{
-    return m_information.physicalSize;
-}
-
-uint32_t Output::refreshRate() const
-{
-    return m_state.currentMode ? m_state.currentMode->refreshRate() : 0;
-}
-
-QSize Output::modeSize() const
-{
-    return m_state.currentMode ? m_state.currentMode->size() : QSize();
-}
-
-QSize Output::pixelSize() const
+QSize LogicalOutput::pixelSize() const
 {
     return orientateSize(modeSize());
 }
 
-const Edid &Output::edid() const
+QSize LogicalOutput::orientateSize(const QSize &size) const
 {
-    return m_information.edid;
-}
-
-QList<std::shared_ptr<OutputMode>> Output::modes() const
-{
-    return m_state.modes;
-}
-
-std::shared_ptr<OutputMode> Output::currentMode() const
-{
-    return m_state.currentMode;
-}
-
-QSize Output::desiredModeSize() const
-{
-    return m_state.desiredModeSize;
-}
-
-uint32_t Output::desiredModeRefreshRate() const
-{
-    return m_state.desiredModeRefreshRate;
-}
-
-Output::SubPixel Output::subPixel() const
-{
-    return m_information.subPixel;
-}
-
-void Output::applyChanges(const OutputConfiguration &config)
-{
-    auto props = config.constChangeSet(this);
-    if (!props) {
-        return;
-    }
-    Q_EMIT aboutToChange(props.get());
-
-    State next = m_state;
-    next.enabled = props->enabled.value_or(m_state.enabled);
-    next.transform = props->transform.value_or(m_state.transform);
-    next.position = props->pos.value_or(m_state.position);
-    next.scale = props->scale.value_or(m_state.scale);
-    next.rgbRange = props->rgbRange.value_or(m_state.rgbRange);
-    next.autoRotatePolicy = props->autoRotationPolicy.value_or(m_state.autoRotatePolicy);
-    next.iccProfilePath = props->iccProfilePath.value_or(m_state.iccProfilePath);
-    if (props->iccProfilePath) {
-        next.iccProfile = IccProfile::load(*props->iccProfilePath).value_or(nullptr);
-    }
-    next.vrrPolicy = props->vrrPolicy.value_or(m_state.vrrPolicy);
-    next.desiredModeSize = props->desiredModeSize.value_or(m_state.desiredModeSize);
-    next.desiredModeRefreshRate = props->desiredModeRefreshRate.value_or(m_state.desiredModeRefreshRate);
-
-    setState(next);
-
-    Q_EMIT changed();
-}
-
-bool Output::isEnabled() const
-{
-    return m_state.enabled;
-}
-
-QString Output::description() const
-{
-    return manufacturer() + ' ' + model();
-}
-
-static QUuid generateOutputId(const QString &eisaId, const QString &model,
-                              const QString &serialNumber, const QString &name)
-{
-    static const QUuid urlNs = QUuid("6ba7b811-9dad-11d1-80b4-00c04fd430c8"); // NameSpace_URL
-    static const QUuid kwinNs = QUuid::createUuidV5(urlNs, QStringLiteral("https://kwin.kde.org/o/"));
-
-    const QString payload = QStringList{name, eisaId, model, serialNumber}.join(':');
-    return QUuid::createUuidV5(kwinNs, payload);
-}
-
-void Output::setInformation(const Information &information)
-{
-    const auto oldInfo = m_information;
-    m_information = information;
-    m_uuid = generateOutputId(eisaId(), model(), serialNumber(), name());
-    if (oldInfo.capabilities != information.capabilities) {
-        Q_EMIT capabilitiesChanged();
-    }
-}
-
-void Output::setState(const State &state)
-{
-    const QRect oldGeometry = geometry();
-    const State oldState = m_state;
-
-    m_state = state;
-
-    if (oldGeometry != geometry()) {
-        Q_EMIT geometryChanged();
-    }
-    if (oldState.scale != state.scale) {
-        Q_EMIT scaleChanged();
-    }
-    if (oldState.modes != state.modes) {
-        Q_EMIT modesChanged();
-    }
-    if (oldState.currentMode != state.currentMode) {
-        Q_EMIT currentModeChanged();
-    }
-    if (oldState.transform != state.transform) {
-        Q_EMIT transformChanged();
-    }
-    if (oldState.overscan != state.overscan) {
-        Q_EMIT overscanChanged();
-    }
-    if (oldState.dpmsMode != state.dpmsMode) {
-        Q_EMIT dpmsModeChanged();
-    }
-    if (oldState.rgbRange != state.rgbRange) {
-        Q_EMIT rgbRangeChanged();
-    }
-    if (oldState.highDynamicRange != state.highDynamicRange) {
-        Q_EMIT highDynamicRangeChanged();
-    }
-    if (oldState.referenceLuminance != state.referenceLuminance) {
-        Q_EMIT referenceLuminanceChanged();
-    }
-    if (oldState.wideColorGamut != state.wideColorGamut) {
-        Q_EMIT wideColorGamutChanged();
-    }
-    if (oldState.autoRotatePolicy != state.autoRotatePolicy) {
-        Q_EMIT autoRotationPolicyChanged();
-    }
-    if (oldState.iccProfile != state.iccProfile) {
-        Q_EMIT iccProfileChanged();
-    }
-    if (oldState.iccProfilePath != state.iccProfilePath) {
-        Q_EMIT iccProfilePathChanged();
-    }
-    if (oldState.maxPeakBrightnessOverride != state.maxPeakBrightnessOverride
-        || oldState.maxAverageBrightnessOverride != state.maxAverageBrightnessOverride
-        || oldState.minBrightnessOverride != state.minBrightnessOverride) {
-        Q_EMIT brightnessMetadataChanged();
-    }
-    if (oldState.sdrGamutWideness != state.sdrGamutWideness) {
-        Q_EMIT sdrGamutWidenessChanged();
-    }
-    if (oldState.vrrPolicy != state.vrrPolicy) {
-        Q_EMIT vrrPolicyChanged();
-    }
-    if (oldState.colorDescription != state.colorDescription) {
-        Q_EMIT colorDescriptionChanged();
-    }
-    if (oldState.colorProfileSource != state.colorProfileSource) {
-        Q_EMIT colorProfileSourceChanged();
-    }
-    if (oldState.brightnessSetting != state.brightnessSetting) {
-        Q_EMIT brightnessChanged();
-    }
-    if (oldState.colorPowerTradeoff != state.colorPowerTradeoff) {
-        Q_EMIT colorPowerTradeoffChanged();
-    }
-    if (oldState.dimming != state.dimming) {
-        Q_EMIT dimmingChanged();
-    }
-    if (oldState.enabled != state.enabled) {
-        Q_EMIT enabledChanged();
-    }
-}
-
-QSize Output::orientateSize(const QSize &size) const
-{
-    switch (m_state.transform.kind()) {
+    switch (transform().kind()) {
     case OutputTransform::Rotate90:
     case OutputTransform::Rotate270:
     case OutputTransform::FlipX90:
@@ -665,174 +453,71 @@ QSize Output::orientateSize(const QSize &size) const
     }
 }
 
-void Output::setDpmsMode(DpmsMode mode)
+BackendOutput *LogicalOutput::backendOutput() const
 {
+    return m_backendOutput;
 }
 
-Output::DpmsMode Output::dpmsMode() const
+QString LogicalOutput::name() const
 {
-    return m_state.dpmsMode;
+    return m_backendOutput->name();
 }
 
-uint32_t Output::overscan() const
+QString LogicalOutput::description() const
 {
-    return m_state.overscan;
+    return m_backendOutput->description();
 }
 
-VrrPolicy Output::vrrPolicy() const
+QString LogicalOutput::manufacturer() const
 {
-    return m_state.vrrPolicy;
+    return m_backendOutput->manufacturer();
 }
 
-bool Output::isPlaceholder() const
+QString LogicalOutput::model() const
 {
-    return m_information.placeholder;
+    return m_backendOutput->model();
 }
 
-bool Output::isNonDesktop() const
+QString LogicalOutput::serialNumber() const
 {
-    return m_information.nonDesktop;
+    return m_backendOutput->serialNumber();
 }
 
-Output::RgbRange Output::rgbRange() const
+QString LogicalOutput::uuid() const
 {
-    return m_state.rgbRange;
+    return m_backendOutput->uuid();
 }
 
-bool Output::setChannelFactors(const QVector3D &rgb)
+bool LogicalOutput::isPlaceholder() const
 {
-    return false;
+    return m_backendOutput->isPlaceholder();
 }
 
-OutputTransform Output::panelOrientation() const
+QSize LogicalOutput::physicalSize() const
 {
-    return m_information.panelOrientation;
+    return m_backendOutput->physicalSize();
 }
 
-bool Output::wideColorGamut() const
+const std::shared_ptr<ColorDescription> &LogicalOutput::blendingColor() const
 {
-    return m_state.wideColorGamut;
+    return m_backendOutput->blendingColor();
 }
 
-bool Output::highDynamicRange() const
+OutputTransform LogicalOutput::transform() const
 {
-    return m_state.highDynamicRange;
+    return m_backendOutput->transform();
 }
 
-uint32_t Output::referenceLuminance() const
+bool LogicalOutput::isInternal() const
 {
-    return m_state.referenceLuminance;
+    return m_backendOutput->isInternal();
 }
 
-Output::AutoRotationPolicy Output::autoRotationPolicy() const
+uint32_t LogicalOutput::refreshRate() const
 {
-    return m_state.autoRotatePolicy;
+    return m_backendOutput->refreshRate();
 }
 
-std::shared_ptr<IccProfile> Output::iccProfile() const
-{
-    return m_state.iccProfile;
-}
-
-QString Output::iccProfilePath() const
-{
-    return m_state.iccProfilePath;
-}
-
-QByteArray Output::mstPath() const
-{
-    return m_information.mstPath;
-}
-
-bool Output::updateCursorLayer()
-{
-    return false;
-}
-
-const ColorDescription &Output::colorDescription() const
-{
-    return m_state.colorDescription;
-}
-
-std::optional<double> Output::maxPeakBrightness() const
-{
-    return m_state.maxPeakBrightnessOverride ? m_state.maxPeakBrightnessOverride : m_information.maxPeakBrightness;
-}
-
-std::optional<double> Output::maxAverageBrightness() const
-{
-    return m_state.maxAverageBrightnessOverride ? *m_state.maxAverageBrightnessOverride : m_information.maxAverageBrightness;
-}
-
-double Output::minBrightness() const
-{
-    return m_state.minBrightnessOverride.value_or(m_information.minBrightness);
-}
-
-std::optional<double> Output::maxPeakBrightnessOverride() const
-{
-    return m_state.maxPeakBrightnessOverride;
-}
-
-std::optional<double> Output::maxAverageBrightnessOverride() const
-{
-    return m_state.maxAverageBrightnessOverride;
-}
-
-std::optional<double> Output::minBrightnessOverride() const
-{
-    return m_state.minBrightnessOverride;
-}
-
-double Output::sdrGamutWideness() const
-{
-    return m_state.sdrGamutWideness;
-}
-
-Output::ColorProfileSource Output::colorProfileSource() const
-{
-    return m_state.colorProfileSource;
-}
-
-double Output::brightnessSetting() const
-{
-    return m_state.brightnessSetting;
-}
-
-double Output::dimming() const
-{
-    return m_state.dimming;
-}
-
-std::optional<double> Output::currentBrightness() const
-{
-    return m_state.currentBrightness;
-}
-
-double Output::artificialHdrHeadroom() const
-{
-    return m_state.artificialHdrHeadroom;
-}
-
-BrightnessDevice *Output::brightnessDevice() const
-{
-    return m_brightnessDevice;
-}
-
-void Output::setBrightnessDevice(BrightnessDevice *device)
-{
-    m_brightnessDevice = device;
-}
-
-bool Output::allowSdrSoftwareBrightness() const
-{
-    return m_state.allowSdrSoftwareBrightness;
-}
-
-Output::ColorPowerTradeoff Output::colorPowerTradeoff() const
-{
-    return m_state.colorPowerTradeoff;
-}
 } // namespace KWin
 
 #include "moc_output.cpp"

@@ -54,30 +54,26 @@
 
 #include "scene/workspacescene.h"
 #include "compositor.h"
+#include "core/backendoutput.h"
 #include "core/output.h"
+#include "core/pixelgrid.h"
 #include "core/renderbackend.h"
-#include "core/renderlayer.h"
 #include "core/renderloop.h"
 #include "core/renderviewport.h"
+#include "cursoritem.h"
 #include "effect/effecthandler.h"
-#include "internalwindow.h"
+#include "opengl/eglbackend.h"
+#include "opengl/eglcontext.h"
 #include "scene/decorationitem.h"
 #include "scene/dndiconitem.h"
 #include "scene/itemrenderer.h"
 #include "scene/rootitem.h"
-#include "scene/shadowitem.h"
 #include "scene/surfaceitem.h"
 #include "scene/windowitem.h"
-#include "shadow.h"
 #include "wayland/seat.h"
-#include "wayland/surface.h"
 #include "wayland_server.h"
-#include "waylandwindow.h"
 #include "window.h"
 #include "workspace.h"
-#if KWIN_BUILD_X11
-#include "x11window.h"
-#endif
 
 #include <QtMath>
 
@@ -92,16 +88,21 @@ WorkspaceScene::WorkspaceScene(std::unique_ptr<ItemRenderer> renderer)
     : Scene(std::move(renderer))
     , m_containerItem(std::make_unique<RootItem>(this))
     , m_overlayItem(std::make_unique<RootItem>(this))
+    , m_cursorItem(std::make_unique<CursorItem>(m_overlayItem.get()))
 {
     setGeometry(workspace()->geometry());
     connect(workspace(), &Workspace::geometryChanged, this, [this]() {
         setGeometry(workspace()->geometry());
     });
 
-    if (waylandServer()) {
-        connect(waylandServer()->seat(), &SeatInterface::dragStarted, this, &WorkspaceScene::createDndIconItem);
-        connect(waylandServer()->seat(), &SeatInterface::dragEnded, this, &WorkspaceScene::destroyDndIconItem);
-    }
+    connect(waylandServer()->seat(), &SeatInterface::dragStarted, this, &WorkspaceScene::createDndIconItem);
+    connect(waylandServer()->seat(), &SeatInterface::dragEnded, this, &WorkspaceScene::destroyDndIconItem);
+
+    // make sure it's over the dnd icon
+    m_cursorItem->setZ(1);
+    connect(Cursors::self(), &Cursors::hiddenChanged, this, &WorkspaceScene::updateCursor);
+    connect(Cursors::self(), &Cursors::positionChanged, this, &WorkspaceScene::updateCursor);
+    updateCursor();
 }
 
 WorkspaceScene::~WorkspaceScene()
@@ -115,31 +116,30 @@ void WorkspaceScene::createDndIconItem()
         return;
     }
     m_dndIcon = std::make_unique<DragAndDropIconItem>(dragIcon, m_overlayItem.get());
-    if (waylandServer()->seat()->isDragPointer()) {
-        auto updatePosition = [this]() {
-            const auto pointerPos = waylandServer()->seat()->pointerPos();
-            m_dndIcon->setPosition(pointerPos);
-            m_dndIcon->setOutput(workspace()->outputAt(pointerPos));
-        };
 
-        updatePosition();
-        connect(waylandServer()->seat(), &SeatInterface::pointerPosChanged, m_dndIcon.get(), updatePosition);
-    } else if (waylandServer()->seat()->isDragTouch()) {
-        auto updatePosition = [this]() {
-            auto seat = waylandServer()->seat();
-            const auto touchPos = seat->firstTouchPointPosition(seat->dragSurface());
-            m_dndIcon->setPosition(touchPos);
-            m_dndIcon->setOutput(workspace()->outputAt(touchPos));
-        };
+    auto updatePosition = [this]() {
+        const auto position = waylandServer()->seat()->dragPosition();
+        m_dndIcon->setPosition(position);
+        m_dndIcon->setOutput(workspace()->outputAt(position));
+    };
 
-        updatePosition();
-        connect(waylandServer()->seat(), &SeatInterface::touchMoved, m_dndIcon.get(), updatePosition);
-    }
+    updatePosition();
+    connect(waylandServer()->seat(), &SeatInterface::dragMoved, m_dndIcon.get(), updatePosition);
 }
 
 void WorkspaceScene::destroyDndIconItem()
 {
     m_dndIcon.reset();
+}
+
+void WorkspaceScene::updateCursor()
+{
+    if (Cursors::self()->isCursorHidden()) {
+        m_cursorItem->setVisible(false);
+    } else {
+        m_cursorItem->setVisible(true);
+        m_cursorItem->setPosition(Cursors::self()->currentCursor()->pos());
+    }
 }
 
 Item *WorkspaceScene::containerItem() const
@@ -152,35 +152,26 @@ Item *WorkspaceScene::overlayItem() const
     return m_overlayItem.get();
 }
 
+Item *WorkspaceScene::cursorItem() const
+{
+    return m_cursorItem.get();
+}
+
+static bool regionActuallyContains(const QRegion &region, const QRect &rect)
+{
+    // QRegion::contains does **not** actually check if the region contains the rect
+    // so this helper function has to be used instead...
+    return (region & rect) == rect;
+}
+
 struct ClipCorner
 {
     QRectF box;
     BorderRadius radius;
 };
 
-static bool addCandidates(SurfaceItem *item, QList<SurfaceItem *> &candidates, ssize_t maxCount, QRegion &occluded, QStack<ClipCorner> &corners)
+static void maybePushCorners(Item *item, QStack<ClipCorner> &corners)
 {
-    const QList<Item *> children = item->sortedChildItems();
-    auto it = children.rbegin();
-    for (; it != children.rend(); it++) {
-        Item *const child = *it;
-        if (child->z() < 0) {
-            break;
-        }
-        if (child->isVisible() && !occluded.contains(child->mapToScene(child->boundingRect()).toAlignedRect())) {
-            if (!addCandidates(static_cast<SurfaceItem *>(child), candidates, maxCount, occluded, corners)) {
-                return false;
-            }
-        }
-    }
-    if (candidates.size() >= maxCount || item->hasEffects()) {
-        return false;
-    }
-    if (occluded.contains(item->mapToScene(item->boundingRect()).toAlignedRect())) {
-        return true;
-    }
-    candidates.push_back(item);
-
     if (!item->borderRadius().isNull()) {
         corners.push({
             .box = item->rect(),
@@ -193,6 +184,44 @@ static bool addCandidates(SurfaceItem *item, QList<SurfaceItem *> &candidates, s
             .radius = top.radius,
         });
     }
+}
+
+static bool addCandidates(SceneView *delegate, Item *item, QList<SurfaceItem *> &candidates, ssize_t maxCount, QRegion &occluded, QStack<ClipCorner> &corners)
+{
+    if (item->opacity() != 1.0 || item->hasEffects()) {
+        return false;
+    }
+    const QList<Item *> children = item->sortedChildItems();
+    auto it = children.rbegin();
+    for (; it != children.rend(); it++) {
+        Item *const child = *it;
+        if (child->z() < 0) {
+            break;
+        }
+        if (!delegate->shouldRenderItem(child)) {
+            continue;
+        }
+        if (child->isVisible() && !regionActuallyContains(occluded, child->mapToView(child->boundingRect(), delegate).toAlignedRect())) {
+            if (!addCandidates(delegate, static_cast<SurfaceItem *>(child), candidates, maxCount, occluded, corners)) {
+                return false;
+            }
+        }
+    }
+    if (regionActuallyContains(occluded, item->mapToView(item->boundingRect(), delegate).toAlignedRect())) {
+        return true;
+    }
+    if (delegate->shouldRenderItem(item)) {
+        if (auto surfaceItem = qobject_cast<SurfaceItem *>(item)) {
+            candidates.push_back(surfaceItem);
+            if (candidates.size() > maxCount) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    maybePushCorners(item, corners);
     auto cleanupCorners = qScopeGuard([&corners]() {
         if (!corners.isEmpty()) {
             corners.pop();
@@ -205,11 +234,14 @@ static bool addCandidates(SurfaceItem *item, QList<SurfaceItem *> &candidates, s
         opaque = top.radius.clip(opaque, top.box);
     }
 
-    occluded += item->mapToScene(opaque);
+    occluded += item->mapToView(opaque, delegate);
     for (; it != children.rend(); it++) {
         Item *const child = *it;
-        if (child->isVisible() && !occluded.contains(child->mapToScene(child->boundingRect()).toAlignedRect())) {
-            if (!addCandidates(static_cast<SurfaceItem *>(child), candidates, maxCount, occluded, corners)) {
+        if (!delegate->shouldRenderItem(child)) {
+            continue;
+        }
+        if (child->isVisible() && !regionActuallyContains(occluded, child->mapToView(child->boundingRect(), delegate).toAlignedRect())) {
+            if (!addCandidates(delegate, static_cast<SurfaceItem *>(child), candidates, maxCount, occluded, corners)) {
                 return false;
             }
         }
@@ -219,36 +251,163 @@ static bool addCandidates(SurfaceItem *item, QList<SurfaceItem *> &candidates, s
 
 QList<SurfaceItem *> WorkspaceScene::scanoutCandidates(ssize_t maxCount) const
 {
-    if (!waylandServer()) {
+    const auto overlayItems = m_overlayItem->childItems();
+    const bool needsRendering = std::ranges::any_of(overlayItems, [this](Item *child) {
+        return child->isVisible()
+            && !child->boundingRect().isEmpty()
+            && painted_delegate->shouldRenderItem(child);
+    });
+    if (needsRendering) {
         return {};
     }
     QList<SurfaceItem *> ret;
     if (!effects->blocksDirectScanout()) {
         QRegion occlusion;
         QStack<ClipCorner> corners;
-        for (int i = stacking_order.count() - 1; i >= 0; i--) {
-            WindowItem *windowItem = stacking_order[i];
-            Window *window = windowItem->window();
-            if (window->isOnOutput(painted_screen) && window->opacity() > 0 && windowItem->isVisible()) {
-                if (!window->isClient() || window->opacity() != 1.0 || !window->isFullScreen() || window->windowItem()->hasEffects()) {
-                    return {};
-                }
-
-                SurfaceItem *surfaceItem = window->surfaceItem();
-                if (!surfaceItem || !surfaceItem->isVisible()) {
-                    continue;
-                }
-
-                if (!addCandidates(surfaceItem, ret, maxCount, occlusion, corners)) {
-                    return {};
-                }
-                if (occlusion.contains(painted_screen->geometry())) {
-                    return ret;
-                }
+        const auto items = m_containerItem->sortedChildItems();
+        for (Item *item : items | std::views::reverse) {
+            if (!item->isVisible() || !painted_delegate->shouldRenderItem(item) || !painted_delegate->viewport().intersects(item->mapToView(item->boundingRect(), painted_delegate))) {
+                continue;
+            }
+            if (!addCandidates(painted_delegate, item, ret, maxCount, occlusion, corners)) {
+                return {};
+            }
+            if (regionActuallyContains(occlusion, painted_screen->geometry())) {
+                return ret;
             }
         }
     }
     return ret;
+}
+
+static QRect mapToDevice(SceneView *view, Item *item, const QRectF &itemLocal)
+{
+    const QRectF localLogical = item->mapToView(itemLocal, view).translated(-view->viewport().topLeft());
+    return snapToPixelGridF(scaledRect(localLogical, view->scale())).toRect();
+}
+
+static QRegion mapToDevice(SceneView *view, Item *item, const QRegion &itemLocal)
+{
+    QRegion ret;
+    for (const QRectF local : itemLocal) {
+        ret |= mapToDevice(view, item, local);
+    }
+    return ret;
+}
+
+static bool findOverlayCandidates(SceneView *view, Item *item, ssize_t maxTotalCount, ssize_t maxOverlayCount, ssize_t maxUnderlayCount, QRegion &occupied, QRegion &opaque, QRegion &effected, QList<SurfaceItem *> &overlays, QList<SurfaceItem *> &underlays, QStack<ClipCorner> &corners)
+{
+    if (!item || !item->isVisible() || item->boundingRect().isEmpty() || !view->viewport().intersects(item->mapToView(item->boundingRect(), view))) {
+        return true;
+    }
+    if (item->hasEffects()) {
+        // can't put this item, any children on items below this one
+        // on an overlay, as we don't know what the effect does
+        effected += mapToDevice(view, item, item->boundingRect());
+        return true;
+    }
+    maybePushCorners(item, corners);
+    auto cleanupCorners = qScopeGuard([&corners]() {
+        if (!corners.isEmpty()) {
+            corners.pop();
+        }
+    });
+
+    const QList<Item *> children = item->sortedChildItems();
+    auto it = children.rbegin();
+    for (; it != children.rend(); it++) {
+        Item *const child = *it;
+        if (child->z() < 0) {
+            break;
+        }
+        if (!findOverlayCandidates(view, child, maxTotalCount, maxOverlayCount, maxUnderlayCount, occupied, opaque, effected, overlays, underlays, corners)) {
+            return false;
+        }
+    }
+
+    // for the Item to be possibly relevant for overlays, it needs to
+    // - be a SurfaceItem (for now at least)
+    // - not be empty
+    // - be the topmost item in the relevant screen area
+    // - regularly get updates
+    // - use dmabufs
+    // - not have any surface-wide opacity (for now)
+    // - not be entirely covered by other opaque windows
+    SurfaceItem *surfaceItem = dynamic_cast<SurfaceItem *>(item);
+    const QRect deviceRect = mapToDevice(view, item, item->rect());
+    if (surfaceItem
+        && !surfaceItem->rect().isEmpty()
+        && surfaceItem->frameTimeEstimation().transform([](const auto t) {
+        return t < std::chrono::nanoseconds(1'000'000'000) / 20;
+    }).value_or(false)
+        && surfaceItem->buffer()->dmabufAttributes()
+        // TODO make the compositor handle item opacity as well
+        && surfaceItem->opacity() == 1.0
+        && !regionActuallyContains(opaque, deviceRect)
+        && !effected.intersects(deviceRect)) {
+        if (occupied.intersects(deviceRect) || (!corners.isEmpty() && corners.top().radius.clips(item->rect(), corners.top().box))) {
+            const bool isOpaque = regionActuallyContains(surfaceItem->opaque(), surfaceItem->rect().toAlignedRect());
+            if (!isOpaque) {
+                // only fully opaque items can be used as underlays
+                return false;
+            }
+            underlays.push_back(surfaceItem);
+        } else {
+            overlays.push_back(surfaceItem);
+        }
+        if (overlays.size() + underlays.size() > maxTotalCount
+            || overlays.size() > maxOverlayCount
+            || underlays.size() > maxUnderlayCount) {
+            // If we have to repaint the primary plane anyways, it's not going to provide an efficiency
+            // or latency improvement to put some but not all quickly updating surfaces on overlays,
+            // at least not with the current way we use them.
+            return false;
+        }
+    } else {
+        occupied += deviceRect;
+    }
+    opaque += mapToDevice(view, item, item->opaque());
+
+    for (; it != children.rend(); it++) {
+        Item *const child = *it;
+        if (!findOverlayCandidates(view, child, maxTotalCount, maxOverlayCount, maxUnderlayCount, occupied, opaque, effected, overlays, underlays, corners)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+Scene::OverlayCandidates WorkspaceScene::overlayCandidates(ssize_t maxTotalCount, ssize_t maxOverlayCount, ssize_t maxUnderlayCount) const
+{
+    if (effects->blocksDirectScanout()) {
+        return {};
+    }
+    QRegion occupied;
+    QRegion opaque;
+    QRegion effected;
+    QList<SurfaceItem *> overlays;
+    QList<SurfaceItem *> underlays;
+    QStack<ClipCorner> cornerStack;
+    const auto overlayItems = m_overlayItem->sortedChildItems();
+    for (Item *item : overlayItems | std::views::reverse) {
+        // the cursor is currently handled separately by the compositor
+        if (item == cursorItem() && !painted_delegate->shouldRenderItem(item)) {
+            continue;
+        }
+        if (!findOverlayCandidates(painted_delegate, item, maxTotalCount, maxOverlayCount, maxUnderlayCount, occupied, opaque, effected, overlays, underlays, cornerStack)) {
+            return {};
+        }
+    }
+    const auto items = m_containerItem->sortedChildItems();
+    for (Item *item : items | std::views::reverse) {
+        if (!findOverlayCandidates(painted_delegate, item, maxTotalCount, maxOverlayCount, maxUnderlayCount, occupied, opaque, effected, overlays, underlays, cornerStack)) {
+            return {};
+        }
+    }
+    return OverlayCandidates{
+        .overlays = overlays,
+        .underlays = underlays,
+    };
 }
 
 static double getDesiredHdrHeadroom(Item *item)
@@ -262,8 +421,8 @@ static double getDesiredHdrHeadroom(Item *item)
         ret = std::max(ret, getDesiredHdrHeadroom(child));
     }
     const auto &color = item->colorDescription();
-    if (color.maxHdrLuminance() && *color.maxHdrLuminance() > color.referenceLuminance()) {
-        return std::max(ret, *color.maxHdrLuminance() / color.referenceLuminance());
+    if (color->maxHdrLuminance() && *color->maxHdrLuminance() > color->referenceLuminance()) {
+        return std::max(ret, *color->maxHdrLuminance() / color->referenceLuminance());
     } else {
         return ret;
     }
@@ -273,7 +432,7 @@ double WorkspaceScene::desiredHdrHeadroom() const
 {
     double maxHeadroom = 1;
     for (const auto &item : stacking_order) {
-        if (!item->window()->isOnOutput(painted_screen)) {
+        if (!item->window()->frameGeometry().intersects(painted_delegate->viewport())) {
             continue;
         }
         maxHeadroom = std::max(maxHeadroom, getDesiredHdrHeadroom(item));
@@ -281,57 +440,24 @@ double WorkspaceScene::desiredHdrHeadroom() const
     return maxHeadroom;
 }
 
-void WorkspaceScene::frame(SceneDelegate *delegate, OutputFrame *frame)
+void WorkspaceScene::frame(SceneView *delegate, OutputFrame *frame)
 {
-    if (waylandServer()) {
-        Output *output = delegate->output();
-        const std::chrono::milliseconds frameTime =
-            std::chrono::duration_cast<std::chrono::milliseconds>(output->renderLoop()->lastPresentationTimestamp());
-
-        const QList<Item *> items = m_containerItem->sortedChildItems();
-        for (Item *item : items) {
-            if (!item->isVisible()) {
-                continue;
-            }
-            Window *window = static_cast<WindowItem *>(item)->window();
-            if (!window->isOnOutput(output)) {
-                continue;
-            }
-            if (auto surface = window->surface()) {
-                surface->traverseTree([&frameTime, &frame, &output](SurfaceInterface *surface) {
-                    surface->frameRendered(frameTime.count());
-                    if (auto feedback = surface->takePresentationFeedback(output)) {
-                        frame->addFeedback(std::move(feedback));
-                    }
-                });
-            }
-        }
-
-        if (m_dndIcon) {
-            if (auto surface = m_dndIcon->surface()) {
-                surface->traverseTree([&frameTime, &frame, &output](SurfaceInterface *surface) {
-                    surface->frameRendered(frameTime.count());
-                    if (auto feedback = surface->takePresentationFeedback(output)) {
-                        frame->addFeedback(std::move(feedback));
-                    }
-                });
-            }
-        }
+    LogicalOutput *logicalOutput = delegate->logicalOutput();
+    const auto frameTime = std::chrono::duration_cast<std::chrono::milliseconds>(logicalOutput->backendOutput()->renderLoop()->lastPresentationTimestamp());
+    m_containerItem->framePainted(delegate, logicalOutput, frame, frameTime);
+    if (m_overlayItem) {
+        m_overlayItem->framePainted(delegate, logicalOutput, frame, frameTime);
     }
 }
 
-QRegion WorkspaceScene::prePaint(SceneDelegate *delegate)
+void WorkspaceScene::prePaint(SceneView *delegate)
 {
+    painted_delegate = delegate;
+    painted_screen = painted_delegate->logicalOutput();
+
     createStackingOrder();
 
-    painted_delegate = delegate;
-    if (kwinApp()->operationMode() == Application::OperationModeX11) {
-        painted_screen = workspace()->outputs().constFirst();
-    } else {
-        painted_screen = painted_delegate->output();
-    }
-
-    const RenderLoop *renderLoop = painted_screen->renderLoop();
+    const RenderLoop *renderLoop = painted_screen->backendOutput()->renderLoop();
     const std::chrono::milliseconds presentTime =
         std::chrono::duration_cast<std::chrono::milliseconds>(renderLoop->nextPresentationTimestamp());
 
@@ -345,12 +471,13 @@ QRegion WorkspaceScene::prePaint(SceneDelegate *delegate)
     ScreenPrePaintData prePaintData;
     prePaintData.mask = 0;
     prePaintData.screen = painted_screen;
+    prePaintData.view = delegate;
 
     effects->makeOpenGLContextCurrent();
     Q_EMIT preFrameRender();
 
     effects->prePaintScreen(prePaintData, m_expectedPresentTimestamp);
-    m_paintContext.damage = prePaintData.paint;
+    m_paintContext.deviceDamage = painted_delegate->mapToDeviceCoordinatesAligned(prePaintData.paint) & painted_delegate->deviceRect();
     m_paintContext.mask = prePaintData.mask;
     m_paintContext.phase2Data.clear();
 
@@ -359,13 +486,13 @@ QRegion WorkspaceScene::prePaint(SceneDelegate *delegate)
     } else {
         preparePaintSimpleScreen();
     }
-
-    return m_paintContext.damage.translated(-delegate->viewport().topLeft());
 }
 
-static void resetRepaintsHelper(Item *item, SceneDelegate *delegate)
+static void resetRepaintsHelper(Item *item, SceneView *delegate)
 {
-    item->resetRepaints(delegate);
+    if (delegate->shouldRenderItem(item)) {
+        item->resetRepaints(delegate);
+    }
 
     const auto childItems = item->childItems();
     for (Item *childItem : childItems) {
@@ -373,9 +500,11 @@ static void resetRepaintsHelper(Item *item, SceneDelegate *delegate)
     }
 }
 
-static void accumulateRepaints(Item *item, SceneDelegate *delegate, QRegion *repaints)
+static void accumulateRepaints(Item *item, SceneView *delegate, QRegion *repaints)
 {
-    *repaints += item->takeRepaints(delegate);
+    if (delegate->shouldRenderItem(item)) {
+        *repaints += item->takeDeviceRepaints(delegate);
+    }
 
     const auto childItems = item->childItems();
     for (Item *childItem : childItems) {
@@ -390,19 +519,16 @@ void WorkspaceScene::preparePaintGenericScreen()
 
         WindowPrePaintData data;
         data.mask = m_paintContext.mask;
-        data.paint = infiniteRegion(); // no clipping, so doesn't really matter
+        data.devicePaint = infiniteRegion(); // no clipping, so doesn't really matter
 
-        effects->prePaintWindow(windowItem->effectWindow(), data, m_expectedPresentTimestamp);
+        effects->prePaintWindow(painted_delegate, windowItem->effectWindow(), data, m_expectedPresentTimestamp);
         m_paintContext.phase2Data.append(Phase2Data{
             .item = windowItem,
-            .region = infiniteRegion(),
-            .opaque = data.opaque,
+            .deviceRegion = infiniteRegion(),
+            .deviceOpaque = data.deviceOpaque,
             .mask = data.mask,
         });
     }
-
-    resetRepaintsHelper(m_overlayItem.get(), painted_delegate);
-    m_paintContext.damage = infiniteRegion();
 }
 
 void WorkspaceScene::preparePaintSimpleScreen()
@@ -411,68 +537,93 @@ void WorkspaceScene::preparePaintSimpleScreen()
         Window *window = windowItem->window();
         WindowPrePaintData data;
         data.mask = m_paintContext.mask;
-        accumulateRepaints(windowItem, painted_delegate, &data.paint);
 
         // Clip out the decoration for opaque windows; the decoration is drawn in the second pass.
         if (window->opacity() == 1.0) {
             const SurfaceItem *surfaceItem = windowItem->surfaceItem();
+            const auto mapOpaqueToDevice = [this](const Item *item) {
+                const QRegion opaque = item->borderRadius().clip(item->opaque(), item->rect());
+                const QRect deviceRect = snapToPixelGrid(painted_delegate->mapToDeviceCoordinates(item->mapToView(item->rect(), painted_delegate)));
+                QRegion ret;
+                for (QRectF rect : opaque) {
+                    ret |= snapToPixelGrid(painted_delegate->mapToDeviceCoordinates(item->mapToView(rect, painted_delegate))) & deviceRect;
+                }
+                return ret;
+            };
             if (Q_LIKELY(surfaceItem)) {
-                data.opaque = surfaceItem->mapToScene(surfaceItem->borderRadius().clip(surfaceItem->opaque(), surfaceItem->rect()));
+                data.deviceOpaque = mapOpaqueToDevice(surfaceItem);
             }
 
             const DecorationItem *decorationItem = windowItem->decorationItem();
             if (decorationItem) {
-                data.opaque += decorationItem->mapToScene(decorationItem->borderRadius().clip(decorationItem->opaque(), decorationItem->rect()));
+                data.deviceOpaque += mapOpaqueToDevice(decorationItem);
             }
         }
 
-        effects->prePaintWindow(windowItem->effectWindow(), data, m_expectedPresentTimestamp);
+        effects->prePaintWindow(painted_delegate, windowItem->effectWindow(), data, m_expectedPresentTimestamp);
         m_paintContext.phase2Data.append(Phase2Data{
             .item = windowItem,
-            .region = data.paint,
-            .opaque = data.opaque,
+            .deviceRegion = data.devicePaint & painted_delegate->deviceRect(),
+            .deviceOpaque = data.deviceOpaque,
             .mask = data.mask,
         });
     }
+}
 
-    // Perform an occlusion cull pass, remove surface damage occluded by opaque windows.
-    QRegion opaque;
-    for (int i = m_paintContext.phase2Data.size() - 1; i >= 0; --i) {
-        const auto &paintData = m_paintContext.phase2Data.at(i);
-        m_paintContext.damage += paintData.region - opaque;
-        if (!(paintData.mask & (PAINT_WINDOW_TRANSLUCENT | PAINT_WINDOW_TRANSFORMED))) {
-            opaque += paintData.opaque;
+QRegion WorkspaceScene::collectDamage()
+{
+    if (m_paintContext.mask & (PAINT_SCREEN_TRANSFORMED | PAINT_SCREEN_WITH_TRANSFORMED_WINDOWS)) {
+        resetRepaintsHelper(m_overlayItem.get(), painted_delegate);
+        m_paintContext.deviceDamage = painted_delegate->deviceRect();
+        return m_paintContext.deviceDamage;
+    } else {
+        // Perform an occlusion cull pass, remove surface damage occluded by opaque windows.
+        QRegion opaque;
+        for (int i = m_paintContext.phase2Data.size() - 1; i >= 0; --i) {
+            auto &paintData = m_paintContext.phase2Data[i];
+            accumulateRepaints(paintData.item, painted_delegate, &paintData.deviceRegion);
+            m_paintContext.deviceDamage += paintData.deviceRegion - opaque;
+            // TODO change effects API, so occlusion culling is per item, rather than per window
+            const bool canCover = painted_delegate->shouldRenderItem(paintData.item->surfaceItem())
+                || painted_delegate->shouldRenderHole(paintData.item->surfaceItem());
+            if (!(paintData.mask & (PAINT_WINDOW_TRANSLUCENT | PAINT_WINDOW_TRANSFORMED)) && canCover) {
+                opaque += paintData.deviceOpaque;
+            }
         }
-    }
 
-    accumulateRepaints(m_overlayItem.get(), painted_delegate, &m_paintContext.damage);
+        accumulateRepaints(m_overlayItem.get(), painted_delegate, &m_paintContext.deviceDamage);
+
+        return m_paintContext.deviceDamage & painted_delegate->deviceRect();
+    }
 }
 
 void WorkspaceScene::postPaint()
 {
-    for (WindowItem *w : std::as_const(stacking_order)) {
-        effects->postPaintWindow(w->effectWindow());
-    }
-
     effects->postPaintScreen();
 
+    painted_delegate = nullptr;
+    painted_screen = nullptr;
     clearStackingOrder();
 }
 
-void WorkspaceScene::paint(const RenderTarget &renderTarget, const QRegion &region)
+void WorkspaceScene::paint(const RenderTarget &renderTarget, const QPoint &deviceOffset, const QRegion &deviceRegion)
 {
-    Output *output = kwinApp()->operationMode() == Application::OperationMode::OperationModeX11 ? nullptr : painted_screen;
-    RenderViewport viewport(output ? output->geometryF() : workspace()->geometry(), output ? output->scale() : 1, renderTarget);
+    RenderViewport viewport(painted_delegate->viewport(), painted_delegate->scale(), renderTarget, deviceOffset);
 
     m_renderer->beginFrame(renderTarget, viewport);
 
-    effects->paintScreen(renderTarget, viewport, m_paintContext.mask, region, painted_screen);
+    effects->paintScreen(renderTarget, viewport, m_paintContext.mask, deviceRegion, painted_screen);
     m_paintScreenCount = 0;
 
     if (m_overlayItem) {
-        const QRegion repaint = region & m_overlayItem->mapToScene(m_overlayItem->boundingRect()).toRect();
-        if (!repaint.isEmpty()) {
-            m_renderer->renderItem(renderTarget, viewport, m_overlayItem.get(), PAINT_SCREEN_TRANSFORMED, repaint, WindowPaintData{});
+        const QRect bounds = viewport.mapToDeviceCoordinates(m_overlayItem->mapToScene(m_overlayItem->boundingRect())).toRect();
+        const QRegion deviceRepaint = deviceRegion & bounds;
+        if (!deviceRepaint.isEmpty()) {
+            m_renderer->renderItem(renderTarget, viewport, m_overlayItem.get(), PAINT_SCREEN_TRANSFORMED, deviceRepaint, WindowPaintData{}, [this](Item *item) {
+                return !painted_delegate->shouldRenderItem(item);
+            }, [this](Item *item) {
+                return painted_delegate->shouldRenderHole(item);
+            });
         }
     }
 
@@ -481,19 +632,19 @@ void WorkspaceScene::paint(const RenderTarget &renderTarget, const QRegion &regi
 }
 
 // the function that'll be eventually called by paintScreen() above
-void WorkspaceScene::finalPaintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
+void WorkspaceScene::finalPaintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &deviceRegion, LogicalOutput *screen)
 {
     m_paintScreenCount++;
     if (mask & (PAINT_SCREEN_TRANSFORMED | PAINT_SCREEN_WITH_TRANSFORMED_WINDOWS)) {
         paintGenericScreen(renderTarget, viewport, mask, screen);
     } else {
-        paintSimpleScreen(renderTarget, viewport, mask, region);
+        paintSimpleScreen(renderTarget, viewport, mask, deviceRegion);
     }
 }
 
 // The generic painting code that can handle even transformations.
 // It simply paints bottom-to-top.
-void WorkspaceScene::paintGenericScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int, Output *screen)
+void WorkspaceScene::paintGenericScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int, LogicalOutput *screen)
 {
     if (m_paintContext.mask & PAINT_SCREEN_BACKGROUND_FIRST) {
         if (m_paintScreenCount == 1) {
@@ -504,26 +655,29 @@ void WorkspaceScene::paintGenericScreen(const RenderTarget &renderTarget, const 
     }
 
     for (const Phase2Data &paintData : std::as_const(m_paintContext.phase2Data)) {
-        paintWindow(renderTarget, viewport, paintData.item, paintData.mask, paintData.region);
+        paintWindow(renderTarget, viewport, paintData.item, paintData.mask, paintData.deviceRegion);
     }
 }
 
 // The optimized case without any transformations at all.
 // It can paint only the requested region and can use clipping
 // to reduce painting and improve performance.
-void WorkspaceScene::paintSimpleScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int, const QRegion &region)
+void WorkspaceScene::paintSimpleScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int, const QRegion &deviceRegion)
 {
     // This is the occlusion culling pass
-    QRegion visible = region;
+    QRegion visible = deviceRegion;
     for (int i = m_paintContext.phase2Data.size() - 1; i >= 0; --i) {
         Phase2Data *data = &m_paintContext.phase2Data[i];
-        data->region = visible;
+        data->deviceRegion = visible & viewport.deviceRect();
 
         if (!(data->mask & PAINT_WINDOW_TRANSFORMED)) {
-            data->region &= data->item->mapToScene(data->item->boundingRect()).toAlignedRect();
+            data->deviceRegion &= viewport.mapToDeviceCoordinatesAligned(data->item->mapToScene(data->item->boundingRect()));
 
-            if (!(data->mask & PAINT_WINDOW_TRANSLUCENT)) {
-                visible -= data->opaque;
+            // TODO change effects API, so occlusion culling is per item, rather than per window
+            const bool canCover = painted_delegate->shouldRenderItem(data->item->surfaceItem())
+                || painted_delegate->shouldRenderHole(data->item->surfaceItem());
+            if (!(data->mask & PAINT_WINDOW_TRANSLUCENT) && canCover) {
+                visible -= data->deviceOpaque;
             }
         }
     }
@@ -531,7 +685,7 @@ void WorkspaceScene::paintSimpleScreen(const RenderTarget &renderTarget, const R
     m_renderer->renderBackground(renderTarget, viewport, visible);
 
     for (const Phase2Data &paintData : std::as_const(m_paintContext.phase2Data)) {
-        paintWindow(renderTarget, viewport, paintData.item, paintData.mask, paintData.region);
+        paintWindow(renderTarget, viewport, paintData.item, paintData.mask, paintData.deviceRegion);
     }
 }
 
@@ -540,6 +694,9 @@ void WorkspaceScene::createStackingOrder()
     QList<Item *> items = m_containerItem->sortedChildItems();
     for (Item *item : std::as_const(items)) {
         WindowItem *windowItem = static_cast<WindowItem *>(item);
+        if (painted_delegate && painted_delegate->shouldHideWindow(windowItem->window())) {
+            continue;
+        }
         if (windowItem->isVisible()) {
             stacking_order.append(windowItem);
         }
@@ -551,45 +708,46 @@ void WorkspaceScene::clearStackingOrder()
     stacking_order.clear();
 }
 
-void WorkspaceScene::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, WindowItem *item, int mask, const QRegion &region)
+void WorkspaceScene::paintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, WindowItem *item, int mask, const QRegion &deviceRegion)
 {
-    if (region.isEmpty()) { // completely clipped
+    if (deviceRegion.isEmpty()) { // completely clipped
         return;
     }
 
     WindowPaintData data;
-    effects->paintWindow(renderTarget, viewport, item->effectWindow(), mask, region, data);
+    effects->paintWindow(renderTarget, viewport, item->effectWindow(), mask, deviceRegion, data);
 }
 
 // the function that'll be eventually called by paintWindow() above
-void WorkspaceScene::finalPaintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &region, WindowPaintData &data)
+void WorkspaceScene::finalPaintWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data)
 {
-    effects->drawWindow(renderTarget, viewport, w, mask, region, data);
+    effects->drawWindow(renderTarget, viewport, w, mask, deviceRegion, data);
 }
 
 // will be eventually called from drawWindow()
-void WorkspaceScene::finalDrawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &region, WindowPaintData &data)
+void WorkspaceScene::finalDrawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const QRegion &deviceRegion, WindowPaintData &data)
 {
-    m_renderer->renderItem(renderTarget, viewport, w->windowItem(), mask, region, data);
+    // TODO: Reconsider how the CrossFadeEffect captures the initial window contents to remove
+    // null pointer delegate checks in "should render item" and "should render hole" checks.
+    m_renderer->renderItem(renderTarget, viewport, w->windowItem(), mask, deviceRegion, data, [this](Item *item) {
+        return painted_delegate && !painted_delegate->shouldRenderItem(item);
+    }, [this](Item *item) {
+        return painted_delegate && painted_delegate->shouldRenderHole(item);
+    });
 }
 
-bool WorkspaceScene::makeOpenGLContextCurrent()
+EglContext *WorkspaceScene::openglContext() const
 {
-    return false;
-}
-
-void WorkspaceScene::doneOpenGLContextCurrent()
-{
-}
-
-bool WorkspaceScene::supportsNativeFence() const
-{
-    return false;
-}
-
-OpenGlContext *WorkspaceScene::openglContext() const
-{
+    if (auto eglBackend = qobject_cast<EglBackend *>(Compositor::self()->backend())) {
+        return eglBackend->openglContext();
+    }
     return nullptr;
+}
+
+bool WorkspaceScene::animationsSupported() const
+{
+    const auto context = openglContext();
+    return context && !context->isSoftwareRenderer();
 }
 
 } // namespace

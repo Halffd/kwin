@@ -13,6 +13,7 @@
 #include "outputdevice_v2.h"
 #include "outputmanagement_v2.h"
 #include "utils/common.h"
+#include "utils/resource.h"
 #include "workspace.h"
 
 #include "qwayland-server-kde-output-management-v2.h"
@@ -24,7 +25,7 @@
 namespace KWin
 {
 
-static const quint32 s_version = 12;
+static const quint32 s_version = 18;
 
 class OutputManagementV2InterfacePrivate : public QtWaylandServer::kde_output_management_v2
 {
@@ -33,6 +34,7 @@ public:
 
 protected:
     void kde_output_management_v2_create_configuration(Resource *resource, uint32_t id) override;
+    void kde_output_management_v2_create_mode_list(Resource *resource, uint32_t id) override;
 };
 
 class OutputConfigurationV2Interface : public QObject, QtWaylandServer::kde_output_configuration_v2
@@ -44,7 +46,6 @@ public:
     bool applied = false;
     bool invalid = false;
     OutputConfiguration config;
-    QList<std::pair<uint32_t, OutputDeviceV2Interface *>> outputOrder;
     QString failureReason;
 
 protected:
@@ -72,8 +73,34 @@ protected:
     void kde_output_configuration_v2_set_brightness(Resource *resource, wl_resource *outputdevice, uint32_t brightness) override;
     void kde_output_configuration_v2_set_color_power_tradeoff(Resource *resource, wl_resource *outputdevice, uint32_t preference) override;
     void kde_output_configuration_v2_set_dimming(Resource *resource, ::wl_resource *outputdevice, uint32_t multiplier) override;
+    void kde_output_configuration_v2_set_replication_source(Resource *resource, struct ::wl_resource *outputdevice, const QString &source) override;
+    void kde_output_configuration_v2_set_ddc_ci_allowed(Resource *resource, ::wl_resource *outputdevice, uint32_t allow_ddc_ci) override;
+    void kde_output_configuration_v2_set_max_bits_per_color(Resource *resource, struct ::wl_resource *outputdevice, uint32_t max_bpc) override;
+    void kde_output_configuration_v2_set_edr_policy(Resource *resource, struct ::wl_resource *outputdevice, uint32_t edrPolicy) override;
+    void kde_output_configuration_v2_set_sharpness(Resource *resource, wl_resource *outputdevice, uint32_t sharpness) override;
+    void kde_output_configuration_v2_set_custom_modes(Resource *resource, struct ::wl_resource *outputdevice, struct ::wl_resource *modes) override;
 
     void sendFailure(Resource *resource, const QString &reason);
+};
+
+class OutputModeListV2 : public QtWaylandServer::kde_mode_list_v2
+{
+public:
+    explicit OutputModeListV2(wl_resource *resource);
+
+    QList<CustomModeDefinition> modes;
+
+private:
+    void kde_mode_list_v2_destroy_resource(Resource *resource) override;
+    void kde_mode_list_v2_destroy(Resource *resource) override;
+    void kde_mode_list_v2_add_mode(Resource *resource) override;
+    void kde_mode_list_v2_set_resolution(Resource *resource, uint32_t width, uint32_t height) override;
+    void kde_mode_list_v2_set_refresh_rate(Resource *resource, uint32_t rate) override;
+    void kde_mode_list_v2_set_reduced_blanking(Resource *resource, uint32_t reduced) override;
+
+    std::optional<QSize> m_resolution;
+    std::optional<uint32_t> m_refreshRate;
+    OutputMode::Flags m_flags = OutputMode::Flag::Custom;
 };
 
 OutputManagementV2InterfacePrivate::OutputManagementV2InterfacePrivate(Display *display)
@@ -91,6 +118,11 @@ void OutputManagementV2InterfacePrivate::kde_output_management_v2_create_configu
     new OutputConfigurationV2Interface(config_resource);
 }
 
+void OutputManagementV2InterfacePrivate::kde_output_management_v2_create_mode_list(Resource *resource, uint32_t id)
+{
+    new OutputModeListV2(wl_resource_create(resource->client(), &kde_mode_list_v2_interface, resource->version(), id));
+}
+
 OutputManagementV2Interface::OutputManagementV2Interface(Display *display, QObject *parent)
     : QObject(parent)
     , d(new OutputManagementV2InterfacePrivate(display))
@@ -102,11 +134,11 @@ OutputManagementV2Interface::~OutputManagementV2Interface() = default;
 OutputConfigurationV2Interface::OutputConfigurationV2Interface(wl_resource *resource)
     : QtWaylandServer::kde_output_configuration_v2(resource)
 {
-    const auto reject = [this](Output *output) {
+    const auto reject = [this]() {
         invalid = true;
     };
-    connect(workspace(), &Workspace::outputAdded, this, reject);
-    connect(workspace(), &Workspace::outputRemoved, this, reject);
+    connect(kwinApp()->outputBackend(), &OutputBackend::outputAdded, this, reject);
+    connect(kwinApp()->outputBackend(), &OutputBackend::outputRemoved, this, reject);
 }
 
 void OutputConfigurationV2Interface::kde_output_configuration_v2_enable(Resource *resource, wl_resource *outputdevice, int32_t enable)
@@ -202,7 +234,7 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_scale(Resource 
     }
 
     if (OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputdevice)) {
-        config.changeSet(output->handle())->scale = doubleScale;
+        config.changeSet(output->handle())->scaleSetting = doubleScale;
     }
 }
 
@@ -239,12 +271,12 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_set_rgb_range(R
     if (invalid) {
         return;
     }
-    if (rgbRange > static_cast<uint32_t>(Output::RgbRange::Limited)) {
+    if (rgbRange > static_cast<uint32_t>(BackendOutput::RgbRange::Limited)) {
         qCWarning(KWIN_CORE) << "Invalid Rgb Range requested:" << rgbRange;
         return;
     }
     if (OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputdevice)) {
-        config.changeSet(output->handle())->rgbRange = static_cast<Output::RgbRange>(rgbRange);
+        config.changeSet(output->handle())->rgbRange = static_cast<BackendOutput::RgbRange>(rgbRange);
     }
 }
 
@@ -259,7 +291,7 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_set_priority(Re
         return;
     }
     if (OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputResource)) {
-        outputOrder.push_back(std::make_pair(priority, output));
+        config.changeSet(output->handle())->priority = priority;
     }
 }
 
@@ -299,7 +331,7 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_set_auto_rotate
         return;
     }
     if (OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputdevice)) {
-        config.changeSet(output->handle())->autoRotationPolicy = static_cast<Output::AutoRotationPolicy>(auto_rotation_policy);
+        config.changeSet(output->handle())->autoRotationPolicy = static_cast<BackendOutput::AutoRotationPolicy>(auto_rotation_policy);
     }
 }
 
@@ -322,6 +354,14 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_set_icc_profile
 void OutputConfigurationV2Interface::kde_output_configuration_v2_set_brightness_overrides(Resource *resource, wl_resource *outputdevice, int32_t max_peak_brightness, int32_t max_average_brightness, int32_t min_brightness)
 {
     if (invalid) {
+        return;
+    }
+    if (max_peak_brightness != -1 && max_peak_brightness < 50) {
+        failureReason = QStringLiteral("Invalid peak brightness override requested");
+        return;
+    }
+    if (max_average_brightness != -1 && max_average_brightness < 50) {
+        failureReason = QStringLiteral("Invalid max average brightness override requested");
         return;
     }
     if (OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputdevice)) {
@@ -350,11 +390,11 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_set_color_profi
         config.changeSet(output->handle())->colorProfileSource = [source]() {
             switch (source) {
             case color_profile_source_sRGB:
-                return Output::ColorProfileSource::sRGB;
+                return BackendOutput::ColorProfileSource::sRGB;
             case color_profile_source_ICC:
-                return Output::ColorProfileSource::ICC;
+                return BackendOutput::ColorProfileSource::ICC;
             case color_profile_source_EDID:
-                return Output::ColorProfileSource::EDID;
+                return BackendOutput::ColorProfileSource::EDID;
             };
             Q_UNREACHABLE();
         }();
@@ -376,12 +416,12 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_set_color_power
     if (invalid) {
         return;
     }
-    const auto tradeoff = [preference]() -> std::optional<Output::ColorPowerTradeoff> {
+    const auto tradeoff = [preference]() -> std::optional<BackendOutput::ColorPowerTradeoff> {
         switch (preference) {
         case color_power_tradeoff_efficiency:
-            return Output::ColorPowerTradeoff::PreferEfficiency;
+            return BackendOutput::ColorPowerTradeoff::PreferEfficiency;
         case color_power_tradeoff_accuracy:
-            return Output::ColorPowerTradeoff::PreferAccuracy;
+            return BackendOutput::ColorPowerTradeoff::PreferAccuracy;
         }
         return std::nullopt;
     }();
@@ -403,6 +443,80 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_set_dimming(Res
     }
 }
 
+void OutputConfigurationV2Interface::kde_output_configuration_v2_set_replication_source(Resource *resource, struct ::wl_resource *outputdevice, const QString &source)
+{
+    if (invalid) {
+        return;
+    }
+    if (OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputdevice)) {
+        config.changeSet(output->handle())->replicationSource = source;
+    }
+}
+
+void OutputConfigurationV2Interface::kde_output_configuration_v2_set_ddc_ci_allowed(Resource *resource, ::wl_resource *outputdevice, uint32_t allow_ddc_ci)
+{
+    if (invalid) {
+        return;
+    }
+    if (OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputdevice)) {
+        const auto changeset = config.changeSet(output->handle());
+        changeset->allowDdcCi = allow_ddc_ci;
+        if (!allow_ddc_ci) {
+            changeset->allowSdrSoftwareBrightness = true;
+            changeset->brightnessDevice = nullptr;
+        }
+    }
+}
+
+void OutputConfigurationV2Interface::kde_output_configuration_v2_set_max_bits_per_color(Resource *resource, ::wl_resource *outputdevice, uint32_t max_bpc)
+{
+    if (invalid) {
+        return;
+    }
+    if (OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputdevice)) {
+        config.changeSet(output->handle())->maxBitsPerColor = max_bpc;
+    }
+}
+
+void OutputConfigurationV2Interface::kde_output_configuration_v2_set_edr_policy(Resource *resource, struct ::wl_resource *outputdevice, uint32_t edrPolicy)
+{
+    if (invalid) {
+        return;
+    }
+    OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputdevice);
+    if (!output) {
+        return;
+    }
+    switch (edrPolicy) {
+    case edr_policy_never:
+        config.changeSet(output->handle())->edrPolicy = BackendOutput::EdrPolicy::Never;
+        break;
+    case edr_policy_always:
+        config.changeSet(output->handle())->edrPolicy = BackendOutput::EdrPolicy::Always;
+        break;
+    }
+}
+
+void OutputConfigurationV2Interface::kde_output_configuration_v2_set_sharpness(Resource *resource, wl_resource *outputdevice, uint32_t sharpness)
+{
+    if (invalid) {
+        return;
+    }
+    if (OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputdevice)) {
+        config.changeSet(output->handle())->sharpness = sharpness / 10'000.0;
+    }
+}
+
+void OutputConfigurationV2Interface::kde_output_configuration_v2_set_custom_modes(Resource *resource, ::wl_resource *outputdevice, ::wl_resource *modes)
+{
+    OutputDeviceV2Interface *output = OutputDeviceV2Interface::get(outputdevice);
+    auto r = resource_cast<OutputModeListV2 *>(modes);
+    if (invalid || !output || !r) {
+        return;
+    }
+    config.changeSet(output->handle())->customModes = r->modes;
+}
+
 void OutputConfigurationV2Interface::kde_output_configuration_v2_destroy(Resource *resource)
 {
     wl_resource_destroy(resource->handle);
@@ -411,6 +525,49 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_destroy(Resourc
 void OutputConfigurationV2Interface::kde_output_configuration_v2_destroy_resource(Resource *resource)
 {
     delete this;
+}
+
+OutputModeListV2::OutputModeListV2(wl_resource *resource)
+    : QtWaylandServer::kde_mode_list_v2(resource)
+{
+}
+
+void OutputModeListV2::kde_mode_list_v2_destroy_resource(Resource *resource)
+{
+    delete this;
+}
+
+void OutputModeListV2::kde_mode_list_v2_destroy(Resource *resource)
+{
+    wl_resource_destroy(resource->handle);
+}
+
+void OutputModeListV2::kde_mode_list_v2_add_mode(Resource *resource)
+{
+    if (!m_resolution.has_value() || !m_refreshRate.has_value()) {
+        wl_resource_post_error(resource->handle, error_missing_parameters, "Resolution or refresh rate were not set");
+        return;
+    }
+    modes.push_back(CustomModeDefinition{
+        .size = *m_resolution,
+        .refreshRate = *m_refreshRate,
+        .flags = m_flags,
+    });
+}
+
+void OutputModeListV2::kde_mode_list_v2_set_resolution(Resource *resource, uint32_t width, uint32_t height)
+{
+    m_resolution = QSize(width, height);
+}
+
+void OutputModeListV2::kde_mode_list_v2_set_refresh_rate(Resource *resource, uint32_t rate)
+{
+    m_refreshRate = rate;
+}
+
+void OutputModeListV2::kde_mode_list_v2_set_reduced_blanking(Resource *resource, uint32_t reduced)
+{
+    m_flags.setFlag(OutputMode::Flag::ReducedBlanking, reduced == 1);
 }
 
 void OutputConfigurationV2Interface::sendFailure(Resource *resource, const QString &reason)
@@ -439,7 +596,7 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_apply(Resource 
     }
 
     const auto allOutputs = kwinApp()->outputBackend()->outputs();
-    const bool allDisabled = !std::any_of(allOutputs.begin(), allOutputs.end(), [this](const auto &output) {
+    const bool allDisabled = !std::any_of(allOutputs.begin(), allOutputs.end(), [this](BackendOutput *output) {
         const auto changeset = config.constChangeSet(output);
         if (changeset && changeset->enabled.has_value()) {
             return *changeset->enabled;
@@ -451,48 +608,44 @@ void OutputConfigurationV2Interface::kde_output_configuration_v2_apply(Resource 
         sendFailure(resource, i18n("Disabling all outputs through configuration changes is not allowed"));
         return;
     }
-
-    std::optional<QList<Output *>> sortedOrder;
-    if (!outputOrder.empty()) {
-        const int desktopOutputs = std::count_if(allOutputs.begin(), allOutputs.end(), [](Output *output) {
-            return !output->isNonDesktop();
-        });
-        if (outputOrder.size() != desktopOutputs) {
-            sendFailure(resource, i18n("The provided output order doesn't contain all outputs"));
-            return;
+    for (BackendOutput *output : allOutputs) {
+        const auto changeset = config.constChangeSet(output);
+        if (!changeset) {
+            continue;
         }
-        outputOrder.erase(std::remove_if(outputOrder.begin(), outputOrder.end(), [this](const auto &pair) {
-            const auto changeset = config.constChangeSet(pair.second->handle());
-            if (changeset && changeset->enabled.has_value()) {
-                return !changeset->enabled.value();
-            } else {
-                return !pair.second->handle()->isEnabled();
+        if (changeset->customModes.has_value()) {
+            for (const auto &info : *changeset->customModes) {
+                if (info.size.isEmpty()) {
+                    sendFailure(resource, i18n("Cannot add a custom mode with an empty size"));
+                    return;
+                }
+                if (info.refreshRate == 0) {
+                    sendFailure(resource, i18n("Cannot add a custom mode with a refresh rate of zero Hz"));
+                    return;
+                }
             }
-        }),
-                          outputOrder.end());
-        std::sort(outputOrder.begin(), outputOrder.end(), [](const auto &pair1, const auto &pair2) {
-            return pair1.first < pair2.first;
-        });
-        uint32_t i = 1;
-        for (const auto &[index, name] : std::as_const(outputOrder)) {
-            if (index != i) {
-                sendFailure(resource, i18n("The provided output order is invalid"));
+        }
+        if (changeset->pos.has_value()) {
+            if (changeset->pos->x() < 0 || changeset->pos->y() < 0) {
+                sendFailure(resource, i18n("Position of output %s is negative, that is not supported", output->name()));
                 return;
             }
-            i++;
+            if (changeset->pos->x() > 1000000 || changeset->pos->y() > 1000000) {
+                sendFailure(resource, i18n("Position of output %s is way too large (%d, %d)", output->name(), changeset->pos->x(), changeset->pos->y()));
+                return;
+            }
         }
-        sortedOrder = QList<Output *>();
-        sortedOrder->reserve(outputOrder.size());
-        std::transform(outputOrder.begin(), outputOrder.end(), std::back_inserter(*sortedOrder), [](const auto &pair) {
-            return pair.second->handle();
-        });
     }
-    switch (workspace()->applyOutputConfiguration(config, sortedOrder)) {
+
+    switch (workspace()->applyOutputConfiguration(config)) {
     case OutputConfigurationError::None:
         send_applied();
         break;
     case OutputConfigurationError::Unknown:
     case OutputConfigurationError::TooManyEnabledOutputs:
+        // NOTE that the error message is technically not accurate for timeouts, but
+        // in practice, it too is always caused by the driver rejecting the configuration.
+    case OutputConfigurationError::Timeout:
         // TODO provide a more accurate error reason once the driver actually gives us anything
         sendFailure(resource, i18n("The driver rejected the output configuration"));
         break;
