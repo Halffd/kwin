@@ -1124,13 +1124,11 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
         return;
     }
 
-    // Do not wrap around list on key auto-repeat
+    // Allow wrap-around even on key auto-repeat to enable continuous cycling
+    // The original behavior would stop at the first/last window when holding the key,
+    // preventing users from cycling through all windows continuously
     if (keyEvent.state == KeyboardKeyState::Repeated) {
-        if (direction == Forward && m_tabBox->currentIndex().row() == m_tabBox->clientList().count() - 1) {
-            return;
-        } else if (direction == Backward && m_tabBox->currentIndex().row() == 0) {
-            return;
-        }
+        // Remove the restriction to allow wrap-around during auto-repeat
     }
 
     // Finally apply the direction to iterate over the window list

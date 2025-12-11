@@ -315,57 +315,82 @@ GLShader *ZoomEffect::shaderForZoom(double zoom)
 void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
 {
     // Check if ANY screen needs zoom
-    bool anyZoom = false;
+    bool anyZoomActive = false;
     for (const auto &[scr, state] : m_states) {
         if (state.zoom != 1.0 || state.targetZoom != 1.0) {
-            anyZoom = true;
+            anyZoomActive = true;
             break;
         }
     }
 
-    if (!anyZoom) {
-        // No zoom active, just pass through
+    if (!anyZoomActive) {
+        // No zoom active anywhere, just pass through
         effects->paintScreen(renderTarget, viewport, mask, region, screen);
         return;
     }
 
-    // Step 1: Render entire desktop to offscreen buffer ONCE
-    OffscreenData *fullscreenData = ensureOffscreenData(renderTarget, viewport, screen);
-    if (!fullscreenData) {
-        effects->paintScreen(renderTarget, viewport, mask, region, screen);
-        return;
-    }
-
-    // Render to offscreen
-    RenderTarget offscreenTarget(fullscreenData->framebuffer.get(), renderTarget.colorDescription());
-    RenderViewport offscreenViewport(viewport.renderRect(), viewport.scale(), offscreenTarget);
-
-    GLFramebuffer::pushFramebuffer(fullscreenData->framebuffer.get());
-    effects->paintScreen(offscreenTarget, offscreenViewport, mask, region, screen);
-    GLFramebuffer::popFramebuffer();
-
-    // Step 2: Now composite each monitor with zoom from the offscreen buffer
+    // Only render outputs that actually need zoom to offscreen
+    // Others pass through normally
     const auto outputs = effects->screens();
     const auto scale = viewport.scale();
 
-    // Get the bounding rect of all screens for proper texture coordinate calculation
-    QRect desktopRect;
-    for (Output *out : outputs) {
-        desktopRect = desktopRect.united(out->geometry());
-    }
+    // First pass: Render scene normally to the main framebuffer
+    effects->paintScreen(renderTarget, viewport, mask, region, screen);
 
+    // Second pass: For zoomed outputs only, render to offscreen and composite back
     for (Output *out : outputs) {
         ZoomScreenState *state = stateForScreen(out);
+
+        // Skip if this output doesn't need zoom
+        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+            continue;
+        }
+
         const QRect geo = out->geometry();
 
-        // Convert to local coordinates
+        // Only allocate/update offscreen buffer if zoom is active
+        const QSize outputSize(geo.width() * scale, geo.height() * scale);
+
+        OffscreenData &data = m_offscreenData[out];
+
+        // Lazy allocation - only create when needed
+        if (!data.texture || data.texture->size() != outputSize) {
+            const GLenum textureFormat = renderTarget.colorDescription() == ColorDescription::sRGB ? GL_RGBA8 : GL_RGBA16F;
+            data.texture = GLTexture::allocate(textureFormat, outputSize);
+            if (!data.texture) {
+                continue; // Skip this output if allocation failed
+            }
+            data.texture->setFilter(GL_LINEAR);
+            data.texture->setWrapMode(GL_CLAMP_TO_EDGE);
+            data.framebuffer = std::make_unique<GLFramebuffer>(data.texture.get());
+        }
+
+        data.viewport = QRect(0, 0, geo.width(), geo.height());
+        data.color = renderTarget.colorDescription();
+        data.texture->setContentTransform(renderTarget.transform());
+
+        // Render this output to offscreen
+        RenderTarget offscreenTarget(data.framebuffer.get(), renderTarget.colorDescription());
+        QRect localViewport(0, 0, geo.width(), geo.height());
+        RenderViewport offscreenViewport(localViewport, scale, offscreenTarget);
+
+        QRegion outputRegion = region.intersected(geo);
+        outputRegion.translate(-geo.topLeft());
+
+        GLFramebuffer::pushFramebuffer(data.framebuffer.get());
+        glViewport(0, 0, geo.width() * scale, geo.height() * scale);
+        glClearColor(0.0, 0.0, 0.0, 1.0);
+        glClear(GL_COLOR_BUFFER_BIT);
+        effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
+        GLFramebuffer::popFramebuffer();
+
+        // Calculate zoom transformation
         QPoint localFocus = state->focusPoint - geo.topLeft();
         QPoint localPrev = state->prevPoint - geo.topLeft();
 
         qreal xTranslation = 0;
         qreal yTranslation = 0;
 
-        // Calculate zoom translation
         switch (m_mouseTracking) {
         case MouseTrackingProportional:
             xTranslation = -int(localFocus.x() * (state->zoom - 1.0));
@@ -399,9 +424,9 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
                 state->xMove = (x + threshold - geo.width()) / state->zoom;
             }
             if (y < threshold) {
-                state->yMove = (y - threshold) / state->zoom;
+                state->xMove = (y - threshold) / state->zoom;
             } else if (y > geo.height() - threshold) {
-                state->yMove = (y + threshold - geo.height()) / state->zoom;
+                state->xMove = (y + threshold - geo.height()) / state->zoom;
             }
             if (state->xMove) {
                 state->prevPoint.setX(state->prevPoint.x() + state->xMove);
@@ -441,44 +466,30 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             yTranslation = std::clamp(int(yTranslation), minY, maxY);
         }
 
-        // Scissor to this output - CORRECTED for Y offset
+        // Clear the area where we'll composite the zoomed output
         glEnable(GL_SCISSOR_TEST);
-        // Account for the monitor's position in the virtual desktop
-        const int scissorX = geo.x() * scale;
-        const int scissorY = (desktopRect.height() - geo.y() - geo.height()) * scale;
-        glScissor(scissorX, scissorY, geo.width() * scale, geo.height() * scale);
+        const int scissorY = renderTarget.size().height() - (geo.y() + geo.height());
+        glScissor(geo.x() * scale, scissorY * scale, geo.width() * scale, geo.height() * scale);
 
+        glClearColor(0.0, 0.0, 0.0, 1.0);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // Composite the zoomed output
         GLShader *shader = shaderForZoom(state->zoom);
         ShaderManager::instance()->pushShader(shader);
 
-        // Calculate texture coordinates for this monitor's region - CORRECTED
-        const float fullWidth = fullscreenData->texture->width();
-        const float fullHeight = fullscreenData->texture->height();
-
-        // Normalize based on actual desktop dimensions, not texture size
-        const float texX = float(geo.x() - desktopRect.x()) / desktopRect.width();
-        const float texY = float(geo.y() - desktopRect.y()) / desktopRect.height();
-        const float texW = float(geo.width()) / desktopRect.width();
-        const float texH = float(geo.height()) / desktopRect.height();
-
         QMatrix4x4 matrix = viewport.projectionMatrix();
-
-        // Move to screen position
         matrix.translate(geo.x() * scale, geo.y() * scale);
-        // Apply zoom pan
         matrix.translate(xTranslation * scale, yTranslation * scale);
-        // Scale
         matrix.scale(state->zoom, state->zoom);
 
         shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, matrix);
-        shader->setUniform(GLShader::IntUniform::TextureWidth, fullscreenData->texture->width());
-        shader->setUniform(GLShader::IntUniform::TextureHeight, fullscreenData->texture->height());
-        shader->setColorspaceUniforms(fullscreenData->color, renderTarget.colorDescription(), RenderingIntent::Perceptual);
+        shader->setUniform(GLShader::IntUniform::TextureWidth, data.texture->width());
+        shader->setUniform(GLShader::IntUniform::TextureHeight, data.texture->height());
+        shader->setColorspaceUniforms(data.color, renderTarget.colorDescription(), RenderingIntent::Perceptual);
 
-        // Bind the fullscreen texture
-        glBindTexture(GL_TEXTURE_2D, fullscreenData->texture->texture());
+        glBindTexture(GL_TEXTURE_2D, data.texture->texture());
 
-        // Draw quad with correct texture coordinates for this monitor
         const float x1 = 0;
         const float y1 = 0;
         const float x2 = geo.width() * scale;
@@ -489,14 +500,12 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         vbo->setAttribLayout(std::span(GLVertexBuffer::GLVertex2DLayout), sizeof(GLVertex2D));
 
         GLVertex2D vertices[6];
-        // Triangle 1 (flip texY coordinates)
-        vertices[0] = {{x1, y1}, {texX, texY + texH}};
-        vertices[1] = {{x2, y1}, {texX + texW, texY + texH}};
-        vertices[2] = {{x2, y2}, {texX + texW, texY}};
-        // Triangle 2
-        vertices[3] = {{x2, y2}, {texX + texW, texY}};
-        vertices[4] = {{x1, y2}, {texX, texY}};
-        vertices[5] = {{x1, y1}, {texX, texY + texH}};
+        vertices[0] = {{x1, y1}, {0.0f, 1.0f}};
+        vertices[1] = {{x2, y1}, {1.0f, 1.0f}};
+        vertices[2] = {{x2, y2}, {1.0f, 0.0f}};
+        vertices[3] = {{x2, y2}, {1.0f, 0.0f}};
+        vertices[4] = {{x1, y2}, {0.0f, 0.0f}};
+        vertices[5] = {{x1, y1}, {0.0f, 1.0f}};
 
         vbo->setVertices(std::span(vertices));
         vbo->render(GL_TRIANGLES);
@@ -505,7 +514,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         glDisable(GL_SCISSOR_TEST);
 
         // Draw cursor
-        if (m_mousePointer != MousePointerHide && state->zoom != 1.0) {
+        if (m_mousePointer != MousePointerHide) {
             if (effects->screenAt(effects->cursorPos().toPoint()) == out) {
                 GLTexture *cursorTexture = ensureCursorTexture();
                 if (cursorTexture) {
@@ -515,7 +524,6 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
                         cursorSize *= state->zoom;
                     }
 
-                    // Cursor in local coordinates
                     QPoint localCursor = effects->cursorPos().toPoint() - geo.topLeft();
                     const QPointF p = (localCursor - cursor.hotSpot()) * state->zoom + QPoint(xTranslation, yTranslation);
                     const QPointF globalP = p + geo.topLeft();
