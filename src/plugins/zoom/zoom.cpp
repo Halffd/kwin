@@ -66,6 +66,20 @@ ZoomEffect::ZoomEffect()
     KGlobalAccel::self()->setDefaultShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_0));
     KGlobalAccel::self()->setShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_0));
 
+    // Register DBus interface for zoom operations
+    QDBusConnection::sessionBus().registerObject(QStringLiteral("/Zoom"),
+                                                 QStringLiteral("org.kde.KWin.Effect.Zoom"),
+                                                 this,
+                                                 QDBusConnection::ExportAllSlots);
+
+    // Add hotkey for specific zoom level 1.4: Ctrl+Shift+/
+    a = new QAction(this);
+    a->setObjectName(QStringLiteral("ZoomTo14"));
+    a->setText(i18n("Zoom to 140%"));
+    KGlobalAccel::self()->setDefaultShortcut(a, QList<QKeySequence>() << (Qt::CTRL | Qt::SHIFT | Qt::Key_Slash));
+    KGlobalAccel::self()->setShortcut(a, QList<QKeySequence>() << (Qt::CTRL | Qt::SHIFT | Qt::Key_Slash));
+    connect(a, &QAction::triggered, this, &ZoomEffect::zoomTo14);
+
     a = new QAction(this);
     a->setObjectName(QStringLiteral("MoveZoomLeft"));
     a->setText(i18n("Move Zoomed Area to Left"));
@@ -648,6 +662,36 @@ void ZoomEffect::actualSize()
     s->focusPoint = effects->cursorPos().toPoint();
     s->prevPoint = s->focusPoint;
     effects->addRepaintFull();
+}
+
+void ZoomEffect::zoomInDBus()
+{
+    zoomIn();
+}
+
+void ZoomEffect::zoomOutDBus()
+{
+    zoomOut();
+}
+
+void ZoomEffect::resetZoomDBus()
+{
+    actualSize();
+}
+
+void ZoomEffect::zoomTo140DBus()
+{
+    zoomTo(1.4);
+}
+
+void ZoomEffect::zoomToValueDBus(double value)
+{
+    // Validate the zoom value - reasonable range is 0.1 to 10.0
+    if (value < 0.1 || value > 10.0) {
+        // Optionally log an error or send a DBus error
+        return;
+    }
+    zoomTo(value);
 }
 
 void ZoomEffect::timelineFrameChanged(int /* frame */)

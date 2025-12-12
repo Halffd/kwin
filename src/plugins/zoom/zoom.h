@@ -62,6 +62,14 @@ public:
     qreal configuredMoveFactor() const;
     qreal targetZoom() const;
 
+public Q_SLOTS:
+    // DBus interface methods
+    Q_SCRIPTABLE void zoomInDBus();
+    Q_SCRIPTABLE void zoomOutDBus();
+    Q_SCRIPTABLE void resetZoomDBus();
+    Q_SCRIPTABLE void zoomTo140DBus();
+    Q_SCRIPTABLE void zoomToValueDBus(double value); // Set any zoom value
+
 private Q_SLOTS:
     void zoomIn();
     void zoomTo(double to);

@@ -1,0 +1,12 @@
+
+   - qdbus org.kde.KWin /Zoom org.kde.KWin.Effect.Zoom.zoomToValueDBus 2.0 (for
+     2.0x zoom)
+   - qdbus org.kde.KWin /Zoom org.kde.KWin.Effect.Zoom.zoomToValueDBus 0.5 (for
+     0.5x zoom)
+   - qdbus org.kde.KWin /Zoom org.kde.KWin.Effect.Zoom.zoomToValueDBus 1.5 (for
+     1.5x zoom)
+
+ qdbus org.kde.KWin /Zoom org.kde.KWin.Effect.Zoom.zoomInDBus
+ qdbus org.kde.KWin /Zoom org.kde.KWin.Effect.Zoom.zoomOutDBus
+ qdbus org.kde.KWin /Zoom org.kde.KWin.Effect.Zoom.resetZoomDBus
+ qdbus org.kde.KWin /Zoom org.kde.KWin.Effect.Zoom.zoomTo140DBus
