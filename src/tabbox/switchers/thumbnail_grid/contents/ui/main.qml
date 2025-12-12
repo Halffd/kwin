@@ -105,7 +105,7 @@ KWin.TabBoxSwitcher {
                     readonly property int iconSize: Kirigami.Units.iconSizes.huge
                     readonly property int captionRowHeight: Kirigami.Units.gridUnit * 2
                     readonly property int columnSpacing: Kirigami.Units.gridUnit * 0.4
-                    readonly property int thumbnailWidth: Kirigami.Units.gridUnit * 26
+                    readonly property int thumbnailWidth: Kirigami.Units.gridUnit * 22
                     readonly property int thumbnailHeight: thumbnailWidth * (1.0/dialogMainItem.screenFactor)
                     cellWidth: hoverItem.margins.left + thumbnailWidth + hoverItem.margins.right
                     cellHeight: hoverItem.margins.top + captionRowHeight + thumbnailHeight + hoverItem.margins.bottom

@@ -316,6 +316,10 @@ ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &r
 
 GLShader *ZoomEffect::shaderForZoom(double zoom)
 {
+    // Always use the basic shader to prevent OpenGL errors at high zoom levels
+    return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
+
+    /* Pixel grid shader disabled - causing OpenGL shader compilation errors at high zoom levels
     if (zoom < m_pixelGridZoom) {
         return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
     } else {
@@ -324,6 +328,7 @@ GLShader *ZoomEffect::shaderForZoom(double zoom)
         }
         return m_pixelGridShader.get();
     }
+    */
 }
 
 void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
