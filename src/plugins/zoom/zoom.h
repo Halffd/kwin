@@ -69,6 +69,7 @@ public Q_SLOTS:
     Q_SCRIPTABLE void resetZoomDBus();
     Q_SCRIPTABLE void zoomTo140DBus();
     Q_SCRIPTABLE void zoomToValueDBus(double value); // Set any zoom value
+    Q_SCRIPTABLE double getZoomLevelDBus(); // Get current zoom level
 
 private Q_SLOTS:
     void zoomIn();

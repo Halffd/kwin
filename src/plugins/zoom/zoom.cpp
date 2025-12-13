@@ -316,19 +316,24 @@ ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &r
 
 GLShader *ZoomEffect::shaderForZoom(double zoom)
 {
-    // Always use the basic shader to prevent OpenGL errors at high zoom levels
-    return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
-
-    /* Pixel grid shader disabled - causing OpenGL shader compilation errors at high zoom levels
     if (zoom < m_pixelGridZoom) {
         return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
     } else {
         if (!m_pixelGridShader) {
+            // Try to load the pixel grid shader with proper traits
             m_pixelGridShader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), QStringLiteral(":/effects/zoom/shaders/pixelgrid.frag"));
+
+            // If it's still not valid, there might be issues with the shader itself
+            if (!m_pixelGridShader || !m_pixelGridShader->isValid()) {
+                qCritical() << "Pixel grid shader failed to load - falling back to basic shader!";
+                m_pixelGridShader.reset();
+                return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
+            }
+
+            qDebug() << "Pixel grid shader loaded successfully";
         }
         return m_pixelGridShader.get();
     }
-    */
 }
 
 void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
@@ -697,6 +702,16 @@ void ZoomEffect::zoomToValueDBus(double value)
         return;
     }
     zoomTo(value);
+}
+
+double ZoomEffect::getZoomLevelDBus()
+{
+    // Get the zoom level for the active screen
+    if (auto *screen = effects->activeScreen()) {
+        const ZoomScreenState *state = stateForScreen(screen);
+        return state->zoom; // Return current zoom level
+    }
+    return 1.0; // Default zoom level if no active screen
 }
 
 void ZoomEffect::timelineFrameChanged(int /* frame */)

@@ -10,3 +10,6 @@
  qdbus org.kde.KWin /Zoom org.kde.KWin.Effect.Zoom.zoomOutDBus
  qdbus org.kde.KWin /Zoom org.kde.KWin.Effect.Zoom.resetZoomDBus
  qdbus org.kde.KWin /Zoom org.kde.KWin.Effect.Zoom.zoomTo140DBus
+
+   1 qdbus org.kde.KWin /Zoom
+     org.kde.KWin.Effect.Zoom.getZoomLevelDBus
