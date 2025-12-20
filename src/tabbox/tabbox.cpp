@@ -1103,20 +1103,6 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
     if (direction == Steady) {
         if (keyEvent.key == Qt::Key_Escape) {
             close(true);
-        } else if (keyEvent.key == Qt::Key_Delete) {
-            // Close the currently selected window
-            if (Window *c = currentClient()) {
-                if (c->isCloseable()) {
-                    c->closeWindow();
-                    // If only one window is left, accept and activate it
-                    if (currentClientList().size() <= 1) {
-                        accept();
-                    } else {
-                        // Otherwise, continue with tab switcher but remove the closed window from the model
-                        reset(true); // partial reset
-                    }
-                }
-            }
         } else {
             QKeyEvent event(QEvent::KeyPress, keyEvent.key, Qt::NoModifier);
             grabbedKeyEvent(&event);
@@ -1124,7 +1110,16 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
         return;
     }
 
-    // Apply the direction to iterate over the window list with built-in wrap-around
+    // Do not wrap around list on key auto-repeat
+    if (keyEvent.state == KeyboardKeyState::Repeated) {
+        if (direction == Forward && m_tabBox->currentIndex().row() == m_tabBox->clientList().count() - 1) {
+            return;
+        } else if (direction == Backward && m_tabBox->currentIndex().row() == 0) {
+            return;
+        }
+    }
+
+    // Finally apply the direction to iterate over the window list
     KDEWalkThroughWindows(direction == Forward);
 }
 
