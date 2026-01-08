@@ -478,6 +478,11 @@ void TabBox::setCurrentIndex(QModelIndex index, bool notifyEffects)
     }
 }
 
+void TabBox::setConfig(const TabBoxConfig &config)
+{
+    m_tabBox->setConfig(config);
+}
+
 bool TabBox::haveActiveClient()
 {
     return m_tabBox->index(m_tabBox->activeClient()).isValid();

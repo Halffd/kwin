@@ -83,6 +83,7 @@ class LidSwitchTracker;
 class DpmsInputEventFilter;
 class OrientationSensor;
 class BrightnessDevice;
+class GpuUsageMonitor;
 
 class KWIN_EXPORT Workspace : public QObject
 {
@@ -755,6 +756,7 @@ private:
     std::unique_ptr<Activities> m_activities;
 #endif
     std::unique_ptr<PlacementTracker> m_placementTracker;
+    std::unique_ptr<GpuUsageMonitor> m_gpuUsageMonitor;
 
     PlaceholderOutput *m_placeholderOutput = nullptr;
     std::unique_ptr<PlaceholderInputEventFilter> m_placeholderFilter;

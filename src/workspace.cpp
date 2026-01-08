@@ -25,6 +25,7 @@
 #include "dbusinterface.h"
 #include "effect/effecthandler.h"
 #include "focuschain.h"
+#include "gpu_usage_monitor.h"
 #include "input.h"
 #include "internalwindow.h"
 #include "killwindow.h"
@@ -158,6 +159,13 @@ Workspace::Workspace()
     // need to create the tabbox before compositing scene is setup
     m_tabbox = std::make_unique<TabBox::TabBox>();
 #endif
+
+    m_gpuUsageMonitor = std::make_unique<GpuUsageMonitor>(this);
+    connect(m_gpuUsageMonitor.get(), &GpuUsageMonitor::tabBoxConfigChanged, this, [this](const TabBox::TabBoxConfig &config) {
+        if (m_tabbox) {
+            m_tabbox->setConfig(config);
+        }
+    });
 
     m_decorationBridge = std::make_unique<Decoration::DecorationBridge>();
     m_decorationBridge->init();

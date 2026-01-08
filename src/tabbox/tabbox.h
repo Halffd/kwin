@@ -206,6 +206,7 @@ public:
         return m_noModifierGrab;
     }
     void setCurrentIndex(QModelIndex index, bool notifyEffects = true);
+    void setConfig(const TabBoxConfig &config);
 
 public Q_SLOTS:
     /**
