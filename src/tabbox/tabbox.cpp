@@ -653,6 +653,9 @@ void TabBox::loadConfig(const KConfigGroup &config, TabBoxConfig &tabBoxConfig)
 
     tabBoxConfig.setVramThresholdMB(config.readEntry<int>("VramThresholdMB", 300));
     tabBoxConfig.setLowVramLayout(config.readEntry<QString>("LowVramLayout", "compact"));
+
+    // Load thumbnail batch size
+    tabBoxConfig.setThumbnailBatchSize(config.readEntry<int>("ThumbnailBatchSize", 5));
 }
 
 void TabBox::delayedShow()

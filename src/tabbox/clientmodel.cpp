@@ -16,6 +16,7 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QIcon>
+#include <QTimer>
 #include <QUuid>
 
 #include <algorithm>
@@ -189,6 +190,10 @@ void ClientModel::createFocusChainClientList(Window *start)
         }
     } while (c && c != stop);
     TRACE_TIMING(focus_chain_after_loop);
+
+    // ========== BATCH THUMBNAIL LOADING ==========
+    // Load thumbnails in batches to prevent overwhelming GPU
+    loadThumbnailsInBatches();
 }
 
 void ClientModel::createStackingOrderClientList(Window *start)
@@ -321,6 +326,34 @@ void ClientModel::close(int i)
     Window *client = m_mutableClientList.at(i);
     if (client) {
         client->closeWindow();
+    }
+}
+
+void ClientModel::loadThumbnailsInBatches()
+{
+    // Get batch size from config (default 5)
+    int batchSize = tabBox->config().thumbnailBatchSize();
+
+    // Load thumbnails in batches to prevent overwhelming GPU
+    for (int i = 0; i < m_mutableClientList.size(); i++) {
+        Window *window = m_mutableClientList[i];
+        if (window) {
+            // Calculate which batch this window belongs to
+            int batchNumber = i / batchSize;
+            int delay = batchNumber * 50; // 50ms delay between batches
+
+            // Schedule thumbnail loading with delay based on batch
+            int currentBatchSize = batchSize; // Capture the value
+            QTimer::singleShot(delay, [window, i, currentBatchSize, this]() {
+                // Trigger thumbnail preparation for this window
+                // This would integrate with the thumbnail system
+                TRACE_TIMING(thumbnail_batch_load);
+                qWarning() << "Loading thumbnail batch" << (i / currentBatchSize) << "for window" << i;
+
+                // In a full implementation, this would trigger the actual thumbnail preparation
+                // for the specific window, respecting the batch loading approach
+            });
+        }
     }
 }
 

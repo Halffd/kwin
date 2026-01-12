@@ -53,6 +53,9 @@ public:
     TabBoxConfig::SwitcherMode switcherMode;
     int vramThresholdMB;
     QString lowVramLayout;
+
+    // Batch loading settings
+    int thumbnailBatchSize = 5; // Default batch size
 };
 
 TabBoxConfig::TabBoxConfig()
@@ -219,6 +222,16 @@ void TabBoxConfig::setVramThresholdMB(int threshold)
 void TabBoxConfig::setLowVramLayout(const QString &layout)
 {
     d->lowVramLayout = layout;
+}
+
+int TabBoxConfig::thumbnailBatchSize() const
+{
+    return d->thumbnailBatchSize;
+}
+
+void TabBoxConfig::setThumbnailBatchSize(int size)
+{
+    d->thumbnailBatchSize = size;
 }
 
 } // namespace TabBox

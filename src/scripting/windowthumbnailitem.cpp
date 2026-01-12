@@ -29,6 +29,7 @@
 #include <QRunnable>
 #include <QSGImageNode>
 #include <QSGTextureProvider>
+#include <QTimer>
 
 // Timing helper macro
 #define TRACE_TIMING(label)              \
@@ -336,12 +337,13 @@ QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::Upda
         if (!texture) {
             TRACE_TIMING(thumbnail_no_texture);
             // Schedule another update attempt to try again later
-            // Use a slightly longer interval to avoid excessive retries
-            QTimer::singleShot(32, this, &WindowThumbnailItem::update);
+            // For selected windows, schedule faster retry to prioritize rendering
+            int retryInterval = m_isSelected ? 8 : 32; // Selected windows get priority
+            QTimer::singleShot(retryInterval, this, &WindowThumbnailItem::update);
             return oldNode;
         }
 
-        // ========== SIMPLIFIED NON-BLOCKING FENCE CHECK ==========
+        // ========== PRIORITIZED NON-BLOCKING FENCE CHECK ==========
         if (acquireFence) {
             TRACE_TIMING(thumbnail_fence_check);
 
@@ -349,9 +351,14 @@ QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::Upda
             GLenum result = glClientWaitSync(acquireFence, 0, 0); // 0 timeout = don't wait
 
             if (result == GL_TIMEOUT_EXPIRED || result == GL_WAIT_FAILED) {
-                // Fence not ready yet - just return old thumbnail without scheduling retry
-                // This prevents potential threading issues
+                // Fence not ready yet - schedule retry for selected windows
+                // This allows selected windows to retry more aggressively
                 TRACE_TIMING(thumbnail_fence_not_ready);
+
+                if (m_isSelected) {
+                    // For selected windows, schedule a retry to get the thumbnail faster
+                    QTimer::singleShot(8, this, &WindowThumbnailItem::update); // Very fast retry for selected
+                }
 
                 glDeleteSync(acquireFence);
                 return oldNode; // Keep showing old thumbnail

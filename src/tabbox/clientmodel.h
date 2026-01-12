@@ -90,6 +90,7 @@ public Q_SLOTS:
 private:
     void createFocusChainClientList(Window *start);
     void createStackingOrderClientList(Window *start);
+    void loadThumbnailsInBatches();
 
     QList<Window *> m_clientList;
     QList<Window *> m_mutableClientList;

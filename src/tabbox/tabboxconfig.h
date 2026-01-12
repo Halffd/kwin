@@ -297,6 +297,10 @@ public:
     void setVramThresholdMB(int threshold);
     void setLowVramLayout(const QString &layout);
 
+    // Batch loading settings
+    int thumbnailBatchSize() const;
+    void setThumbnailBatchSize(int size);
+
 private:
     TabBoxConfigPrivate *d;
 };

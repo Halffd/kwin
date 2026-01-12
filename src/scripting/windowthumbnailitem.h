@@ -90,9 +90,20 @@ private:
 
     QUuid m_wId;
     QPointer<Window> m_client;
+    bool m_isSelected = false; // Track if this thumbnail is currently selected
 
     mutable ThumbnailTextureProvider *m_provider = nullptr;
     std::shared_ptr<WindowThumbnailSource> m_source;
+
+public:
+    void setSelected(bool selected)
+    {
+        m_isSelected = selected;
+    }
+    bool isSelected() const
+    {
+        return m_isSelected;
+    }
 };
 
 } // namespace KWin
