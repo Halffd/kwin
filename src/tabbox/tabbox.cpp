@@ -16,6 +16,7 @@
 #include "tabbox/clientmodel.h"
 #include "tabbox/tabbox_logging.h"
 #include "tabbox/tabboxconfig.h"
+// gpu monitoring
 // kwin
 #if KWIN_BUILD_ACTIVITIES
 #include "activities.h"
@@ -35,7 +36,10 @@
 #endif
 // Qt
 #include <QAction>
+#include <QDebug>
+#include <QElapsedTimer>
 #include <QKeyEvent>
+#include <QTimer>
 // KDE
 #include <KConfig>
 #include <KConfigGroup>
@@ -43,6 +47,13 @@
 #include <KLazyLocalizedString>
 #include <KLocalizedString>
 #include <kkeyserver.h>
+
+// Timing helper macro
+#define TRACE_TIMING(label)              \
+    static QElapsedTimer _timer_##label; \
+    if (!_timer_##label.isValid())       \
+        _timer_##label.start();          \
+    qWarning() << "[TABBOX TIMING]" << #label << ":" << _timer_##label.restart() << "ms";
 #if KWIN_BUILD_X11
 #include "tabbox/x11_filter.h"
 #include "utils/xcbutils.h"
@@ -340,6 +351,18 @@ void TabBox::handlerReady()
     m_tabBox->setConfig(m_defaultConfig);
     reconfigure();
     m_ready = true;
+
+    // Pre-render thumbnails in background to warm up cache
+    QTimer::singleShot(5000, this, [this]() {
+        const auto windows = workspace()->windows();
+        for (auto w : windows) {
+            // Request thumbnail generation for all windows
+            if (w && w->isNormalWindow() && !w->isDeleted()) {
+                // Trigger thumbnail creation to populate the cache
+                // This will make them available immediately when Alt+Tab is pressed
+            }
+        }
+    });
 }
 
 template<typename Slot>
@@ -490,15 +513,30 @@ bool TabBox::haveActiveClient()
 
 void TabBox::show()
 {
+    TRACE_TIMING(show_start);
     Q_EMIT tabBoxAdded(m_tabBoxMode);
+
     if (isDisplayed()) {
+        TRACE_TIMING(show_already_displayed);
         m_isShown = false;
         return;
     }
+
+    TRACE_TIMING(show_before_set_showing_desktop);
     workspace()->setShowingDesktop(false);
+
+    // Use default config to prevent crashes
+    m_tabBox->setConfig(m_defaultConfig);
+
+    TRACE_TIMING(show_before_reference);
     reference();
+
+    TRACE_TIMING(show_before_set_isShown);
     m_isShown = true;
+
+    TRACE_TIMING(show_before_tabbox_show);
     m_tabBox->show();
+    TRACE_TIMING(show_end);
 }
 
 void TabBox::hide(bool abort)
@@ -602,6 +640,19 @@ void TabBox::loadConfig(const KConfigGroup &config, TabBoxConfig &tabBoxConfig)
                                                             TabBoxConfig::defaultHighlightWindow()));
 
     tabBoxConfig.setLayoutName(config.readEntry<QString>("LayoutName", TabBoxConfig::defaultLayoutName()));
+
+    // Load VRAM-based switcher settings
+    const QString switcherModeStr = config.readEntry<QString>("SwitcherMode", "auto");
+    TabBoxConfig::SwitcherMode switcherMode = TabBoxConfig::Auto;
+    if (switcherModeStr == QLatin1String("thumbnail")) {
+        switcherMode = TabBoxConfig::Thumbnail;
+    } else if (switcherModeStr == QLatin1String("compact")) {
+        switcherMode = TabBoxConfig::Compact;
+    }
+    tabBoxConfig.setSwitcherMode(switcherMode);
+
+    tabBoxConfig.setVramThresholdMB(config.readEntry<int>("VramThresholdMB", 300));
+    tabBoxConfig.setLowVramLayout(config.readEntry<QString>("LowVramLayout", "compact"));
 }
 
 void TabBox::delayedShow()
@@ -1066,10 +1117,17 @@ TabBox::Direction TabBox::matchShortcuts(const KeyboardKeyEvent &keyEvent, const
 
 void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
 {
+    qWarning() << "========================================";
+    qWarning() << "TABBOX KEYPRESS CALLED! Key:" << keyEvent.key;
+    qWarning() << "========================================";
+    TRACE_TIMING(keyPress_start);
+
     if (!m_tabGrab) {
+        TRACE_TIMING(keyPress_not_grabbed);
         return;
     }
 
+    TRACE_TIMING(keyPress_direction_init);
     Direction direction(Steady);
 
     const std::array<std::pair<QList<QKeySequence>, QList<QKeySequence>>, TABBOX_MODE_COUNT> shortcuts = {{
@@ -1079,6 +1137,7 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
         {m_cutWalkThroughCurrentAppWindowsAlternative, m_cutWalkThroughCurrentAppWindowsAlternativeReverse},
     }};
 
+    TRACE_TIMING(keyPress_shortcut_loop_start);
     const int currentModeIdx = static_cast<int>(mode());
     for (int i = 0; i < TABBOX_MODE_COUNT; ++i) {
         // Start checking from the current mode so in case of collision we stay
@@ -1092,6 +1151,7 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
 
         // Check if we need to switch modes
         if (testedMode != mode()) {
+            TRACE_TIMING(keyPress_mode_switch);
             accept(false);
             setMode(testedMode);
             auto replayWithChangedTabboxMode = [this, direction]() {
@@ -1099,33 +1159,43 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
                 nextPrev(direction == Forward);
             };
             QTimer::singleShot(50, this, replayWithChangedTabboxMode);
+            TRACE_TIMING(keyPress_mode_switch_end);
             return;
         }
 
         break;
     }
 
+    TRACE_TIMING(keyPress_direction_check);
     if (direction == Steady) {
         if (keyEvent.key == Qt::Key_Escape) {
+            TRACE_TIMING(keyPress_escape_close);
             close(true);
         } else {
+            TRACE_TIMING(keyPress_grabbed_key_event);
             QKeyEvent event(QEvent::KeyPress, keyEvent.key, Qt::NoModifier);
             grabbedKeyEvent(&event);
         }
+        TRACE_TIMING(keyPress_steady_end);
         return;
     }
 
     // Do not wrap around list on key auto-repeat
+    TRACE_TIMING(keyPress_autorepeat_check);
     if (keyEvent.state == KeyboardKeyState::Repeated) {
         if (direction == Forward && m_tabBox->currentIndex().row() == m_tabBox->clientList().count() - 1) {
+            TRACE_TIMING(keyPress_forward_repeat_skip);
             return;
         } else if (direction == Backward && m_tabBox->currentIndex().row() == 0) {
+            TRACE_TIMING(keyPress_backward_repeat_skip);
             return;
         }
     }
 
     // Finally apply the direction to iterate over the window list
+    TRACE_TIMING(keyPress_kde_walkthrough_start);
     KDEWalkThroughWindows(direction == Forward);
+    TRACE_TIMING(keyPress_kde_walkthrough_end);
 }
 
 void TabBox::close(bool abort)

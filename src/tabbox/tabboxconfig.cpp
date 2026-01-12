@@ -28,6 +28,9 @@ public:
         , clientMultiScreenMode(TabBoxConfig::defaultMultiScreenMode())
         , clientSwitchingMode(TabBoxConfig::defaultSwitchingMode())
         , layoutName(TabBoxConfig::defaultLayoutName())
+        , switcherMode(TabBoxConfig::Auto)
+        , vramThresholdMB(300)
+        , lowVramLayout(QStringLiteral("compact"))
     {
     }
     ~TabBoxConfigPrivate()
@@ -45,6 +48,11 @@ public:
     TabBoxConfig::ClientMultiScreenMode clientMultiScreenMode;
     TabBoxConfig::ClientSwitchingMode clientSwitchingMode;
     QString layoutName;
+
+    // VRAM-based switcher settings
+    TabBoxConfig::SwitcherMode switcherMode;
+    int vramThresholdMB;
+    QString lowVramLayout;
 };
 
 TabBoxConfig::TabBoxConfig()
@@ -181,6 +189,36 @@ QString &TabBoxConfig::layoutName() const
 void TabBoxConfig::setLayoutName(const QString &name)
 {
     d->layoutName = name;
+}
+
+TabBoxConfig::SwitcherMode TabBoxConfig::switcherMode() const
+{
+    return d->switcherMode;
+}
+
+int TabBoxConfig::vramThresholdMB() const
+{
+    return d->vramThresholdMB;
+}
+
+QString TabBoxConfig::lowVramLayout() const
+{
+    return d->lowVramLayout;
+}
+
+void TabBoxConfig::setSwitcherMode(SwitcherMode mode)
+{
+    d->switcherMode = mode;
+}
+
+void TabBoxConfig::setVramThresholdMB(int threshold)
+{
+    d->vramThresholdMB = threshold;
+}
+
+void TabBoxConfig::setLowVramLayout(const QString &layout)
+{
+    d->lowVramLayout = layout;
 }
 
 } // namespace TabBox

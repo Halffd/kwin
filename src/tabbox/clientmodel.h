@@ -10,6 +10,7 @@
 #pragma once
 #include "tabboxhandler.h"
 
+#include <QElapsedTimer>
 #include <QModelIndex>
 /**
  * @file
@@ -92,6 +93,9 @@ private:
 
     QList<Window *> m_clientList;
     QList<Window *> m_mutableClientList;
+    QList<Window *> m_cachedClientList;
+    QElapsedTimer m_lastRebuildTimer;
+    bool m_isCreating = false;
 };
 
 } // namespace Tabbox

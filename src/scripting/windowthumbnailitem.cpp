@@ -22,11 +22,20 @@
 
 #include "opengl/gltexture.h"
 
+#include <QDebug>
+#include <QElapsedTimer>
 #include <QOpenGLContext>
 #include <QQuickWindow>
 #include <QRunnable>
 #include <QSGImageNode>
 #include <QSGTextureProvider>
+
+// Timing helper macro
+#define TRACE_TIMING(label)              \
+    static QElapsedTimer _timer_##label; \
+    if (!_timer_##label.isValid())       \
+        _timer_##label.start();          \
+    qWarning() << "[TABBOX TIMING]" << #label << ":" << _timer_##label.restart() << "ms";
 
 namespace KWin
 {
@@ -110,18 +119,38 @@ WindowThumbnailSource::Frame WindowThumbnailSource::acquire()
 
 void WindowThumbnailSource::update()
 {
+    TRACE_TIMING(thumbnail_source_update_start);
+
+    // Speed up updates - allow 60 FPS (16ms between updates) for faster rendering
+    static QElapsedTimer lastUpdate;
+    if (lastUpdate.isValid() && lastUpdate.elapsed() < 16) {
+        TRACE_TIMING(thumbnail_source_update_throttled);
+        return;
+    }
+    lastUpdate.restart();
+
     if (m_acquireFence || !m_dirty || !m_handle) {
+        TRACE_TIMING(thumbnail_source_update_skip);
         return;
     }
     Q_ASSERT(m_view);
 
+    TRACE_TIMING(thumbnail_source_geometry_calc);
     const QRectF geometry = m_handle->visibleGeometry();
     const qreal devicePixelRatio = m_view->devicePixelRatio();
-    const QSize textureSize = geometry.toAlignedRect().size() * devicePixelRatio;
 
+    // REDUCE THUMBNAIL SIZE to 1/16th resolution for low VRAM GPUs (GTX 1050 2GB)
+    const QSize textureSize = (geometry.toAlignedRect().size() * devicePixelRatio) / 4;
+
+    TRACE_TIMING(thumbnail_source_texture_check);
     if (!m_offscreenTexture || m_offscreenTexture->size() != textureSize) {
-        m_offscreenTexture = GLTexture::allocate(GL_RGBA8, textureSize);
+        TRACE_TIMING(thumbnail_source_allocate_texture);
+
+        // Use RGB565 instead of RGBA8 to save 50% VRAM (4 bytes → 2 bytes per pixel)
+        m_offscreenTexture = GLTexture::allocate(GL_RGB565, textureSize);
+
         if (!m_offscreenTexture) {
+            TRACE_TIMING(thumbnail_source_texture_allocation_failed);
             return;
         }
         m_offscreenTexture->setContentTransform(OutputTransform::FlipY);
@@ -130,6 +159,7 @@ void WindowThumbnailSource::update()
         m_offscreenTarget = std::make_unique<GLFramebuffer>(m_offscreenTexture.get());
     }
 
+    TRACE_TIMING(thumbnail_source_render_setup);
     RenderTarget offscreenRenderTarget(m_offscreenTarget.get());
     RenderViewport offscreenViewport(geometry, devicePixelRatio, offscreenRenderTarget);
     GLFramebuffer::pushFramebuffer(m_offscreenTarget.get());
@@ -139,16 +169,19 @@ void WindowThumbnailSource::update()
     // The thumbnail must be rendered using kwin's opengl context as VAOs are not
     // shared across contexts. Unfortunately, this also introduces a latency of 1
     // frame, which is not ideal, but it is acceptable for things such as thumbnails.
+    TRACE_TIMING(thumbnail_source_render_item);
     const int mask = Scene::PAINT_WINDOW_TRANSFORMED;
     Compositor::self()->scene()->renderer()->renderItem(offscreenRenderTarget, offscreenViewport, m_handle->windowItem(), mask, infiniteRegion(), WindowPaintData{});
     GLFramebuffer::popFramebuffer();
 
     // The fence is needed to avoid the case where qtquick renderer starts using
     // the texture while all rendering commands to it haven't completed yet.
+    TRACE_TIMING(thumbnail_source_fence_creation);
     m_dirty = false;
     m_acquireFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 
     Q_EMIT changed();
+    TRACE_TIMING(thumbnail_source_update_end);
 }
 
 class ThumbnailTextureProvider : public QSGTextureProvider
@@ -290,35 +323,64 @@ void WindowThumbnailItem::updateSource()
 
 QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::UpdatePaintNodeData *)
 {
+    TRACE_TIMING(thumbnail_update_start);
     if (Compositor::compositing()) {
+        TRACE_TIMING(thumbnail_compositing_enabled);
         if (!m_source) {
+            TRACE_TIMING(thumbnail_no_source);
             return oldNode;
         }
 
+        TRACE_TIMING(thumbnail_acquire_start);
         auto [texture, acquireFence] = m_source->acquire();
         if (!texture) {
+            TRACE_TIMING(thumbnail_no_texture);
+            // Schedule another update attempt to try again later
+            // Use a slightly longer interval to avoid excessive retries
+            QTimer::singleShot(32, this, &WindowThumbnailItem::update);
             return oldNode;
         }
 
-        // Wait for rendering commands to the offscreen texture complete if there are any.
+        // ========== SIMPLIFIED NON-BLOCKING FENCE CHECK ==========
         if (acquireFence) {
-            glWaitSync(acquireFence, 0, GL_TIMEOUT_IGNORED);
+            TRACE_TIMING(thumbnail_fence_check);
+
+            // Check if fence is ready WITHOUT blocking
+            GLenum result = glClientWaitSync(acquireFence, 0, 0); // 0 timeout = don't wait
+
+            if (result == GL_TIMEOUT_EXPIRED || result == GL_WAIT_FAILED) {
+                // Fence not ready yet - just return old thumbnail without scheduling retry
+                // This prevents potential threading issues
+                TRACE_TIMING(thumbnail_fence_not_ready);
+
+                glDeleteSync(acquireFence);
+                return oldNode; // Keep showing old thumbnail
+            }
+
+            // Fence is ready (GL_ALREADY_SIGNALED or GL_CONDITION_SATISFIED)
+            TRACE_TIMING(thumbnail_fence_ready);
             glDeleteSync(acquireFence);
         }
 
         if (!m_provider) {
+            TRACE_TIMING(thumbnail_create_provider);
             m_provider = new ThumbnailTextureProvider(window());
         }
+        TRACE_TIMING(thumbnail_set_texture);
         m_provider->setTexture(texture);
     } else {
+        TRACE_TIMING(thumbnail_no_compositing);
         if (!m_provider) {
+            TRACE_TIMING(thumbnail_create_provider_no_comp);
             m_provider = new ThumbnailTextureProvider(window());
         }
 
+        TRACE_TIMING(thumbnail_fallback_image);
         const QImage placeholderImage = fallbackImage();
         m_provider->setTexture(window()->createTextureFromImage(placeholderImage));
     }
 
+    TRACE_TIMING(thumbnail_node_creation);
     QSGImageNode *node = static_cast<QSGImageNode *>(oldNode);
     if (!node) {
         node = window()->createImageNode();
@@ -328,6 +390,7 @@ QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::Upda
     node->setTextureCoordinatesTransform(QSGImageNode::NoTransform);
     node->setRect(paintedRect());
 
+    TRACE_TIMING(thumbnail_update_end);
     return node;
 }
 

@@ -282,6 +282,21 @@ public:
         return QStringLiteral("thumbnail_grid");
     }
 
+    // VRAM-based switcher settings
+    enum SwitcherMode {
+        Auto, // Automatically choose based on VRAM
+        Thumbnail, // Always use thumbnail mode
+        Compact // Always use compact (icon) mode
+    };
+
+    SwitcherMode switcherMode() const;
+    int vramThresholdMB() const;
+    QString lowVramLayout() const;
+
+    void setSwitcherMode(SwitcherMode mode);
+    void setVramThresholdMB(int threshold);
+    void setLowVramLayout(const QString &layout);
+
 private:
     TabBoxConfigPrivate *d;
 };

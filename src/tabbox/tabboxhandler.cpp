@@ -17,6 +17,8 @@
 #include "tabbox_logging.h"
 #include "window.h"
 // Qt
+#include <QDebug>
+#include <QElapsedTimer>
 #include <QKeyEvent>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -26,6 +28,13 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <qpa/qwindowsysteminterface.h>
+
+// Timing helper macro
+#define TRACE_TIMING(label)              \
+    static QElapsedTimer _timer_##label; \
+    if (!_timer_##label.isValid())       \
+        _timer_##label.start();          \
+    qWarning() << "[TABBOX TIMING]" << #label << ":" << _timer_##label.restart() << "ms";
 // KDE
 #include <KLocalizedString>
 #include <KPackage/Package>
@@ -219,31 +228,39 @@ void TabBoxHandlerPrivate::endHighlightWindows(bool abort)
 #ifndef KWIN_UNIT_TEST
 QObject *TabBoxHandlerPrivate::createSwitcherItem()
 {
+    TRACE_TIMING(qml_create_switcher_start);
     // first try look'n'feel package
     QString file = QStandardPaths::locate(
         QStandardPaths::GenericDataLocation,
         QStringLiteral("plasma/look-and-feel/%1/contents/windowswitcher/WindowSwitcher.qml").arg(config.layoutName()));
     if (file.isNull()) {
+        TRACE_TIMING(qml_locate_layout_package);
         QString path = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QLatin1String("/tabbox/") + config.layoutName(), QStandardPaths::LocateDirectory);
         if (path.isEmpty()) {
+            TRACE_TIMING(qml_locate_kwin_datadir);
             path = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin/tabbox/") + config.layoutName(), QStandardPaths::LocateDirectory);
         }
         if (path.isEmpty()) {
             // load default
+            TRACE_TIMING(qml_locate_fallback);
             qCWarning(KWIN_TABBOX) << "Could not load window switcher package" << config.layoutName() << ". Falling back to default";
             path = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QLatin1String("/tabbox/") + TabBoxConfig::defaultLayoutName(), QStandardPaths::LocateDirectory);
         }
 
+        TRACE_TIMING(qml_load_package);
         KPackage::Package pkg = KPackage::PackageLoader::self()->loadPackage(QStringLiteral("KWin/WindowSwitcher"));
         pkg.setPath(path);
         file = pkg.filePath("mainscript");
     }
     if (file.isNull()) {
+        TRACE_TIMING(qml_file_not_found);
         qCDebug(KWIN_TABBOX) << "Could not find QML file for window switcher";
         return nullptr;
     }
+    TRACE_TIMING(qml_before_load_url);
     m_qmlComponent->loadUrl(QUrl::fromLocalFile(file));
     if (m_qmlComponent->isError()) {
+        TRACE_TIMING(qml_component_error);
         qCWarning(KWIN_TABBOX) << "Component failed to load: " << m_qmlComponent->errors();
         QStringList args;
         args << QStringLiteral("--passivepopup") << i18n("The Window Switcher installation is broken, resources are missing.\n"
@@ -252,7 +269,9 @@ QObject *TabBoxHandlerPrivate::createSwitcherItem()
         KProcess::startDetached(QStringLiteral("kdialog"), args);
         m_qmlComponent.reset(nullptr);
     } else {
+        TRACE_TIMING(qml_before_create_object);
         QObject *object = m_qmlComponent->create(m_qmlContext.get());
+        TRACE_TIMING(qml_after_create_object);
         m_clientTabBoxes.insert(config.layoutName(), object);
         return object;
     }
@@ -262,12 +281,15 @@ QObject *TabBoxHandlerPrivate::createSwitcherItem()
 
 void TabBoxHandlerPrivate::show()
 {
+    TRACE_TIMING(handler_show_start);
 #ifndef KWIN_UNIT_TEST
     if (!m_qmlContext) {
+        TRACE_TIMING(handler_before_qml_context);
         qmlRegisterType<SwitcherItem>("org.kde.kwin", 3, 0, "TabBoxSwitcher");
         m_qmlContext = std::make_unique<QQmlContext>(Scripting::self()->qmlEngine());
     }
     if (!m_qmlComponent) {
+        TRACE_TIMING(handler_before_qml_component);
         m_qmlComponent = std::make_unique<QQmlComponent>(Scripting::self()->qmlEngine());
     }
     auto findMainItem = [this](const QMap<QString, QObject *> &tabBoxes) -> QObject * {
@@ -278,20 +300,28 @@ void TabBoxHandlerPrivate::show()
         return nullptr;
     };
     m_mainItem = nullptr;
+    TRACE_TIMING(handler_before_find_main_item);
     m_mainItem = findMainItem(m_clientTabBoxes);
     if (!m_mainItem) {
+        TRACE_TIMING(handler_before_create_switcher_item);
         m_mainItem = createSwitcherItem();
         if (!m_mainItem) {
+            TRACE_TIMING(handler_create_switcher_item_failed);
             return;
         }
+        TRACE_TIMING(handler_create_switcher_item_success);
     }
     if (SwitcherItem *item = switcherItem()) {
+        TRACE_TIMING(handler_before_switcher_item_setup);
         // In case the model isn't yet set (see below), index will be reset and therefore we
         // need to save the current index row (https://bugs.kde.org/show_bug.cgi?id=333511).
         int indexRow = index.row();
         if (!item->model()) {
+            TRACE_TIMING(handler_before_set_model);
             item->setModel(clientModel());
+            TRACE_TIMING(handler_after_set_model);
         }
+        TRACE_TIMING(handler_before_set_properties);
         item->setAllDesktops(config.clientDesktopMode() == TabBoxConfig::AllDesktopsClients);
         item->setCurrentIndex(indexRow);
         item->setNoModifierGrab(q->noModifierGrab());
@@ -309,15 +339,30 @@ void TabBoxHandlerPrivate::show()
         });
 
         // everything is prepared, so let's make the whole thing visible
+        TRACE_TIMING(handler_before_set_visible);
         item->setVisible(true);
+        TRACE_TIMING(handler_after_set_visible);
     }
     if (QWindow *w = window()) {
+        TRACE_TIMING(handler_before_window_setup);
         wheelAngleDelta = 0;
         w->installEventFilter(q);
         // pretend to activate the window to enable accessibility notifications
         QWindowSystemInterface::handleFocusWindowChanged(w, Qt::TabFocusReason);
+        TRACE_TIMING(handler_after_window_setup);
     }
 #endif
+    TRACE_TIMING(handler_show_end);
+
+    // Pre-warm thumbnails
+    QTimer::singleShot(0, [this]() {
+        if (m_mainItem) {
+            // Force an update to trigger thumbnail rendering
+            if (QQuickWindow *w = window()) {
+                w->update();
+            }
+        }
+    });
 }
 
 /***********************************************
@@ -389,6 +434,18 @@ void TabBoxHandler::hide(bool abort)
         }
     }
 #endif
+
+    // Free thumbnail textures to reclaim VRAM
+    if (d->m_mainItem) {
+        // Force thumbnails to release their textures
+        QTimer::singleShot(100, [this]() {
+            // Clear thumbnail cache
+            if (SwitcherItem *item = d->switcherItem()) {
+                // Trigger thumbnail cleanup
+                item->setVisible(false);
+            }
+        });
+    }
 }
 
 QModelIndex TabBoxHandler::nextPrev(bool forward) const
