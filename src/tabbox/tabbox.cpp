@@ -17,6 +17,8 @@
 #include "tabbox/tabbox_logging.h"
 #include "tabbox/tabboxconfig.h"
 // gpu monitoring
+// thumbnail caching
+#include "thumbnail_cache_manager.h"
 // kwin
 #if KWIN_BUILD_ACTIVITIES
 #include "activities.h"
@@ -342,27 +344,77 @@ TabBox::TabBox()
     m_tabBoxMode = TabBoxWindowsMode; // init variables
     connect(&m_delayedShowTimer, &QTimer::timeout, this, &TabBox::show);
     connect(Workspace::self(), &Workspace::configChanged, this, &TabBox::reconfigure);
+
+    // Initialize thumbnail cache manager
+    m_thumbnailCache = std::make_unique<ThumbnailCacheManager>(this);
+
+    // Pre-render thumbnails whenever workspace windows change
+    connect(Workspace::self(), &Workspace::windowAdded, this, [this]() {
+        scheduleCache();
+    });
+    connect(Workspace::self(), &Workspace::windowRemoved, this, [this]() {
+        scheduleCache();
+    });
+
+    // Initial cache warmup 5 seconds after startup
+    QTimer::singleShot(5000, this, [this]() {
+        scheduleCache();
+    });
 }
 
 TabBox::~TabBox() = default;
+
+void TabBox::scheduleCache()
+{
+    // Debounce cache updates
+    static QTimer *cacheTimer = nullptr;
+    if (!cacheTimer) {
+        cacheTimer = new QTimer(this);
+        cacheTimer->setSingleShot(true);
+        cacheTimer->setInterval(1000);
+        connect(cacheTimer, &QTimer::timeout, this, [this]() {
+            updateThumbnailCache();
+        });
+    }
+    cacheTimer->start();
+}
+
+void TabBox::updateThumbnailCache()
+{
+    if (!m_thumbnailCache) {
+        return;
+    }
+
+    // Get windows in Alt+Tab order
+    QList<Window *> windows;
+
+    // Use focus chain order (most likely to be Alt+Tabbed)
+    Window *current = workspace()->activeWindow();
+    if (current && m_tabBox->isInFocusChain(current)) {
+        Window *start = current;
+        Window *c = current;
+
+        do {
+            if (m_tabBox->clientToAddToList(c)) {
+                windows.append(c);
+            }
+            c = m_tabBox->nextClientFocusChain(c);
+
+            if (windows.size() > 20) {
+                break; // Only cache top 20 windows
+            }
+        } while (c && c != start);
+    }
+
+    qDebug() << "[TABBOX] Pre-caching thumbnails for" << windows.size() << "windows";
+    m_thumbnailCache->warmupCache(windows);
+}
 
 void TabBox::handlerReady()
 {
     m_tabBox->setConfig(m_defaultConfig);
     reconfigure();
     m_ready = true;
-
-    // Pre-render thumbnails in background to warm up cache
-    QTimer::singleShot(5000, this, [this]() {
-        const auto windows = workspace()->windows();
-        for (auto w : windows) {
-            // Request thumbnail generation for all windows
-            if (w && w->isNormalWindow() && !w->isDeleted()) {
-                // Trigger thumbnail creation to populate the cache
-                // This will make them available immediately when Alt+Tab is pressed
-            }
-        }
-    });
 }
 
 template<typename Slot>
@@ -525,8 +577,14 @@ void TabBox::show()
     TRACE_TIMING(show_before_set_showing_desktop);
     workspace()->setShowingDesktop(false);
 
-    // Use default config to prevent crashes
+    // Use default config since GPU monitor was removed
     m_tabBox->setConfig(m_defaultConfig);
+
+    // **TRIGGER CACHE WARMUP IMMEDIATELY**
+    // This ensures thumbnails are ready when switcher appears
+    if (m_thumbnailCache) {
+        updateThumbnailCache();
+    }
 
     TRACE_TIMING(show_before_reference);
     reference();
@@ -656,6 +714,10 @@ void TabBox::loadConfig(const KConfigGroup &config, TabBoxConfig &tabBoxConfig)
 
     // Load thumbnail batch size
     tabBoxConfig.setThumbnailBatchSize(config.readEntry<int>("ThumbnailBatchSize", 5));
+
+    // Load thumbnail pre-caching settings
+    tabBoxConfig.setPreCacheThumbnails(config.readEntry<bool>("PreCacheThumbnails", true));
+    tabBoxConfig.setMaxCachedThumbnails(config.readEntry<int>("MaxCachedThumbnails", 50));
 }
 
 void TabBox::delayedShow()

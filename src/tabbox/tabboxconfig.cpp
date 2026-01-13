@@ -56,6 +56,10 @@ public:
 
     // Batch loading settings
     int thumbnailBatchSize = 5; // Default batch size
+
+    // Thumbnail pre-rendering settings
+    bool preCacheThumbnails = true;
+    int maxCachedThumbnails = 50;
 };
 
 TabBoxConfig::TabBoxConfig()
@@ -232,6 +236,26 @@ int TabBoxConfig::thumbnailBatchSize() const
 void TabBoxConfig::setThumbnailBatchSize(int size)
 {
     d->thumbnailBatchSize = size;
+}
+
+bool TabBoxConfig::preCacheThumbnails() const
+{
+    return d->preCacheThumbnails;
+}
+
+void TabBoxConfig::setPreCacheThumbnails(bool enable)
+{
+    d->preCacheThumbnails = enable;
+}
+
+int TabBoxConfig::maxCachedThumbnails() const
+{
+    return d->maxCachedThumbnails;
+}
+
+void TabBoxConfig::setMaxCachedThumbnails(int max)
+{
+    d->maxCachedThumbnails = max;
 }
 
 } // namespace TabBox

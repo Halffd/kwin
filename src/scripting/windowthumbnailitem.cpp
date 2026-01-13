@@ -122,13 +122,8 @@ void WindowThumbnailSource::update()
 {
     TRACE_TIMING(thumbnail_source_update_start);
 
-    // Speed up updates - allow 60 FPS (16ms between updates) for faster rendering
-    static QElapsedTimer lastUpdate;
-    if (lastUpdate.isValid() && lastUpdate.elapsed() < 16) {
-        TRACE_TIMING(thumbnail_source_update_throttled);
-        return;
-    }
-    lastUpdate.restart();
+    // REMOVE THROTTLING - let cache manager control timing
+    // This allows immediate display when pre-cached
 
     if (m_acquireFence || !m_dirty || !m_handle) {
         TRACE_TIMING(thumbnail_source_update_skip);
@@ -343,30 +338,22 @@ QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::Upda
             return oldNode;
         }
 
-        // ========== PRIORITIZED NON-BLOCKING FENCE CHECK ==========
+        // SIMPLIFIED FENCE HANDLING
         if (acquireFence) {
-            TRACE_TIMING(thumbnail_fence_check);
+            // Quick non-blocking check
+            GLint status = 0;
+            GLsizei length = 0;
+            glGetSynciv(acquireFence, GL_SYNC_STATUS, sizeof(GLint), &length, &status);
 
-            // Check if fence is ready WITHOUT blocking
-            GLenum result = glClientWaitSync(acquireFence, 0, 0); // 0 timeout = don't wait
-
-            if (result == GL_TIMEOUT_EXPIRED || result == GL_WAIT_FAILED) {
-                // Fence not ready yet - schedule retry for selected windows
-                // This allows selected windows to retry more aggressively
-                TRACE_TIMING(thumbnail_fence_not_ready);
-
-                if (m_isSelected) {
-                    // For selected windows, schedule a retry to get the thumbnail faster
-                    QTimer::singleShot(8, this, &WindowThumbnailItem::update); // Very fast retry for selected
-                }
-
+            if (status == GL_SIGNALED) {
+                // Ready! Delete fence and continue
                 glDeleteSync(acquireFence);
-                return oldNode; // Keep showing old thumbnail
+            } else {
+                // Not ready - show old thumbnail, schedule update
+                QMetaObject::invokeMethod(this, "update", Qt::QueuedConnection);
+                glDeleteSync(acquireFence);
+                return oldNode;
             }
-
-            // Fence is ready (GL_ALREADY_SIGNALED or GL_CONDITION_SATISFIED)
-            TRACE_TIMING(thumbnail_fence_ready);
-            glDeleteSync(acquireFence);
         }
 
         if (!m_provider) {

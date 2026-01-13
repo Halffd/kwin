@@ -301,6 +301,13 @@ public:
     int thumbnailBatchSize() const;
     void setThumbnailBatchSize(int size);
 
+    // Thumbnail pre-rendering settings
+    bool preCacheThumbnails() const;
+    void setPreCacheThumbnails(bool enable);
+
+    int maxCachedThumbnails() const;
+    void setMaxCachedThumbnails(int max);
+
 private:
     TabBoxConfigPrivate *d;
 };

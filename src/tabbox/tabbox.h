@@ -18,6 +18,12 @@
 #include <QModelIndex>
 #include <QTimer>
 
+// Forward declaration for thumbnail cache manager
+namespace KWin
+{
+class ThumbnailCacheManager;
+}
+
 class KConfigGroup;
 class KLazyLocalizedString;
 class QAction;
@@ -297,6 +303,13 @@ private:
 #if KWIN_BUILD_X11
     std::unique_ptr<X11EventFilter> m_x11EventFilter;
 #endif
+
+    // Thumbnail cache manager for fast pre-rendering
+    std::unique_ptr<ThumbnailCacheManager> m_thumbnailCache;
+
+    // Thumbnail cache management methods
+    void scheduleCache();
+    void updateThumbnailCache();
 };
 
 } // namespace TabBox
