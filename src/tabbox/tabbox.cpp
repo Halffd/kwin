@@ -361,6 +361,11 @@ TabBox::TabBox()
     QTimer::singleShot(5000, this, [this]() {
         scheduleCache();
     });
+
+    // Update cache when windows change to keep thumbnails fresh
+    connect(Workspace::self(), &Workspace::windowActivated, this, [this]() {
+        scheduleCache();
+    });
 }
 
 TabBox::~TabBox() = default;
@@ -372,7 +377,7 @@ void TabBox::scheduleCache()
     if (!cacheTimer) {
         cacheTimer = new QTimer(this);
         cacheTimer->setSingleShot(true);
-        cacheTimer->setInterval(1000);
+        cacheTimer->setInterval(100); // Update more frequently - 100ms instead of 1000ms
         connect(cacheTimer, &QTimer::timeout, this, [this]() {
             updateThumbnailCache();
         });
@@ -391,24 +396,44 @@ void TabBox::updateThumbnailCache()
 
     // Use focus chain order (most likely to be Alt+Tabbed)
     Window *current = workspace()->activeWindow();
-    if (current && m_tabBox->isInFocusChain(current)) {
-        Window *start = current;
-        Window *c = current;
-
-        do {
-            if (m_tabBox->clientToAddToList(c)) {
-                windows.append(c);
-            }
-            c = m_tabBox->nextClientFocusChain(c);
-
-            if (windows.size() > 20) {
-                break; // Only cache top 20 windows
-            }
-        } while (c && c != start);
+    if (!current) {
+        // If no active window, try to get the first in focus chain
+        current = m_tabBox->firstClientFocusChain();
     }
 
-    qDebug() << "[TABBOX] Pre-caching thumbnails for" << windows.size() << "windows";
-    m_thumbnailCache->warmupCache(windows);
+    if (current) {
+        Window *start = current;
+        Window *c = current;
+        int count = 0;
+        const int MAX_WINDOWS = 20;
+
+        do {
+            if (!c || c->isDeleted()) {
+                break;
+            }
+
+            Window *add = m_tabBox->clientToAddToList(c);
+            if (add && !add->isDeleted()) {
+                windows.append(add);
+                count++;
+
+                if (count >= MAX_WINDOWS) {
+                    break; // Only cache top 20 windows
+                }
+            }
+
+            c = m_tabBox->nextClientFocusChain(c);
+
+            if (!c || c == start) {
+                break; // End of cycle
+            }
+        } while (count < MAX_WINDOWS);
+    }
+
+    if (!windows.isEmpty()) {
+        qDebug() << "[TABBOX] Pre-caching thumbnails for" << windows.size() << "windows";
+        m_thumbnailCache->warmupCache(windows);
+    }
 }
 
 void TabBox::handlerReady()
@@ -578,6 +603,11 @@ void TabBox::show()
 
     // **EMERGENCY: Just use default config without GPU check**
     m_tabBox->setConfig(m_defaultConfig);
+
+    // Trigger immediate cache update for fast thumbnails
+    if (m_thumbnailCache) {
+        scheduleCache(); // Schedule cache update in background
+    }
 
     reference();
     m_isShown = true;

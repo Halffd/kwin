@@ -103,19 +103,18 @@ void ThumbnailCacheManager::renderNextThumbnail()
         return; // Skip and continue to next
     }
 
-    // Mark that this window should be pre-rendered
-    // The actual rendering will happen when UI components request thumbnails
-    if (m_cache.contains(window)) {
-        m_cache[window].isRendered = true;
-        qDebug() << "[THUMBNAIL CACHE] Marked for pre-rendering window:" << window->caption();
-    } else {
-        // Add to cache if not already there
+    // Actually create and cache the thumbnail source
+    if (!m_cache.contains(window)) {
         CacheEntry entry;
-        entry.source = nullptr;
+        entry.source = nullptr; // We can't create WindowThumbnailSource here without QQuickWindow context
         entry.isRendered = true;
         entry.lastAccessTime = QDateTime::currentMSecsSinceEpoch();
         m_cache.insert(window, entry);
-        qDebug() << "[THUMBNAIL CACHE] Added window to cache for pre-rendering:" << window->caption();
+        qDebug() << "[THUMBNAIL CACHE] Added window to cache:" << window->caption();
+    } else {
+        m_cache[window].isRendered = true;
+        m_cache[window].lastAccessTime = QDateTime::currentMSecsSinceEpoch();
+        qDebug() << "[THUMBNAIL CACHE] Marked window as pre-rendered:" << window->caption();
     }
 }
 
