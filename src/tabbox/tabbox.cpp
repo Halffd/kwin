@@ -17,6 +17,7 @@
 #include "tabbox/tabbox_logging.h"
 #include "tabbox/tabboxconfig.h"
 // gpu monitoring
+#include "gpu_usage_monitor.h"
 // thumbnail caching
 #include "thumbnail_cache_manager.h"
 // kwin
@@ -556,6 +557,7 @@ void TabBox::setCurrentIndex(QModelIndex index, bool notifyEffects)
 void TabBox::setConfig(const TabBoxConfig &config)
 {
     m_tabBox->setConfig(config);
+    // Removed GPU usage monitor integration to prevent crashes
 }
 
 bool TabBox::haveActiveClient()
@@ -565,36 +567,21 @@ bool TabBox::haveActiveClient()
 
 void TabBox::show()
 {
-    TRACE_TIMING(show_start);
     Q_EMIT tabBoxAdded(m_tabBoxMode);
 
     if (isDisplayed()) {
-        TRACE_TIMING(show_already_displayed);
         m_isShown = false;
         return;
     }
 
-    TRACE_TIMING(show_before_set_showing_desktop);
     workspace()->setShowingDesktop(false);
 
-    // Use default config since GPU monitor was removed
+    // **EMERGENCY: Just use default config without GPU check**
     m_tabBox->setConfig(m_defaultConfig);
 
-    // **TRIGGER CACHE WARMUP IMMEDIATELY**
-    // This ensures thumbnails are ready when switcher appears
-    if (m_thumbnailCache) {
-        updateThumbnailCache();
-    }
-
-    TRACE_TIMING(show_before_reference);
     reference();
-
-    TRACE_TIMING(show_before_set_isShown);
     m_isShown = true;
-
-    TRACE_TIMING(show_before_tabbox_show);
     m_tabBox->show();
-    TRACE_TIMING(show_end);
 }
 
 void TabBox::hide(bool abort)
@@ -706,10 +693,18 @@ void TabBox::loadConfig(const KConfigGroup &config, TabBoxConfig &tabBoxConfig)
         switcherMode = TabBoxConfig::Thumbnail;
     } else if (switcherModeStr == QLatin1String("compact")) {
         switcherMode = TabBoxConfig::Compact;
+    } else if (switcherModeStr == QLatin1String("vram")) {
+        switcherMode = TabBoxConfig::Vram;
+    } else if (switcherModeStr == QLatin1String("gpu")) {
+        switcherMode = TabBoxConfig::Gpu;
+    } else if (switcherModeStr == QLatin1String("auto")) {
+        switcherMode = TabBoxConfig::GpuOrVram; // Combined mode: GPU or VRAM above limit
     }
     tabBoxConfig.setSwitcherMode(switcherMode);
 
-    tabBoxConfig.setVramThresholdMB(config.readEntry<int>("VramThresholdMB", 300));
+    // Use conservative defaults
+    tabBoxConfig.setVramThresholdMB(config.readEntry<int>("VramThresholdMB", 500)); // Higher default
+    tabBoxConfig.setGpuThreshold(config.readEntry<int>("GPUThreshold", 80)); // More lenient
     tabBoxConfig.setLowVramLayout(config.readEntry<QString>("LowVramLayout", "compact"));
 
     // Load thumbnail batch size

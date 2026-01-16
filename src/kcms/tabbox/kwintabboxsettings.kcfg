@@ -40,5 +40,14 @@
        <entry key="HighlightWindows" type="Bool">
            <default code="true">TabBoxConfig::defaultHighlightWindow()</default>
        </entry>
+       <entry key="SwitcherMode" type="String">
+           <default>auto</default>
+       </entry>
+       <entry key="VramThresholdMB" type="Int">
+           <default>300</default>
+       </entry>
+       <entry key="GPUThreshold" type="Int">
+           <default>70</default>
+       </entry>
     </group>
 </kcfg>

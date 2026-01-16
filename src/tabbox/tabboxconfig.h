@@ -286,15 +286,20 @@ public:
     enum SwitcherMode {
         Auto, // Automatically choose based on VRAM
         Thumbnail, // Always use thumbnail mode
-        Compact // Always use compact (icon) mode
+        Compact, // Always use compact (icon) mode
+        Vram, // Use VRAM-based switching
+        Gpu, // Use GPU compute utilization-based switching
+        GpuOrVram // Use either GPU or VRAM above threshold
     };
 
     SwitcherMode switcherMode() const;
     int vramThresholdMB() const;
+    int gpuThreshold() const; // GPU utilization threshold (%)
     QString lowVramLayout() const;
 
     void setSwitcherMode(SwitcherMode mode);
     void setVramThresholdMB(int threshold);
+    void setGpuThreshold(int threshold);
     void setLowVramLayout(const QString &layout);
 
     // Batch loading settings

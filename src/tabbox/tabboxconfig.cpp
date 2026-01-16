@@ -30,6 +30,7 @@ public:
         , layoutName(TabBoxConfig::defaultLayoutName())
         , switcherMode(TabBoxConfig::Auto)
         , vramThresholdMB(300)
+        , gpuThreshold(70) // Default GPU threshold 70%
         , lowVramLayout(QStringLiteral("compact"))
     {
     }
@@ -52,6 +53,7 @@ public:
     // VRAM-based switcher settings
     TabBoxConfig::SwitcherMode switcherMode;
     int vramThresholdMB;
+    int gpuThreshold;
     QString lowVramLayout;
 
     // Batch loading settings
@@ -208,6 +210,11 @@ int TabBoxConfig::vramThresholdMB() const
     return d->vramThresholdMB;
 }
 
+int TabBoxConfig::gpuThreshold() const
+{
+    return d->gpuThreshold;
+}
+
 QString TabBoxConfig::lowVramLayout() const
 {
     return d->lowVramLayout;
@@ -221,6 +228,11 @@ void TabBoxConfig::setSwitcherMode(SwitcherMode mode)
 void TabBoxConfig::setVramThresholdMB(int threshold)
 {
     d->vramThresholdMB = threshold;
+}
+
+void TabBoxConfig::setGpuThreshold(int threshold)
+{
+    d->gpuThreshold = threshold;
 }
 
 void TabBoxConfig::setLowVramLayout(const QString &layout)

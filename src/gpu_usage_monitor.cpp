@@ -7,11 +7,14 @@
 #include "gpu_usage_monitor.h"
 #include "opengl/glutils.h"
 #include "tabbox/tabboxconfig.h"
+#include <QCoreApplication>
 #include <QDebug>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QTimer>
+#include <QtConcurrent>
 
 namespace KWin
 {
@@ -19,139 +22,245 @@ namespace KWin
 GpuUsageMonitor::GpuUsageMonitor(QObject *parent)
     : QObject(parent)
 {
-    // Initialize with default values
-    m_cachedInfo.availableVramMB = 0;
-    m_cachedInfo.totalVramMB = 0;
-    m_cachedInfo.isValid = false;
+    // Initialize with safe defaults - assume low-end GPU
+    m_cachedInfo.availableVramMB = 1000; // Conservative default
+    m_cachedInfo.totalVramMB = 2048;
+    m_cachedInfo.gpuUtilization = 0;
+    m_cachedInfo.isValid = true; // Mark as valid to avoid repeated queries
     m_lastQuery = std::chrono::steady_clock::now();
+
+    // Start background query AFTER construction completes
+    QTimer::singleShot(0, this, [this]() {
+        startBackgroundQuery();
+    });
 }
 
 GpuUsageMonitor::~GpuUsageMonitor()
 {
 }
 
+void GpuUsageMonitor::startBackgroundQuery()
+{
+    // Use QtConcurrent to run query in background thread pool
+    QFuture<GpuInfo> future = QtConcurrent::run([this]() {
+        return queryGpuState();
+    });
+
+    // Connect watcher to update cached info when done
+    QFutureWatcher<GpuInfo> *watcher = new QFutureWatcher<GpuInfo>(this);
+    connect(watcher, &QFutureWatcher<GpuInfo>::finished, this, [this, watcher]() {
+        QMutexLocker locker(&m_cacheMutex);
+        m_cachedInfo = watcher->result();
+        m_lastQuery = std::chrono::steady_clock::now();
+        watcher->deleteLater();
+
+        qDebug() << "[GPU MONITOR] Updated: VRAM" << m_cachedInfo.availableVramMB
+                 << "MB available, GPU util" << m_cachedInfo.gpuUtilization << "%";
+    });
+    watcher->setFuture(future);
+}
+
 int GpuUsageMonitor::getVramThresholdMB() const
 {
-    // Use the threshold from base config, default to 300MB
-    return m_baseConfig.vramThresholdMB() > 0 ? m_baseConfig.vramThresholdMB() : 300;
+    // Use the threshold from base config
+    return m_baseConfig.vramThresholdMB();
 }
 
 GpuUsageMonitor::GpuInfo GpuUsageMonitor::queryGpuState() const
 {
+    qDebug() << "[GPU MONITOR] Starting query...";
+
     GpuInfo info;
     info.isValid = false;
-    info.availableVramMB = 0;
-    info.totalVramMB = 0;
+    info.availableVramMB = 1000; // Safe default
+    info.totalVramMB = 2048;
+    info.gpuUtilization = 0;
 
-    // Try to get VRAM info from OpenGL
-    if (QOpenGLContext *ctx = QOpenGLContext::currentContext()) {
-        QOpenGLFunctions *funcs = ctx->functions();
-        if (funcs) {
-            // Try to get vendor-specific extensions for VRAM info
-            QString extensions = QString::fromLocal8Bit(
-                reinterpret_cast<const char *>(funcs->glGetString(GL_EXTENSIONS)));
+    try {
+        // **CRITICAL: Use QProcess with event loop, not waitForFinished**
+        // This prevents UI freezes
 
-            // For NVIDIA cards, try to get VRAM info
-            if (extensions.contains(QLatin1String("NVX_gpu_memory_info"))) {
-                GLint totalMemKb = 0;
-                GLint curAvailMemKb = 0;
+        QProcess *gpuProc = new QProcess();
+        gpuProc->setProgram("nvidia-smi");
+        gpuProc->setArguments({"--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"});
 
-                funcs->glGetIntegerv(0x9048 /*GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX*/, &totalMemKb);
-                funcs->glGetIntegerv(0x9049 /*GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX*/, &curAvailMemKb);
+        // Set up timeout to kill hung processes
+        QTimer *timeout = new QTimer();
+        timeout->setSingleShot(true);
+        timeout->setInterval(200); // 200ms max
 
-                if (totalMemKb > 0) {
-                    info.totalVramMB = totalMemKb / 1024;
-                    info.availableVramMB = curAvailMemKb / 1024;
-                    info.isValid = true;
-                }
+        bool finished = false;
+        QString output;
+
+        connect(gpuProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                [&](int exitCode, QProcess::ExitStatus status) {
+            if (exitCode == 0 && status == QProcess::NormalExit) {
+                output = gpuProc->readAllStandardOutput().trimmed();
             }
-            // For AMD/ATI cards, try to get VRAM info
-            else if (extensions.contains(QLatin1String("ATI_meminfo"))) {
-                GLint memInfo[4] = {0};
-                funcs->glGetIntegerv(0x87FC /*GL_VBO_FREE_MEMORY_ATI*/, memInfo);
+            finished = true;
+            timeout->stop();
+        });
 
-                if (memInfo[0] > 0) {
-                    info.totalVramMB = 0; // ATI doesn't provide total, just available
-                    info.availableVramMB = memInfo[0] / 1024;
-                    info.isValid = true;
-                }
+        connect(timeout, &QTimer::timeout, [&]() {
+            gpuProc->kill();
+            finished = true;
+        });
+
+        gpuProc->start();
+        timeout->start();
+
+        // **SAFE EVENT LOOP** - process events but don't block main UI
+        while (!finished) {
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 10);
+            QThread::msleep(1); // Yield to other threads
+        }
+
+        if (!output.isEmpty()) {
+            bool ok;
+            int util = output.toInt(&ok);
+            if (ok) {
+                info.gpuUtilization = qBound(0, util, 100);
             }
         }
-    }
 
-    // If OpenGL didn't provide info, try system commands as fallback
-    if (!info.isValid) {
-        // Try parsing from system files or commands
-        QProcess proc;
-        proc.start("nvidia-smi", QStringList() << "--query-gpu=memory.total,memory.free" << "--format=csv,noheader,nounits");
-        proc.waitForFinished(1000); // Wait up to 1 second
+        delete gpuProc;
+        delete timeout;
 
-        if (proc.exitCode() == 0) {
-            QString output = proc.readAllStandardOutput();
-            QStringList lines = output.split('\n');
-            if (!lines.isEmpty() && !lines[0].trimmed().isEmpty()) {
-                QStringList values = lines[0].split(',');
-                if (values.size() >= 2) {
-                    bool totalOk = false, freeOk = false;
-                    int total = values[0].trimmed().toInt(&totalOk);
-                    int free = values[1].trimmed().toInt(&freeOk);
-
-                    if (totalOk && freeOk) {
-                        info.totalVramMB = total;
-                        info.availableVramMB = free;
-                        info.isValid = true;
-                    }
-                }
-            }
+        // Try OpenGL for VRAM (faster than nvidia-smi)
+        if (tryGetVramFromGL(info)) {
+            info.isValid = true;
+            qDebug() << "[GPU MONITOR] Query complete: VRAM" << info.availableVramMB << "MB";
+            return info;
         }
-    }
 
-    // If still no info, try to get from lspci
-    if (!info.isValid) {
-        QProcess proc;
-        proc.start("lspci", QStringList() << "-v");
-        proc.waitForFinished(1000);
-
-        if (proc.exitCode() == 0) {
-            QString output = proc.readAllStandardOutput();
-            QRegularExpression vramRegex(R"(VRAM=[\d]+M|Memory at [^ ]+ \(.* ([\d]+)([MG])\)|\[size=([0-9]+)([MG])\])");
-            QRegularExpressionMatch match = vramRegex.match(output);
-
-            if (match.hasMatch()) {
-                // Extract VRAM size - this is a simplified approach
-                // In practice, you'd need more sophisticated parsing
-                QRegularExpression sizeRegex(R"(([0-9]+)([MG]))");
-                QRegularExpressionMatchIterator iter = sizeRegex.globalMatch(output);
-
-                while (iter.hasNext()) {
-                    QRegularExpressionMatch sizeMatch = iter.next();
-                    QString sizeStr = sizeMatch.captured(1);
-                    QString unit = sizeMatch.captured(2);
-
-                    bool ok = false;
-                    int size = sizeStr.toInt(&ok);
-                    if (ok) {
-                        if (unit == QLatin1String("G")) {
-                            size *= 1024; // Convert GB to MB
-                        }
-                        info.totalVramMB = size;
-                        info.availableVramMB = size; // Assume all is available initially
-                        info.isValid = true;
-                        break;
-                    }
-                }
-            }
+        // Fallback to nvidia-smi for VRAM (with same timeout pattern)
+        if (!tryGetVramFromNvidiaSmi(info)) {
+            // Use conservative defaults if all queries fail
+            info.availableVramMB = 1000;
+            info.totalVramMB = 2048;
         }
-    }
 
-    // If still no info, use conservative defaults
-    if (!info.isValid) {
-        info.totalVramMB = 2048; // Assume 2GB as default
-        info.availableVramMB = 1500; // Assume 1.5GB available
         info.isValid = true;
+    } catch (const std::exception &e) {
+        qCritical() << "[GPU MONITOR] Exception in queryGpuState:" << e.what();
+        // Return safe defaults
+        info.isValid = true;
+        return info;
+    } catch (...) {
+        qCritical() << "[GPU MONITOR] Unknown exception in queryGpuState";
+        info.isValid = true;
+        return info;
     }
 
+    qDebug() << "[GPU MONITOR] Query complete: VRAM" << info.availableVramMB << "MB";
     return info;
+}
+
+bool GpuUsageMonitor::tryGetVramFromGL(GpuInfo &info) const
+{
+    QOpenGLContext *ctx = QOpenGLContext::currentContext();
+    if (!ctx) {
+        return false;
+    }
+
+    QOpenGLFunctions *funcs = ctx->functions();
+    if (!funcs) {
+        return false;
+    }
+
+    // Try NVIDIA extension (fastest)
+    const char *extensions = reinterpret_cast<const char *>(funcs->glGetString(GL_EXTENSIONS));
+    if (!extensions) {
+        return false;
+    }
+
+    QString extStr = QString::fromLatin1(extensions);
+
+    if (extStr.contains("NVX_gpu_memory_info")) {
+        GLint totalMemKb = 0;
+        GLint curAvailMemKb = 0;
+
+        funcs->glGetIntegerv(0x9048, &totalMemKb); // GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX
+        funcs->glGetIntegerv(0x9049, &curAvailMemKb); // GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX
+
+        if (totalMemKb > 0) {
+            info.totalVramMB = totalMemKb / 1024;
+            info.availableVramMB = curAvailMemKb / 1024;
+            return true;
+        }
+    }
+
+    // Try AMD extension
+    if (extStr.contains("ATI_meminfo")) {
+        GLint memInfo[4] = {0};
+        funcs->glGetIntegerv(0x87FC, memInfo); // GL_VBO_FREE_MEMORY_ATI
+
+        if (memInfo[0] > 0) {
+            info.availableVramMB = memInfo[0] / 1024;
+            info.totalVramMB = info.availableVramMB * 2; // Estimate
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool GpuUsageMonitor::tryGetVramFromNvidiaSmi(GpuInfo &info) const
+{
+    // Similar non-blocking pattern as above
+    QProcess *proc = new QProcess();
+    proc->setProgram("nvidia-smi");
+    proc->setArguments({"--query-gpu=memory.total,memory.free", "--format=csv,noheader,nounits"});
+
+    QTimer *timeout = new QTimer();
+    timeout->setSingleShot(true);
+    timeout->setInterval(200);
+
+    bool finished = false;
+    QString output;
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            [&](int exitCode, QProcess::ExitStatus status) {
+        if (exitCode == 0 && status == QProcess::NormalExit) {
+            output = proc->readAllStandardOutput().trimmed();
+        }
+        finished = true;
+        timeout->stop();
+    });
+
+    connect(timeout, &QTimer::timeout, [&]() {
+        proc->kill();
+        finished = true;
+    });
+
+    proc->start();
+    timeout->start();
+
+    while (!finished) {
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 10);
+        QThread::msleep(1);
+    }
+
+    delete timeout;
+
+    if (!output.isEmpty()) {
+        QStringList values = output.split(',');
+        if (values.size() >= 2) {
+            bool totalOk, freeOk;
+            int total = values[0].trimmed().toInt(&totalOk);
+            int free = values[1].trimmed().toInt(&freeOk);
+
+            if (totalOk && freeOk) {
+                info.totalVramMB = total;
+                info.availableVramMB = free;
+                delete proc;
+                return true;
+            }
+        }
+    }
+
+    delete proc;
+    return false;
 }
 
 bool GpuUsageMonitor::shouldUseThumbnails() const
@@ -161,22 +270,36 @@ bool GpuUsageMonitor::shouldUseThumbnails() const
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastQuery).count();
 
-    // Update cache if stale (older than 1 second)
-    if (elapsed > 1000) {
-        // Cast away const to update cached values
-        auto *nonConstThis = const_cast<GpuUsageMonitor *>(this);
-        nonConstThis->m_lastQuery = now;
-        nonConstThis->m_cachedInfo = nonConstThis->queryGpuState();
+    // Update cache in background if stale (>5 seconds, not 2 to reduce overhead)
+    if (elapsed > 5000) {
+        // Schedule background update WITHOUT blocking
+        // Use QTimer to defer to next event loop iteration
+        QTimer::singleShot(0, const_cast<GpuUsageMonitor *>(this), [this]() {
+            startBackgroundQuery();
+        });
     }
 
-    // If we have valid VRAM info, use it to decide
-    if (m_cachedInfo.isValid) {
-        int threshold = getVramThresholdMB();
-        return m_cachedInfo.availableVramMB >= threshold;
+    // Use cached value immediately (never block)
+    switch (m_baseConfig.switcherMode()) {
+    case TabBox::TabBoxConfig::Vram:
+        return m_cachedInfo.availableVramMB >= getVramThresholdMB();
+
+    case TabBox::TabBoxConfig::Gpu:
+        return m_cachedInfo.gpuUtilization < m_baseConfig.gpuThreshold();
+
+    case TabBox::TabBoxConfig::GpuOrVram:
+        return (m_cachedInfo.availableVramMB >= getVramThresholdMB())
+            && (m_cachedInfo.gpuUtilization < m_baseConfig.gpuThreshold());
+
+    case TabBox::TabBoxConfig::Auto:
+    case TabBox::TabBoxConfig::Thumbnail:
+        return m_cachedInfo.availableVramMB >= getVramThresholdMB();
+
+    case TabBox::TabBoxConfig::Compact:
+        return false;
     }
 
-    // Default to true if we can't determine VRAM
-    return true;
+    return true; // Safe default
 }
 
 TabBox::TabBoxConfig GpuUsageMonitor::getOptimalConfig() const

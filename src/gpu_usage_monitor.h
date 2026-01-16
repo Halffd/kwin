@@ -8,6 +8,7 @@
 
 #include <QMutex>
 #include <QObject>
+#include <QTimer>
 #include <chrono>
 
 #include "tabbox/tabboxconfig.h"
@@ -37,8 +38,13 @@ private:
     {
         int availableVramMB = 0;
         int totalVramMB = 0;
+        int gpuUtilization = 0; // GPU compute utilization percentage
         bool isValid = false;
     };
+
+    void startBackgroundQuery();
+    bool tryGetVramFromGL(GpuInfo &info) const;
+    bool tryGetVramFromNvidiaSmi(GpuInfo &info) const;
 
     mutable QMutex m_cacheMutex;
     GpuInfo m_cachedInfo;
