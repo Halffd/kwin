@@ -525,7 +525,7 @@ void TabBox::reconfigure()
 
     m_tabBox->setConfig(m_defaultConfig);
 
-    m_delayShowTime = config.readEntry<int>("DelayTime", 90);
+    m_delayShowTime = config.readEntry<int>("DelayTime", 0); // Set to 0 for immediate showing
 
     QList<ElectricBorder> *borders = &m_borderActivate;
     QString borderConfig = QStringLiteral("BorderActivate");
@@ -929,7 +929,8 @@ bool TabBox::startKDEWalkThroughWindows(bool forward, TabBoxMode mode)
         nextPrev(forward);
     }
 
-    delayedShow();
+    // Show immediately instead of delayed to eliminate wait time
+    show();
 
     return true;
 }

@@ -153,10 +153,9 @@ void WindowThumbnailSource::update()
     Compositor::self()->scene()->renderer()->renderItem(offscreenRenderTarget, offscreenViewport, m_handle->windowItem(), mask, infiniteRegion(), WindowPaintData{});
     GLFramebuffer::popFramebuffer();
 
-    // The fence is needed to avoid the case where qtquick renderer starts using
-    // the texture while all rendering commands to it haven't completed yet.
     m_dirty = false;
-    m_acquireFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    // Don't use fence - just emit immediately for non-blocking behavior
+    // m_acquireFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 
     Q_EMIT changed();
 }
@@ -314,22 +313,9 @@ QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::Upda
             return oldNode;
         }
 
-        // SIMPLIFIED FENCE HANDLING
+        // Delete fence immediately - don't wait
         if (acquireFence) {
-            // Quick non-blocking check
-            GLint status = 0;
-            GLsizei length = 0;
-            glGetSynciv(acquireFence, GL_SYNC_STATUS, sizeof(GLint), &length, &status);
-
-            if (status == GL_SIGNALED) {
-                // Ready! Delete fence and continue
-                glDeleteSync(acquireFence);
-            } else {
-                // Not ready - show old thumbnail, schedule update
-                QMetaObject::invokeMethod(this, "update", Qt::QueuedConnection);
-                glDeleteSync(acquireFence);
-                return oldNode;
-            }
+            glDeleteSync(acquireFence);
         }
 
         if (!m_provider) {
