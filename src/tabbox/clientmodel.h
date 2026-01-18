@@ -10,7 +10,6 @@
 #pragma once
 #include "tabboxhandler.h"
 
-#include <QElapsedTimer>
 #include <QModelIndex>
 /**
  * @file
@@ -90,13 +89,9 @@ public Q_SLOTS:
 private:
     void createFocusChainClientList(Window *start);
     void createStackingOrderClientList(Window *start);
-    void loadThumbnailsInBatches();
 
     QList<Window *> m_clientList;
     QList<Window *> m_mutableClientList;
-    QList<Window *> m_cachedClientList;
-    QElapsedTimer m_lastRebuildTimer;
-    bool m_isCreating = false;
 };
 
 } // namespace Tabbox

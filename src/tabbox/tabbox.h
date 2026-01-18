@@ -18,12 +18,6 @@
 #include <QModelIndex>
 #include <QTimer>
 
-// Forward declaration for thumbnail cache manager
-namespace KWin
-{
-class GpuUsageMonitor; // Forward declaration for GPU usage monitor
-}
-
 class KConfigGroup;
 class KLazyLocalizedString;
 class QAction;
@@ -212,7 +206,6 @@ public:
         return m_noModifierGrab;
     }
     void setCurrentIndex(QModelIndex index, bool notifyEffects = true);
-    void setConfig(const TabBoxConfig &config);
 
 public Q_SLOTS:
     /**
@@ -303,9 +296,6 @@ private:
 #if KWIN_BUILD_X11
     std::unique_ptr<X11EventFilter> m_x11EventFilter;
 #endif
-
-    // GPU usage monitor for adaptive tabbox behavior
-    std::unique_ptr<KWin::GpuUsageMonitor> m_gpuUsageMonitor;
 };
 
 } // namespace TabBox

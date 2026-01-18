@@ -282,37 +282,6 @@ public:
         return QStringLiteral("thumbnail_grid");
     }
 
-    // VRAM-based switcher settings
-    enum SwitcherMode {
-        Auto, // Automatically choose based on VRAM
-        Thumbnail, // Always use thumbnail mode
-        Compact, // Always use compact (icon) mode
-        Vram, // Use VRAM-based switching
-        Gpu, // Use GPU compute utilization-based switching
-        GpuOrVram // Use either GPU or VRAM above threshold
-    };
-
-    SwitcherMode switcherMode() const;
-    int vramThresholdMB() const;
-    int gpuThreshold() const; // GPU utilization threshold (%)
-    QString lowVramLayout() const;
-
-    void setSwitcherMode(SwitcherMode mode);
-    void setVramThresholdMB(int threshold);
-    void setGpuThreshold(int threshold);
-    void setLowVramLayout(const QString &layout);
-
-    // Batch loading settings
-    int thumbnailBatchSize() const;
-    void setThumbnailBatchSize(int size);
-
-    // Thumbnail pre-rendering settings
-    bool preCacheThumbnails() const;
-    void setPreCacheThumbnails(bool enable);
-
-    int maxCachedThumbnails() const;
-    void setMaxCachedThumbnails(int max);
-
 private:
     TabBoxConfigPrivate *d;
 };

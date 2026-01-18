@@ -13,18 +13,10 @@
 
 #include <KLocalizedString>
 
-#include <QDebug>
-#include <QElapsedTimer>
 #include <QIcon>
-#include <QTimer>
 #include <QUuid>
 
-#include <algorithm>
 #include <cmath>
-
-#ifdef __linux__
-#include <execinfo.h>
-#endif
 
 namespace KWin
 {
@@ -162,27 +154,13 @@ void ClientModel::createFocusChainClientList(Window *start)
         }
     }
     auto stop = c;
-    int count = 0;
-    const int MAX_WINDOWS = 50; // Prevent infinite loops
-
     do {
         Window *add = tabBox->clientToAddToList(c);
         if (add) {
             m_mutableClientList += add;
-            count++;
         }
         c = tabBox->nextClientFocusChain(c);
-
-        // Safety check to prevent infinite loops
-        if (count > MAX_WINDOWS) {
-            qWarning() << "Breaking focus chain loop - too many windows";
-            break;
-        }
     } while (c && c != stop);
-
-    // ========== BATCH THUMBNAIL LOADING ==========
-    // Load thumbnails in batches to prevent overwhelming GPU
-    loadThumbnailsInBatches();
 }
 
 void ClientModel::createStackingOrderClientList(Window *start)
@@ -195,10 +173,7 @@ void ClientModel::createStackingOrderClientList(Window *start)
     auto c = stacking.first();
     auto stop = c;
     int index = 0;
-    int count = 0;
-    const int MAX_WINDOWS = 50; // Prevent infinite loops
-
-    while (c && count < MAX_WINDOWS) {
+    while (c) {
         Window *add = tabBox->clientToAddToList(c);
         if (add) {
             if (start == add) {
@@ -207,7 +182,6 @@ void ClientModel::createStackingOrderClientList(Window *start)
             } else {
                 m_mutableClientList += add;
             }
-            count++;
         }
         if (index >= stacking.size() - 1) {
             c = nullptr;
@@ -223,20 +197,6 @@ void ClientModel::createStackingOrderClientList(Window *start)
 
 void ClientModel::createClientList(bool partialReset)
 {
-    // Don't rebuild if we're in the middle of showing
-    if (m_isCreating) {
-        qWarning() << "Skipping client list recreation - already in progress";
-        return;
-    }
-
-    // Throttle rebuilds to max once per 100ms
-    if (m_lastRebuildTimer.isValid() && m_lastRebuildTimer.elapsed() < 100) {
-        return;
-    }
-
-    m_isCreating = true;
-    m_lastRebuildTimer.restart();
-
     auto start = tabBox->activeClient();
     // TODO: new clients are not added at correct position
     if (partialReset && !m_mutableClientList.isEmpty()) {
@@ -276,16 +236,12 @@ void ClientModel::createClientList(bool partialReset)
     }
 
     if (m_clientList == m_mutableClientList) {
-        m_isCreating = false;
         return;
     }
 
-    // Simple approach: always do full reset to avoid threading issues
     beginResetModel();
     m_clientList = m_mutableClientList;
     endResetModel();
-
-    m_isCreating = false;
 }
 
 void ClientModel::close(int i)
@@ -297,33 +253,6 @@ void ClientModel::close(int i)
     Window *client = m_mutableClientList.at(i);
     if (client) {
         client->closeWindow();
-    }
-}
-
-void ClientModel::loadThumbnailsInBatches()
-{
-    // Get batch size from config (default 5)
-    int batchSize = tabBox->config().thumbnailBatchSize();
-
-    // Load thumbnails in batches to prevent overwhelming GPU
-    for (int i = 0; i < m_mutableClientList.size(); i++) {
-        Window *window = m_mutableClientList[i];
-        if (window) {
-            // Calculate which batch this window belongs to
-            int batchNumber = i / batchSize;
-            int delay = batchNumber * 50; // 50ms delay between batches
-
-            // Schedule thumbnail loading with delay based on batch
-            int currentBatchSize = batchSize; // Capture the value
-            QTimer::singleShot(delay, [window, i, currentBatchSize, this]() {
-                // Trigger thumbnail preparation for this window
-                // This would integrate with the thumbnail system
-                qWarning() << "Loading thumbnail batch" << (i / currentBatchSize) << "for window" << i;
-
-                // In a full implementation, this would trigger the actual thumbnail preparation
-                // for the specific window, respecting the batch loading approach
-            });
-        }
     }
 }
 

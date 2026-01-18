@@ -28,10 +28,6 @@ public:
         , clientMultiScreenMode(TabBoxConfig::defaultMultiScreenMode())
         , clientSwitchingMode(TabBoxConfig::defaultSwitchingMode())
         , layoutName(TabBoxConfig::defaultLayoutName())
-        , switcherMode(TabBoxConfig::Auto)
-        , vramThresholdMB(300)
-        , gpuThreshold(70) // Default GPU threshold 70%
-        , lowVramLayout(QStringLiteral("compact"))
     {
     }
     ~TabBoxConfigPrivate()
@@ -49,19 +45,6 @@ public:
     TabBoxConfig::ClientMultiScreenMode clientMultiScreenMode;
     TabBoxConfig::ClientSwitchingMode clientSwitchingMode;
     QString layoutName;
-
-    // VRAM-based switcher settings
-    TabBoxConfig::SwitcherMode switcherMode;
-    int vramThresholdMB;
-    int gpuThreshold;
-    QString lowVramLayout;
-
-    // Batch loading settings
-    int thumbnailBatchSize = 5; // Default batch size
-
-    // Thumbnail pre-rendering settings
-    bool preCacheThumbnails = true;
-    int maxCachedThumbnails = 50;
 };
 
 TabBoxConfig::TabBoxConfig()
@@ -198,76 +181,6 @@ QString &TabBoxConfig::layoutName() const
 void TabBoxConfig::setLayoutName(const QString &name)
 {
     d->layoutName = name;
-}
-
-TabBoxConfig::SwitcherMode TabBoxConfig::switcherMode() const
-{
-    return d->switcherMode;
-}
-
-int TabBoxConfig::vramThresholdMB() const
-{
-    return d->vramThresholdMB;
-}
-
-int TabBoxConfig::gpuThreshold() const
-{
-    return d->gpuThreshold;
-}
-
-QString TabBoxConfig::lowVramLayout() const
-{
-    return d->lowVramLayout;
-}
-
-void TabBoxConfig::setSwitcherMode(SwitcherMode mode)
-{
-    d->switcherMode = mode;
-}
-
-void TabBoxConfig::setVramThresholdMB(int threshold)
-{
-    d->vramThresholdMB = threshold;
-}
-
-void TabBoxConfig::setGpuThreshold(int threshold)
-{
-    d->gpuThreshold = threshold;
-}
-
-void TabBoxConfig::setLowVramLayout(const QString &layout)
-{
-    d->lowVramLayout = layout;
-}
-
-int TabBoxConfig::thumbnailBatchSize() const
-{
-    return d->thumbnailBatchSize;
-}
-
-void TabBoxConfig::setThumbnailBatchSize(int size)
-{
-    d->thumbnailBatchSize = size;
-}
-
-bool TabBoxConfig::preCacheThumbnails() const
-{
-    return d->preCacheThumbnails;
-}
-
-void TabBoxConfig::setPreCacheThumbnails(bool enable)
-{
-    d->preCacheThumbnails = enable;
-}
-
-int TabBoxConfig::maxCachedThumbnails() const
-{
-    return d->maxCachedThumbnails;
-}
-
-void TabBoxConfig::setMaxCachedThumbnails(int max)
-{
-    d->maxCachedThumbnails = max;
 }
 
 } // namespace TabBox

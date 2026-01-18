@@ -17,8 +17,6 @@
 #include "tabbox_logging.h"
 #include "window.h"
 // Qt
-#include <QDebug>
-#include <QElapsedTimer>
 #include <QKeyEvent>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -28,7 +26,6 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <qpa/qwindowsysteminterface.h>
-
 // KDE
 #include <KLocalizedString>
 #include <KPackage/Package>
@@ -321,16 +318,6 @@ void TabBoxHandlerPrivate::show()
         QWindowSystemInterface::handleFocusWindowChanged(w, Qt::TabFocusReason);
     }
 #endif
-
-    // Pre-warm thumbnails
-    QTimer::singleShot(0, [this]() {
-        if (m_mainItem) {
-            // Force an update to trigger thumbnail rendering
-            if (QQuickWindow *w = window()) {
-                w->update();
-            }
-        }
-    });
 }
 
 /***********************************************
@@ -402,18 +389,6 @@ void TabBoxHandler::hide(bool abort)
         }
     }
 #endif
-
-    // Free thumbnail textures to reclaim VRAM
-    if (d->m_mainItem) {
-        // Force thumbnails to release their textures
-        QTimer::singleShot(100, [this]() {
-            // Clear thumbnail cache
-            if (SwitcherItem *item = d->switcherItem()) {
-                // Trigger thumbnail cleanup
-                item->setVisible(false);
-            }
-        });
-    }
 }
 
 QModelIndex TabBoxHandler::nextPrev(bool forward) const

@@ -16,8 +16,6 @@
 #include "tabbox/clientmodel.h"
 #include "tabbox/tabbox_logging.h"
 #include "tabbox/tabboxconfig.h"
-// gpu monitoring
-#include "gpu_usage_monitor.h"
 // kwin
 #if KWIN_BUILD_ACTIVITIES
 #include "activities.h"
@@ -37,10 +35,7 @@
 #endif
 // Qt
 #include <QAction>
-#include <QDebug>
-#include <QElapsedTimer>
 #include <QKeyEvent>
-#include <QTimer>
 // KDE
 #include <KConfig>
 #include <KConfigGroup>
@@ -48,7 +43,6 @@
 #include <KLazyLocalizedString>
 #include <KLocalizedString>
 #include <kkeyserver.h>
-
 #if KWIN_BUILD_X11
 #include "tabbox/x11_filter.h"
 #include "utils/xcbutils.h"
@@ -337,9 +331,6 @@ TabBox::TabBox()
     m_tabBoxMode = TabBoxWindowsMode; // init variables
     connect(&m_delayedShowTimer, &QTimer::timeout, this, &TabBox::show);
     connect(Workspace::self(), &Workspace::configChanged, this, &TabBox::reconfigure);
-
-    // Initialize GPU usage monitor for adaptive tabbox behavior
-    m_gpuUsageMonitor = std::make_unique<KWin::GpuUsageMonitor>(this);
 }
 
 TabBox::~TabBox() = default;
@@ -487,16 +478,6 @@ void TabBox::setCurrentIndex(QModelIndex index, bool notifyEffects)
     }
 }
 
-void TabBox::setConfig(const TabBoxConfig &config)
-{
-    m_tabBox->setConfig(config);
-
-    // Update GPU usage monitor with new configuration
-    if (m_gpuUsageMonitor) {
-        m_gpuUsageMonitor->setBaseConfig(config);
-    }
-}
-
 bool TabBox::haveActiveClient()
 {
     return m_tabBox->index(m_tabBox->activeClient()).isValid();
@@ -505,27 +486,11 @@ bool TabBox::haveActiveClient()
 void TabBox::show()
 {
     Q_EMIT tabBoxAdded(m_tabBoxMode);
-
     if (isDisplayed()) {
         m_isShown = false;
         return;
     }
-
     workspace()->setShowingDesktop(false);
-
-    // Use GPU-aware configuration based on current GPU state
-    if (m_gpuUsageMonitor) {
-        // Update GPU monitor with current config
-        m_gpuUsageMonitor->setBaseConfig(m_defaultConfig);
-
-        // Get optimal config based on GPU state
-        TabBoxConfig config = m_gpuUsageMonitor->getOptimalConfig();
-        m_tabBox->setConfig(config);
-    } else {
-        // Fallback to default config if GPU monitor is not available
-        m_tabBox->setConfig(m_defaultConfig);
-    }
-
     reference();
     m_isShown = true;
     m_tabBox->show();
@@ -560,7 +525,7 @@ void TabBox::reconfigure()
 
     m_tabBox->setConfig(m_defaultConfig);
 
-    m_delayShowTime = config.readEntry<int>("DelayTime", 0);
+    m_delayShowTime = config.readEntry<int>("DelayTime", 90);
 
     QList<ElectricBorder> *borders = &m_borderActivate;
     QString borderConfig = QStringLiteral("BorderActivate");
@@ -632,34 +597,6 @@ void TabBox::loadConfig(const KConfigGroup &config, TabBoxConfig &tabBoxConfig)
                                                             TabBoxConfig::defaultHighlightWindow()));
 
     tabBoxConfig.setLayoutName(config.readEntry<QString>("LayoutName", TabBoxConfig::defaultLayoutName()));
-
-    // Load VRAM-based switcher settings
-    const QString switcherModeStr = config.readEntry<QString>("SwitcherMode", "auto");
-    TabBoxConfig::SwitcherMode switcherMode = TabBoxConfig::Auto;
-    if (switcherModeStr == QLatin1String("thumbnail")) {
-        switcherMode = TabBoxConfig::Thumbnail;
-    } else if (switcherModeStr == QLatin1String("compact")) {
-        switcherMode = TabBoxConfig::Compact;
-    } else if (switcherModeStr == QLatin1String("vram")) {
-        switcherMode = TabBoxConfig::Vram;
-    } else if (switcherModeStr == QLatin1String("gpu")) {
-        switcherMode = TabBoxConfig::Gpu;
-    } else if (switcherModeStr == QLatin1String("auto")) {
-        switcherMode = TabBoxConfig::GpuOrVram; // Combined mode: GPU or VRAM above limit
-    }
-    tabBoxConfig.setSwitcherMode(switcherMode);
-
-    // Use conservative defaults
-    tabBoxConfig.setVramThresholdMB(config.readEntry<int>("VramThresholdMB", 500)); // Higher default
-    tabBoxConfig.setGpuThreshold(config.readEntry<int>("GPUThreshold", 80)); // More lenient
-    tabBoxConfig.setLowVramLayout(config.readEntry<QString>("LowVramLayout", "compact"));
-
-    // Load thumbnail batch size
-    tabBoxConfig.setThumbnailBatchSize(config.readEntry<int>("ThumbnailBatchSize", 5));
-
-    // Load thumbnail pre-caching settings
-    tabBoxConfig.setPreCacheThumbnails(config.readEntry<bool>("PreCacheThumbnails", true));
-    tabBoxConfig.setMaxCachedThumbnails(config.readEntry<int>("MaxCachedThumbnails", 50));
 }
 
 void TabBox::delayedShow()

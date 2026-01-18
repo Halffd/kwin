@@ -101,7 +101,6 @@ target_sources(kwin PRIVATE
     focuschain.cpp
     ftrace.cpp
     gestures.cpp
-    gpu_usage_monitor.cpp
     globalshortcuts.cpp
     hide_cursor_spy.cpp
     idle_inhibition.cpp
