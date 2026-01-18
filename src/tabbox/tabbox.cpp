@@ -346,6 +346,9 @@ TabBox::TabBox()
     connect(&m_delayedShowTimer, &QTimer::timeout, this, &TabBox::show);
     connect(Workspace::self(), &Workspace::configChanged, this, &TabBox::reconfigure);
 
+    // Initialize GPU usage monitor for adaptive tabbox behavior
+    m_gpuUsageMonitor = std::make_unique<KWin::GpuUsageMonitor>(this);
+
     // Initialize thumbnail cache manager
     m_thumbnailCache = std::make_unique<ThumbnailCacheManager>(this);
 
@@ -582,7 +585,11 @@ void TabBox::setCurrentIndex(QModelIndex index, bool notifyEffects)
 void TabBox::setConfig(const TabBoxConfig &config)
 {
     m_tabBox->setConfig(config);
-    // Removed GPU usage monitor integration to prevent crashes
+
+    // Update GPU usage monitor with new configuration
+    if (m_gpuUsageMonitor) {
+        m_gpuUsageMonitor->setBaseConfig(config);
+    }
 }
 
 bool TabBox::haveActiveClient()
@@ -601,8 +608,18 @@ void TabBox::show()
 
     workspace()->setShowingDesktop(false);
 
-    // **EMERGENCY: Just use default config without GPU check**
-    m_tabBox->setConfig(m_defaultConfig);
+    // Use GPU-aware configuration based on current GPU state
+    if (m_gpuUsageMonitor) {
+        // Update GPU monitor with current config
+        m_gpuUsageMonitor->setBaseConfig(m_defaultConfig);
+
+        // Get optimal config based on GPU state
+        TabBoxConfig config = m_gpuUsageMonitor->getOptimalConfig();
+        m_tabBox->setConfig(config);
+    } else {
+        // Fallback to default config if GPU monitor is not available
+        m_tabBox->setConfig(m_defaultConfig);
+    }
 
     // Trigger immediate cache update for fast thumbnails
     if (m_thumbnailCache) {

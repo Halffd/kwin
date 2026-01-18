@@ -21,6 +21,7 @@
 // Forward declaration for thumbnail cache manager
 namespace KWin
 {
+class GpuUsageMonitor; // Forward declaration for GPU usage monitor
 class ThumbnailCacheManager;
 }
 
@@ -303,6 +304,9 @@ private:
 #if KWIN_BUILD_X11
     std::unique_ptr<X11EventFilter> m_x11EventFilter;
 #endif
+
+    // GPU usage monitor for adaptive tabbox behavior
+    std::unique_ptr<KWin::GpuUsageMonitor> m_gpuUsageMonitor;
 
     // Thumbnail cache manager for fast pre-rendering
     std::unique_ptr<ThumbnailCacheManager> m_thumbnailCache;

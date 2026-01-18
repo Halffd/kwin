@@ -7,6 +7,7 @@
 #include "gpu_usage_monitor.h"
 #include "opengl/glutils.h"
 #include "tabbox/tabboxconfig.h"
+
 #include <QCoreApplication>
 #include <QDebug>
 #include <QOpenGLContext>
@@ -37,6 +38,7 @@ GpuUsageMonitor::GpuUsageMonitor(QObject *parent)
 
 GpuUsageMonitor::~GpuUsageMonitor()
 {
+    // Destructor will automatically clean up the unique_ptr
 }
 
 void GpuUsageMonitor::startBackgroundQuery()
@@ -76,81 +78,70 @@ GpuUsageMonitor::GpuInfo GpuUsageMonitor::queryGpuState() const
     info.totalVramMB = 2048;
     info.gpuUtilization = 0;
 
-    try {
-        // **CRITICAL: Use QProcess with event loop, not waitForFinished**
-        // This prevents UI freezes
+    // **CRITICAL: Use QProcess with event loop, not waitForFinished**
+    // This prevents UI freezes
 
-        QProcess *gpuProc = new QProcess();
-        gpuProc->setProgram("nvidia-smi");
-        gpuProc->setArguments({"--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"});
+    QProcess *gpuProc = new QProcess();
+    gpuProc->setProgram("nvidia-smi");
+    gpuProc->setArguments({"--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"});
 
-        // Set up timeout to kill hung processes
-        QTimer *timeout = new QTimer();
-        timeout->setSingleShot(true);
-        timeout->setInterval(200); // 200ms max
+    // Set up timeout to kill hung processes
+    QTimer *timeout = new QTimer();
+    timeout->setSingleShot(true);
+    timeout->setInterval(200); // 200ms max
 
-        bool finished = false;
-        QString output;
+    bool finished = false;
+    QString output;
 
-        connect(gpuProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                [&](int exitCode, QProcess::ExitStatus status) {
-            if (exitCode == 0 && status == QProcess::NormalExit) {
-                output = gpuProc->readAllStandardOutput().trimmed();
-            }
-            finished = true;
-            timeout->stop();
-        });
-
-        connect(timeout, &QTimer::timeout, [&]() {
-            gpuProc->kill();
-            finished = true;
-        });
-
-        gpuProc->start();
-        timeout->start();
-
-        // **SAFE EVENT LOOP** - process events but don't block main UI
-        while (!finished) {
-            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 10);
-            QThread::msleep(1); // Yield to other threads
+    connect(gpuProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            [&](int exitCode, QProcess::ExitStatus status) {
+        if (exitCode == 0 && status == QProcess::NormalExit) {
+            output = gpuProc->readAllStandardOutput().trimmed();
         }
+        finished = true;
+        timeout->stop();
+    });
 
-        if (!output.isEmpty()) {
-            bool ok;
-            int util = output.toInt(&ok);
-            if (ok) {
-                info.gpuUtilization = qBound(0, util, 100);
-            }
+    connect(timeout, &QTimer::timeout, [&]() {
+        gpuProc->kill();
+        finished = true;
+    });
+
+    gpuProc->start();
+    timeout->start();
+
+    // **SAFE EVENT LOOP** - process events but don't block main UI
+    while (!finished) {
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 10);
+        QThread::msleep(1); // Yield to other threads
+    }
+
+    if (!output.isEmpty()) {
+        bool ok;
+        int util = output.toInt(&ok);
+        if (ok) {
+            info.gpuUtilization = qBound(0, util, 100);
         }
+    }
 
-        delete gpuProc;
-        delete timeout;
+    delete gpuProc;
+    delete timeout;
 
-        // Try OpenGL for VRAM (faster than nvidia-smi)
-        if (tryGetVramFromGL(info)) {
-            info.isValid = true;
-            qDebug() << "[GPU MONITOR] Query complete: VRAM" << info.availableVramMB << "MB";
-            return info;
-        }
-
-        // Fallback to nvidia-smi for VRAM (with same timeout pattern)
-        if (!tryGetVramFromNvidiaSmi(info)) {
-            // Use conservative defaults if all queries fail
-            info.availableVramMB = 1000;
-            info.totalVramMB = 2048;
-        }
-
+    // Try OpenGL for VRAM (faster than nvidia-smi)
+    if (tryGetVramFromGL(info)) {
         info.isValid = true;
-    } catch (const std::exception &e) {
-        qCritical() << "[GPU MONITOR] Exception in queryGpuState:" << e.what();
-        // Return safe defaults
-        info.isValid = true;
-        return info;
-    } catch (...) {
-        qCritical() << "[GPU MONITOR] Unknown exception in queryGpuState";
-        info.isValid = true;
+        qDebug() << "[GPU MONITOR] Query complete: VRAM" << info.availableVramMB << "MB";
         return info;
     }
+
+    // Fallback to nvidia-smi for VRAM (with same timeout pattern)
+    if (!tryGetVramFromNvidiaSmi(info)) {
+        // Use conservative defaults if all queries fail
+        info.availableVramMB = 1000;
+        info.totalVramMB = 2048;
+    }
+
+    info.isValid = true;
 
     qDebug() << "[GPU MONITOR] Query complete: VRAM" << info.availableVramMB << "MB";
     return info;
@@ -275,7 +266,7 @@ bool GpuUsageMonitor::shouldUseThumbnails() const
         // Schedule background update WITHOUT blocking
         // Use QTimer to defer to next event loop iteration
         QTimer::singleShot(0, const_cast<GpuUsageMonitor *>(this), [this]() {
-            startBackgroundQuery();
+            const_cast<GpuUsageMonitor *>(this)->startBackgroundQuery();
         });
     }
 
@@ -307,8 +298,11 @@ TabBox::TabBoxConfig GpuUsageMonitor::getOptimalConfig() const
     TabBox::TabBoxConfig config = m_baseConfig;
 
     if (!shouldUseThumbnails()) {
-        // Use compact layout when VRAM is low
+        // Use low VRAM layout when GPU conditions indicate low resources
         config.setLayoutName(m_baseConfig.lowVramLayout());
+        qDebug() << "[GPU MONITOR] Switching to low VRAM layout:" << m_baseConfig.lowVramLayout();
+    } else {
+        qDebug() << "[GPU MONITOR] Using normal layout:" << m_baseConfig.layoutName();
     }
 
     return config;
