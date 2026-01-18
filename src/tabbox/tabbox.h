@@ -22,7 +22,6 @@
 namespace KWin
 {
 class GpuUsageMonitor; // Forward declaration for GPU usage monitor
-class ThumbnailCacheManager;
 }
 
 class KConfigGroup;
@@ -307,13 +306,6 @@ private:
 
     // GPU usage monitor for adaptive tabbox behavior
     std::unique_ptr<KWin::GpuUsageMonitor> m_gpuUsageMonitor;
-
-    // Thumbnail cache manager for fast pre-rendering
-    std::unique_ptr<ThumbnailCacheManager> m_thumbnailCache;
-
-    // Thumbnail cache management methods
-    void scheduleCache();
-    void updateThumbnailCache();
 };
 
 } // namespace TabBox

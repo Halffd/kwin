@@ -203,7 +203,6 @@ target_sources(kwin PRIVATE
     scripting/windowmodel.cpp
     scripting/windowthumbnailitem.cpp
     scripting/workspace_wrapper.cpp
-    thumbnail_cache_manager.cpp
     shadow.cpp
     sm.cpp
     tablet_input.cpp

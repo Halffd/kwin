@@ -18,8 +18,6 @@
 #include "tabbox/tabboxconfig.h"
 // gpu monitoring
 #include "gpu_usage_monitor.h"
-// thumbnail caching
-#include "thumbnail_cache_manager.h"
 // kwin
 #if KWIN_BUILD_ACTIVITIES
 #include "activities.h"
@@ -51,12 +49,6 @@
 #include <KLocalizedString>
 #include <kkeyserver.h>
 
-// Timing helper macro
-#define TRACE_TIMING(label)              \
-    static QElapsedTimer _timer_##label; \
-    if (!_timer_##label.isValid())       \
-        _timer_##label.start();          \
-    qWarning() << "[TABBOX TIMING]" << #label << ":" << _timer_##label.restart() << "ms";
 #if KWIN_BUILD_X11
 #include "tabbox/x11_filter.h"
 #include "utils/xcbutils.h"
@@ -348,96 +340,9 @@ TabBox::TabBox()
 
     // Initialize GPU usage monitor for adaptive tabbox behavior
     m_gpuUsageMonitor = std::make_unique<KWin::GpuUsageMonitor>(this);
-
-    // Initialize thumbnail cache manager
-    m_thumbnailCache = std::make_unique<ThumbnailCacheManager>(this);
-
-    // Pre-render thumbnails whenever workspace windows change
-    connect(Workspace::self(), &Workspace::windowAdded, this, [this]() {
-        scheduleCache();
-    });
-    connect(Workspace::self(), &Workspace::windowRemoved, this, [this]() {
-        scheduleCache();
-    });
-
-    // Initial cache warmup 5 seconds after startup
-    QTimer::singleShot(5000, this, [this]() {
-        scheduleCache();
-    });
-
-    // Update cache when windows change to keep thumbnails fresh
-    connect(Workspace::self(), &Workspace::windowActivated, this, [this]() {
-        scheduleCache();
-    });
 }
 
 TabBox::~TabBox() = default;
-
-void TabBox::scheduleCache()
-{
-    // Debounce cache updates
-    static QTimer *cacheTimer = nullptr;
-    if (!cacheTimer) {
-        cacheTimer = new QTimer(this);
-        cacheTimer->setSingleShot(true);
-        cacheTimer->setInterval(100); // Update more frequently - 100ms instead of 1000ms
-        connect(cacheTimer, &QTimer::timeout, this, [this]() {
-            updateThumbnailCache();
-        });
-    }
-    cacheTimer->start();
-}
-
-void TabBox::updateThumbnailCache()
-{
-    if (!m_thumbnailCache) {
-        return;
-    }
-
-    // Get windows in Alt+Tab order
-    QList<Window *> windows;
-
-    // Use focus chain order (most likely to be Alt+Tabbed)
-    Window *current = workspace()->activeWindow();
-    if (!current) {
-        // If no active window, try to get the first in focus chain
-        current = m_tabBox->firstClientFocusChain();
-    }
-
-    if (current) {
-        Window *start = current;
-        Window *c = current;
-        int count = 0;
-        const int MAX_WINDOWS = 20;
-
-        do {
-            if (!c || c->isDeleted()) {
-                break;
-            }
-
-            Window *add = m_tabBox->clientToAddToList(c);
-            if (add && !add->isDeleted()) {
-                windows.append(add);
-                count++;
-
-                if (count >= MAX_WINDOWS) {
-                    break; // Only cache top 20 windows
-                }
-            }
-
-            c = m_tabBox->nextClientFocusChain(c);
-
-            if (!c || c == start) {
-                break; // End of cycle
-            }
-        } while (count < MAX_WINDOWS);
-    }
-
-    if (!windows.isEmpty()) {
-        qDebug() << "[TABBOX] Pre-caching thumbnails for" << windows.size() << "windows";
-        m_thumbnailCache->warmupCache(windows);
-    }
-}
 
 void TabBox::handlerReady()
 {
@@ -619,11 +524,6 @@ void TabBox::show()
     } else {
         // Fallback to default config if GPU monitor is not available
         m_tabBox->setConfig(m_defaultConfig);
-    }
-
-    // Trigger immediate cache update for fast thumbnails
-    if (m_thumbnailCache) {
-        scheduleCache(); // Schedule cache update in background
     }
 
     reference();
@@ -1224,17 +1124,10 @@ TabBox::Direction TabBox::matchShortcuts(const KeyboardKeyEvent &keyEvent, const
 
 void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
 {
-    qWarning() << "========================================";
-    qWarning() << "TABBOX KEYPRESS CALLED! Key:" << keyEvent.key;
-    qWarning() << "========================================";
-    TRACE_TIMING(keyPress_start);
-
     if (!m_tabGrab) {
-        TRACE_TIMING(keyPress_not_grabbed);
         return;
     }
 
-    TRACE_TIMING(keyPress_direction_init);
     Direction direction(Steady);
 
     const std::array<std::pair<QList<QKeySequence>, QList<QKeySequence>>, TABBOX_MODE_COUNT> shortcuts = {{
@@ -1244,7 +1137,6 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
         {m_cutWalkThroughCurrentAppWindowsAlternative, m_cutWalkThroughCurrentAppWindowsAlternativeReverse},
     }};
 
-    TRACE_TIMING(keyPress_shortcut_loop_start);
     const int currentModeIdx = static_cast<int>(mode());
     for (int i = 0; i < TABBOX_MODE_COUNT; ++i) {
         // Start checking from the current mode so in case of collision we stay
@@ -1258,7 +1150,6 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
 
         // Check if we need to switch modes
         if (testedMode != mode()) {
-            TRACE_TIMING(keyPress_mode_switch);
             accept(false);
             setMode(testedMode);
             auto replayWithChangedTabboxMode = [this, direction]() {
@@ -1266,43 +1157,33 @@ void TabBox::keyPress(const KeyboardKeyEvent &keyEvent)
                 nextPrev(direction == Forward);
             };
             QTimer::singleShot(50, this, replayWithChangedTabboxMode);
-            TRACE_TIMING(keyPress_mode_switch_end);
             return;
         }
 
         break;
     }
 
-    TRACE_TIMING(keyPress_direction_check);
     if (direction == Steady) {
         if (keyEvent.key == Qt::Key_Escape) {
-            TRACE_TIMING(keyPress_escape_close);
             close(true);
         } else {
-            TRACE_TIMING(keyPress_grabbed_key_event);
             QKeyEvent event(QEvent::KeyPress, keyEvent.key, Qt::NoModifier);
             grabbedKeyEvent(&event);
         }
-        TRACE_TIMING(keyPress_steady_end);
         return;
     }
 
     // Do not wrap around list on key auto-repeat
-    TRACE_TIMING(keyPress_autorepeat_check);
     if (keyEvent.state == KeyboardKeyState::Repeated) {
         if (direction == Forward && m_tabBox->currentIndex().row() == m_tabBox->clientList().count() - 1) {
-            TRACE_TIMING(keyPress_forward_repeat_skip);
             return;
         } else if (direction == Backward && m_tabBox->currentIndex().row() == 0) {
-            TRACE_TIMING(keyPress_backward_repeat_skip);
             return;
         }
     }
 
     // Finally apply the direction to iterate over the window list
-    TRACE_TIMING(keyPress_kde_walkthrough_start);
     KDEWalkThroughWindows(direction == Forward);
-    TRACE_TIMING(keyPress_kde_walkthrough_end);
 }
 
 void TabBox::close(bool abort)

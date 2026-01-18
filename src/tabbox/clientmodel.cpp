@@ -26,13 +26,6 @@
 #include <execinfo.h>
 #endif
 
-// Timing helper macro
-#define TRACE_TIMING(label)              \
-    static QElapsedTimer _timer_##label; \
-    if (!_timer_##label.isValid())       \
-        _timer_##label.start();          \
-    qWarning() << "[TABBOX TIMING]" << #label << ":" << _timer_##label.restart() << "ms";
-
 namespace KWin
 {
 namespace TabBox
@@ -161,16 +154,13 @@ QModelIndex ClientModel::index(Window *client) const
 
 void ClientModel::createFocusChainClientList(Window *start)
 {
-    TRACE_TIMING(focus_chain_list_start);
     auto c = start;
     if (!tabBox->isInFocusChain(c)) {
-        TRACE_TIMING(focus_chain_not_in_chain);
         Window *firstClient = tabBox->firstClientFocusChain();
         if (firstClient) {
             c = firstClient;
         }
     }
-    TRACE_TIMING(focus_chain_before_loop);
     auto stop = c;
     int count = 0;
     const int MAX_WINDOWS = 50; // Prevent infinite loops
@@ -189,7 +179,6 @@ void ClientModel::createFocusChainClientList(Window *start)
             break;
         }
     } while (c && c != stop);
-    TRACE_TIMING(focus_chain_after_loop);
 
     // ========== BATCH THUMBNAIL LOADING ==========
     // Load thumbnails in batches to prevent overwhelming GPU
@@ -199,13 +188,10 @@ void ClientModel::createFocusChainClientList(Window *start)
 void ClientModel::createStackingOrderClientList(Window *start)
 {
     // TODO: needs improvement
-    TRACE_TIMING(stacking_order_list_start);
     const QList<Window *> stacking = tabBox->stackingOrder();
     if (stacking.isEmpty()) {
-        TRACE_TIMING(stacking_order_empty);
         return;
     }
-    TRACE_TIMING(stacking_order_before_loop);
     auto c = stacking.first();
     auto stop = c;
     int index = 0;
@@ -233,13 +219,10 @@ void ClientModel::createStackingOrderClientList(Window *start)
             break;
         }
     }
-    TRACE_TIMING(stacking_order_after_loop);
 }
 
 void ClientModel::createClientList(bool partialReset)
 {
-    TRACE_TIMING(clientlist_start);
-
     // Don't rebuild if we're in the middle of showing
     if (m_isCreating) {
         qWarning() << "Skipping client list recreation - already in progress";
@@ -248,7 +231,6 @@ void ClientModel::createClientList(bool partialReset)
 
     // Throttle rebuilds to max once per 100ms
     if (m_lastRebuildTimer.isValid() && m_lastRebuildTimer.elapsed() < 100) {
-        TRACE_TIMING(clientlist_throttled);
         return;
     }
 
@@ -258,31 +240,25 @@ void ClientModel::createClientList(bool partialReset)
     auto start = tabBox->activeClient();
     // TODO: new clients are not added at correct position
     if (partialReset && !m_mutableClientList.isEmpty()) {
-        TRACE_TIMING(clientlist_partial_reset_check);
         Window *firstClient = m_mutableClientList.constFirst();
         if (!firstClient->isDeleted()) {
             start = firstClient;
         }
     }
 
-    TRACE_TIMING(clientlist_before_clear);
     m_mutableClientList.clear();
 
-    TRACE_TIMING(clientlist_before_switch_mode);
     switch (tabBox->config().clientSwitchingMode()) {
     case TabBoxConfig::FocusChainSwitching: {
-        TRACE_TIMING(clientlist_focus_chain_mode);
         createFocusChainClientList(start);
         break;
     }
     case TabBoxConfig::StackingOrderSwitching: {
-        TRACE_TIMING(clientlist_stacking_order_mode);
         createStackingOrderClientList(start);
         break;
     }
     }
 
-    TRACE_TIMING(clientlist_before_minimized_order);
     if (tabBox->config().orderMinimizedMode() == TabBoxConfig::GroupByMinimized) {
         // Put all non-minimized included clients first.
         std::stable_partition(m_mutableClientList.begin(), m_mutableClientList.end(), [](const auto &client) {
@@ -290,7 +266,6 @@ void ClientModel::createClientList(bool partialReset)
         });
     }
 
-    TRACE_TIMING(clientlist_before_desktop_client);
     if (!m_mutableClientList.isEmpty()
         && tabBox->config().clientApplicationsMode() != TabBoxConfig::AllWindowsCurrentApplication
         && tabBox->config().showDesktopMode() == TabBoxConfig::ShowDesktopClient) {
@@ -300,20 +275,16 @@ void ClientModel::createClientList(bool partialReset)
         }
     }
 
-    TRACE_TIMING(clientlist_before_model_reset_check);
     if (m_clientList == m_mutableClientList) {
-        TRACE_TIMING(clientlist_no_changes);
         m_isCreating = false;
         return;
     }
 
     // Simple approach: always do full reset to avoid threading issues
-    TRACE_TIMING(clientlist_before_begin_reset);
     beginResetModel();
     m_clientList = m_mutableClientList;
     endResetModel();
 
-    TRACE_TIMING(clientlist_end);
     m_isCreating = false;
 }
 
@@ -347,7 +318,6 @@ void ClientModel::loadThumbnailsInBatches()
             QTimer::singleShot(delay, [window, i, currentBatchSize, this]() {
                 // Trigger thumbnail preparation for this window
                 // This would integrate with the thumbnail system
-                TRACE_TIMING(thumbnail_batch_load);
                 qWarning() << "Loading thumbnail batch" << (i / currentBatchSize) << "for window" << i;
 
                 // In a full implementation, this would trigger the actual thumbnail preparation
