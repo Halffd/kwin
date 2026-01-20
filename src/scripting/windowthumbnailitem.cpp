@@ -105,26 +105,6 @@ std::shared_ptr<WindowThumbnailSource> WindowThumbnailSource::getOrCreate(QQuick
 
 WindowThumbnailSource::Frame WindowThumbnailSource::acquire()
 {
-    // ========== TRY TO REUSE COMPOSITOR'S EXISTING TEXTURE FIRST ==========
-    // This is what Windows/Compiz do - zero GPU overhead!
-
-    if (m_handle) {
-        // Get the window's already-rendered texture from the scene
-        auto item = m_handle->windowItem();
-        if (item) {
-            // Get the surface pixmap which contains the texture
-            auto surfaceItem = item->surfaceItem();
-            if (surfaceItem) {
-                auto pixmap = surfaceItem->pixmap();
-                if (pixmap) {
-                    // For now, we'll still return the offscreen texture as a fallback
-                    // In a complete implementation, we'd need to access the actual GL texture
-                    // from the compositor's scene graph
-                }
-            }
-        }
-    }
-
     // Return the existing offscreen texture (may be null if not rendered yet)
     return Frame{
         .texture = m_offscreenTexture,
@@ -328,124 +308,26 @@ QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::Upda
         // ========== REUSE COMPOSITOR'S EXISTING TEXTURE ==========
         // This is what Windows/Compiz do - zero GPU overhead!
 
-        auto window = m_source->handle();
-        if (!window) {
+        // For now, we'll use the original acquisition method but with the knowledge
+        // that we could potentially access the window's existing texture
+        auto [originalTexture, acquireFence] = m_source->acquire();
+        if (!originalTexture) {
+            // Schedule another update attempt to try again later
+            int retryInterval = m_isSelected ? 8 : 32; // Selected windows get priority
+            QTimer::singleShot(retryInterval, this, &WindowThumbnailItem::update);
             return oldNode;
         }
 
-        // Get the window's already-rendered texture from the scene
-        auto item = window->windowItem();
-        if (item) {
-            auto surfaceItem = item->surfaceItem();
-            if (surfaceItem) {
-                auto pixmap = surfaceItem->pixmap();
-                if (pixmap && pixmap->isValid()) {
-                    // Try to get the actual GL texture from the pixmap
-                    // This is the key optimization - reuse existing texture
-                    auto surfaceTexture = pixmap->texture();
-                    if (surfaceTexture && surfaceTexture->isValid()) {
-                        // We have the compositor's texture, but we need to make it compatible
-                        // with the QSGTextureProvider system
-                        if (!m_provider) {
-                            m_provider = new ThumbnailTextureProvider(window());
-                        }
-
-                        // For now, we'll use the existing approach but with the knowledge
-                        // that we could potentially access the raw GL texture
-                        auto [originalTexture, acquireFence] = m_source->acquire();
-                        if (originalTexture) {
-                            m_provider->setTexture(originalTexture);
-                            if (acquireFence) {
-                                glDeleteSync(acquireFence);
-                            }
-                        } else {
-                            // If we can't get the offscreen texture, try to create one from the pixmap
-                            // This is where we'd implement the direct texture access in a full implementation
-                        }
-                    } else {
-                        // Fallback to original method if surface texture is not available
-                        auto [originalTexture, acquireFence] = m_source->acquire();
-                        if (!originalTexture) {
-                            // Schedule another update attempt to try again later
-                            int retryInterval = m_isSelected ? 8 : 32; // Selected windows get priority
-                            QTimer::singleShot(retryInterval, this, &WindowThumbnailItem::update);
-                            return oldNode;
-                        }
-
-                        // Delete fence immediately - don't wait
-                        if (acquireFence) {
-                            glDeleteSync(acquireFence);
-                        }
-
-                        if (!m_provider) {
-                            m_provider = new ThumbnailTextureProvider(window());
-                        }
-
-                        m_provider->setTexture(originalTexture);
-                    }
-                } else {
-                    // Fallback to original method if no pixmap available
-                    auto [originalTexture, acquireFence] = m_source->acquire();
-                    if (!originalTexture) {
-                        // Schedule another update attempt to try again later
-                        int retryInterval = m_isSelected ? 8 : 32; // Selected windows get priority
-                        QTimer::singleShot(retryInterval, this, &WindowThumbnailItem::update);
-                        return oldNode;
-                    }
-
-                    // Delete fence immediately - don't wait
-                    if (acquireFence) {
-                        glDeleteSync(acquireFence);
-                    }
-
-                    if (!m_provider) {
-                        m_provider = new ThumbnailTextureProvider(window());
-                    }
-
-                    m_provider->setTexture(originalTexture);
-                }
-            } else {
-                // Fallback to original method if no surface item
-                auto [originalTexture, acquireFence] = m_source->acquire();
-                if (!originalTexture) {
-                    // Schedule another update attempt to try again later
-                    int retryInterval = m_isSelected ? 8 : 32; // Selected windows get priority
-                    QTimer::singleShot(retryInterval, this, &WindowThumbnailItem::update);
-                    return oldNode;
-                }
-
-                // Delete fence immediately - don't wait
-                if (acquireFence) {
-                    glDeleteSync(acquireFence);
-                }
-
-                if (!m_provider) {
-                    m_provider = new ThumbnailTextureProvider(window());
-                }
-
-                m_provider->setTexture(originalTexture);
-            }
-        } else {
-            // Fallback to original method if no window item
-            auto [originalTexture, acquireFence] = m_source->acquire();
-            if (!originalTexture) {
-                // Schedule another update attempt to try again later
-                int retryInterval = m_isSelected ? 8 : 32; // Selected windows get priority
-                QTimer::singleShot(retryInterval, this, &WindowThumbnailItem::update);
-                return oldNode;
-            }
-
-            // Delete fence immediately - don't wait
-            if (acquireFence) {
-                glDeleteSync(acquireFence);
-            }
-
-            if (!m_provider) {
-                m_provider = new ThumbnailTextureProvider(window());
-            }
-
-            m_provider->setTexture(originalTexture);
+        // Delete fence immediately - don't wait
+        if (acquireFence) {
+            glDeleteSync(acquireFence);
         }
+
+        if (!m_provider) {
+            m_provider = new ThumbnailTextureProvider(window());
+        }
+
+        m_provider->setTexture(originalTexture);
     } else {
         if (!m_provider) {
             m_provider = new ThumbnailTextureProvider(window());
