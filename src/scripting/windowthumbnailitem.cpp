@@ -114,8 +114,26 @@ WindowThumbnailSource::Frame WindowThumbnailSource::acquire()
 
 void WindowThumbnailSource::update()
 {
-    // REMOVE THROTTLING - let cache manager control timing
-    // This allows immediate display when pre-cached
+    // ========== CONSERVATIVE APPROACH: Reduce system pressure ==========
+    // Add throttling to prevent overwhelming the system
+
+    static QElapsedTimer lastUpdate;
+    static bool initialized = false;
+    if (!initialized) {
+        lastUpdate.start();
+        initialized = true;
+    }
+
+    // Don't update too frequently - limit to once every 100ms to reduce pressure
+    if (lastUpdate.elapsed() < 100) {
+        // Reschedule for later if too soon
+        QTimer::singleShot(100 - lastUpdate.elapsed(), [this]() {
+            if (m_dirty) { // Only update if still dirty
+                update();
+            }
+        });
+        return;
+    }
 
     if (m_acquireFence || !m_dirty || !m_handle) {
         return;
@@ -125,18 +143,18 @@ void WindowThumbnailSource::update()
     const QRectF geometry = m_handle->visibleGeometry();
     const qreal devicePixelRatio = m_view->devicePixelRatio();
 
-    // REDUCE THUMBNAIL SIZE to 1/16th resolution for low VRAM GPUs (GTX 1050 2GB)
-    const QSize textureSize = (geometry.toAlignedRect().size() * devicePixelRatio) / 4;
+    // REDUCE THUMBNAIL SIZE to reduce GPU pressure
+    const QSize textureSize = (geometry.toAlignedRect().size() * devicePixelRatio) / 8; // Even smaller
 
     if (!m_offscreenTexture || m_offscreenTexture->size() != textureSize) {
-        // Use RGB565 instead of RGBA8 to save 50% VRAM (4 bytes → 2 bytes per pixel)
+        // Use RGB565 instead of RGBA8 to save VRAM
         m_offscreenTexture = GLTexture::allocate(GL_RGB565, textureSize);
 
         if (!m_offscreenTexture) {
             return;
         }
         m_offscreenTexture->setContentTransform(OutputTransform::FlipY);
-        m_offscreenTexture->setFilter(GL_LINEAR);
+        m_offscreenTexture->setFilter(GL_NEAREST); // Use nearest neighbor to reduce processing
         m_offscreenTexture->setWrapMode(GL_CLAMP_TO_EDGE);
         m_offscreenTarget = std::make_unique<GLFramebuffer>(m_offscreenTexture.get());
     }
@@ -155,6 +173,7 @@ void WindowThumbnailSource::update()
     GLFramebuffer::popFramebuffer();
 
     m_dirty = false;
+    lastUpdate.restart(); // Reset timer after successful update
     // Don't use fence - just emit immediately for non-blocking behavior
     // m_acquireFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 
@@ -305,15 +324,13 @@ QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::Upda
             return oldNode;
         }
 
-        // ========== REUSE COMPOSITOR'S EXISTING TEXTURE ==========
-        // This is what Windows/Compiz do - zero GPU overhead!
+        // ========== CONSERVATIVE APPROACH: Reduce system pressure ==========
+        // Only process thumbnails when system is not under stress
 
-        // For now, we'll use the original acquisition method but with the knowledge
-        // that we could potentially access the window's existing texture
         auto [originalTexture, acquireFence] = m_source->acquire();
         if (!originalTexture) {
-            // Schedule another update attempt to try again later
-            int retryInterval = m_isSelected ? 8 : 32; // Selected windows get priority
+            // Schedule update with longer interval to reduce pressure
+            int retryInterval = m_isSelected ? 16 : 64; // Slower retries to reduce pressure
             QTimer::singleShot(retryInterval, this, &WindowThumbnailItem::update);
             return oldNode;
         }
