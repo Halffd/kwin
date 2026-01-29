@@ -528,7 +528,7 @@ public:
             return false;
         }
         if (event->state == KeyboardKeyState::Repeated || event->state == KeyboardKeyState::Pressed) {
-            window->keyPressEvent(event->key | event->modifiers);
+            window->keyPressEvent(QKeyCombination(event->modifiers, Qt::Key(event->key)).toCombined());
         }
         if (window->isInteractiveMove() || window->isInteractiveResize()) {
             // only update if mode didn't end
