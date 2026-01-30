@@ -290,21 +290,44 @@ bool VulkanBackend::createDevice(const QList<const char *> &requiredDeviceExtens
         extensions.push_back(ext);
     }
 
-    // Check for VK_KHR_external_fence_fd extension support
+    // Check for available extensions
     uint32_t extensionCount = 0;
     vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extensionCount, nullptr);
     std::vector<VkExtensionProperties> availableExtensions(extensionCount);
     vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extensionCount, availableExtensions.data());
 
+    // Check for DMA-BUF import support extensions
+    bool hasExternalMemoryFd = false;
+    bool hasDmaBufImport = false;
+    bool hasDrmFormatModifier = false;
     bool hasExternalFenceFd = false;
     bool hasExternalFenceCapabilities = false;
+
     for (const auto &ext : availableExtensions) {
-        if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME) == 0) {
+        if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME) == 0) {
+            hasExternalMemoryFd = true;
+        } else if (strcmp(ext.extensionName, VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME) == 0) {
+            hasDmaBufImport = true;
+        } else if (strcmp(ext.extensionName, VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME) == 0) {
+            hasDrmFormatModifier = true;
+        } else if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME) == 0) {
             hasExternalFenceFd = true;
-        }
-        if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME) == 0) {
+        } else if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME) == 0) {
             hasExternalFenceCapabilities = true;
         }
+    }
+
+    // Enable DMA-BUF import extensions if available
+    if (hasExternalMemoryFd && hasDmaBufImport && hasDrmFormatModifier) {
+        extensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
+        extensions.push_back(VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME);
+        extensions.push_back(VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME);
+        qCDebug(KWIN_CORE) << "DMA-BUF import extensions enabled";
+    } else {
+        qCDebug(KWIN_CORE) << "DMA-BUF import not supported - missing extensions:"
+                           << "hasExternalMemoryFd:" << hasExternalMemoryFd
+                           << "hasDmaBufImport:" << hasDmaBufImport
+                           << "hasDrmFormatModifier:" << hasDrmFormatModifier;
     }
 
     // Enable external fence fd extension if available (requires external_fence_capabilities)

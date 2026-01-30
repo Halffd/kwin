@@ -17,7 +17,10 @@
 #include "vulkantexture.h"
 
 #include <QDebug>
+#include <cerrno>
+#include <cstring>
 #include <drm_fourcc.h>
+#include <unistd.h>
 
 namespace KWin
 {
@@ -352,9 +355,29 @@ std::unique_ptr<VulkanTexture> VulkanContext::importDmaBufAsTexture(const DmaBuf
         return nullptr;
     }
 
-    // Create VkImage with external memory
+    // Build subresource layout for DRM format modifier
+    std::vector<VkSubresourceLayout> planeLayouts;
+    for (int i = 0; i < attributes.planeCount; i++) {
+        VkSubresourceLayout layout{};
+        layout.offset = attributes.offset[i];
+        layout.rowPitch = attributes.pitch[i];
+        layout.arrayPitch = 0;
+        layout.depthPitch = 0;
+        layout.size = 0; // Driver will determine size
+        planeLayouts.push_back(layout);
+    }
+
+    // Set up DRM format modifier info
+    VkImageDrmFormatModifierExplicitCreateInfoEXT modifierInfo{};
+    modifierInfo.sType = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT;
+    modifierInfo.drmFormatModifier = attributes.modifier;
+    modifierInfo.drmFormatModifierPlaneCount = attributes.planeCount;
+    modifierInfo.pPlaneLayouts = planeLayouts.data();
+
+    // Create VkImage with external memory and DRM format modifier
     VkExternalMemoryImageCreateInfo externalMemoryInfo{};
     externalMemoryInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    externalMemoryInfo.pNext = &modifierInfo;
     externalMemoryInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
 
     VkImageCreateInfo imageInfo{};
@@ -368,7 +391,7 @@ std::unique_ptr<VulkanTexture> VulkanContext::importDmaBufAsTexture(const DmaBuf
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.tiling = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT;
     imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -380,15 +403,34 @@ std::unique_ptr<VulkanTexture> VulkanContext::importDmaBufAsTexture(const DmaBuf
         return nullptr;
     }
 
-    // Get memory requirements
+    // Get memory requirements for the image
     VkMemoryRequirements memReqs;
     vkGetImageMemoryRequirements(m_backend->device(), image, &memReqs);
+
+    qCDebug(KWIN_CORE) << "DMA-BUF import: memory requirements - size:" << memReqs.size
+                       << "alignment:" << memReqs.alignment
+                       << "memoryTypeBits:" << Qt::hex << memReqs.memoryTypeBits;
+
+    // Get dedicated memory requirements (may be more restrictive)
+    VkMemoryDedicatedRequirements dedicatedReqs{};
+    dedicatedReqs.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
+
+    VkMemoryRequirements2 memReqs2{};
+    memReqs2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+    memReqs2.pNext = &dedicatedReqs;
+
+    VkImageMemoryRequirementsInfo2 memReqsInfo{};
+    memReqsInfo.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2;
+    memReqsInfo.image = image;
+
+    vkGetImageMemoryRequirements2(m_backend->device(), &memReqsInfo, &memReqs2);
 
     // Find appropriate memory type for DMA-BUF import
     VkPhysicalDeviceMemoryProperties memProperties;
     vkGetPhysicalDeviceMemoryProperties(m_backend->physicalDevice(), &memProperties);
 
     uint32_t memoryTypeIndex = UINT32_MAX;
+    // Try to find device-local memory type first
     for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
         if ((memReqs.memoryTypeBits & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
             memoryTypeIndex = i;
@@ -401,6 +443,7 @@ std::unique_ptr<VulkanTexture> VulkanContext::importDmaBufAsTexture(const DmaBuf
         for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
             if (memReqs.memoryTypeBits & (1 << i)) {
                 memoryTypeIndex = i;
+                qCDebug(KWIN_CORE) << "DMA-BUF import: using non-device-local memory type" << i;
                 break;
             }
         }
@@ -412,11 +455,26 @@ std::unique_ptr<VulkanTexture> VulkanContext::importDmaBufAsTexture(const DmaBuf
         return nullptr;
     }
 
+    qCDebug(KWIN_CORE) << "DMA-BUF import: using memory type index" << memoryTypeIndex;
+
+    // Set up dedicated memory allocation if required
+    VkMemoryDedicatedAllocateInfo dedicatedInfo{};
+    dedicatedInfo.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+    dedicatedInfo.image = image;
+
     // Import memory with VkImportMemoryFdInfoKHR
     VkImportMemoryFdInfoKHR importFdInfo{};
     importFdInfo.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR;
+    importFdInfo.pNext = (dedicatedReqs.prefersDedicatedAllocation || dedicatedReqs.requiresDedicatedAllocation) ? &dedicatedInfo : nullptr;
     importFdInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
-    importFdInfo.fd = attributes.fd[0].get(); // Use the first plane's fd
+    // dup() the fd because Vulkan takes ownership
+    importFdInfo.fd = dup(attributes.fd[0].get());
+
+    if (importFdInfo.fd < 0) {
+        qCWarning(KWIN_CORE) << "Failed to duplicate DMA-BUF file descriptor:" << strerror(errno);
+        vkDestroyImage(m_backend->device(), image, nullptr);
+        return nullptr;
+    }
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -428,6 +486,7 @@ std::unique_ptr<VulkanTexture> VulkanContext::importDmaBufAsTexture(const DmaBuf
     result = vkAllocateMemory(m_backend->device(), &allocInfo, nullptr, &memory);
     if (result != VK_SUCCESS) {
         qCWarning(KWIN_CORE) << "Failed to allocate memory for DMA-BUF import:" << result;
+        close(importFdInfo.fd);
         vkDestroyImage(m_backend->device(), image, nullptr);
         return nullptr;
     }
