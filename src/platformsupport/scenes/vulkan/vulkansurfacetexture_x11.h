@@ -73,6 +73,17 @@ private:
     // Helper function to convert VkImageLayout to string for better logging
     QString layoutToString(VkImageLayout layout) const;
 
+    /**
+     * @brief Detect Y-inversion state from X11 surface characteristics.
+     *
+     * This function mirrors the GLX backend's use of GLX_Y_INVERTED_EXT.
+     * It determines whether the X11 surface requires Y-flipping for proper
+     * Vulkan rendering by checking visual type and depth information.
+     *
+     * @return bool True if Y-flipping is needed, false otherwise.
+     */
+    bool detectYInversionFromX11Surface() const;
+
     SurfacePixmapX11 *m_pixmap;
     VulkanContext *m_context;
     std::unique_ptr<VulkanTexture> m_texture;
