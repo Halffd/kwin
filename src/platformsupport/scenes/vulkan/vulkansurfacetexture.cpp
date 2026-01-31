@@ -9,6 +9,7 @@
 
 #include "vulkansurfacetexture.h"
 #include "vulkanbackend.h"
+#include "vulkantexture.h"
 
 namespace KWin
 {
@@ -20,37 +21,17 @@ VulkanSurfaceTexture::VulkanSurfaceTexture(VulkanBackend *backend)
 
 VulkanSurfaceTexture::~VulkanSurfaceTexture()
 {
-    if (m_backend && m_backend->device()) {
-        if (m_imageView != VK_NULL_HANDLE) {
-            vkDestroyImageView(m_backend->device(), m_imageView, nullptr);
-        }
-        if (m_image != VK_NULL_HANDLE) {
-            vkDestroyImage(m_backend->device(), m_image, nullptr);
-        }
-        if (m_memory != VK_NULL_HANDLE) {
-            vkFreeMemory(m_backend->device(), m_memory, nullptr);
-        }
-    }
+    // Cleanup is handled by VulkanTexture destruction through m_contents
 }
 
 bool VulkanSurfaceTexture::isValid() const
 {
-    return m_image != VK_NULL_HANDLE && m_imageView != VK_NULL_HANDLE;
+    return m_contents.isValid();
 }
 
 VulkanBackend *VulkanSurfaceTexture::backend() const
 {
     return m_backend;
-}
-
-VkImage VulkanSurfaceTexture::image() const
-{
-    return m_image;
-}
-
-VkImageView VulkanSurfaceTexture::imageView() const
-{
-    return m_imageView;
 }
 
 } // namespace KWin

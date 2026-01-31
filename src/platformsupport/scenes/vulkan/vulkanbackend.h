@@ -20,6 +20,7 @@ class Output;
 class VulkanBackend;
 class VulkanContext;
 class VulkanSwapchain;
+class VulkanTexture;
 
 /**
  * @brief The VulkanBackend creates and holds the Vulkan context and is responsible for rendering.
@@ -122,6 +123,29 @@ public:
         return m_vkGetFenceFdKHR;
     }
 
+    /**
+     * @brief Whether the backend supports buffer age (for partial updates)
+     *
+     * In Vulkan, this is always true as swapchain images can be reused.
+     */
+    bool supportsBufferAge() const
+    {
+        return m_supportsBufferAge;
+    }
+
+    /**
+     * @brief Get the Vulkan texture for output
+     */
+    virtual std::pair<std::shared_ptr<VulkanTexture>, ColorDescription> textureForOutput(Output *output) const;
+
+    /**
+     * @brief Get enabled extensions
+     */
+    QList<QByteArray> extensions() const
+    {
+        return m_extensions;
+    }
+
 protected:
     /**
      * @brief Sets the backend initialization to failed.
@@ -172,6 +196,12 @@ private:
     bool m_supportsExternalFenceFd = false;
     bool m_hasExternalFenceCapabilities = false;
     PFN_vkGetFenceFdKHR m_vkGetFenceFdKHR = nullptr;
+
+    // Buffer age support
+    bool m_supportsBufferAge = true;
+
+    // Enabled extensions
+    QList<QByteArray> m_extensions;
 };
 
 } // namespace KWin

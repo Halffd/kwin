@@ -15,10 +15,38 @@ namespace KWin
 {
 
 class VulkanBackend;
+class VulkanTexture;
 
 /**
  * @brief Texture wrapper for Vulkan surface textures
  */
+class KWIN_EXPORT VulkanSurfaceContents
+{
+public:
+    VulkanSurfaceContents()
+    {
+    }
+    VulkanSurfaceContents(const std::shared_ptr<VulkanTexture> &contents)
+        : planes({contents})
+    {
+    }
+    VulkanSurfaceContents(const QList<std::shared_ptr<VulkanTexture>> &planeList)
+        : planes(planeList)
+    {
+    }
+
+    void reset()
+    {
+        planes.clear();
+    }
+    bool isValid() const
+    {
+        return !planes.isEmpty();
+    }
+
+    QList<std::shared_ptr<VulkanTexture>> planes;
+};
+
 class KWIN_EXPORT VulkanSurfaceTexture : public SurfaceTexture
 {
 public:
@@ -28,14 +56,14 @@ public:
     bool isValid() const override;
 
     VulkanBackend *backend() const;
-    VkImage image() const;
-    VkImageView imageView() const;
+    VulkanSurfaceContents texture() const
+    {
+        return m_contents;
+    }
 
 protected:
     VulkanBackend *m_backend;
-    VkImage m_image = VK_NULL_HANDLE;
-    VkImageView m_imageView = VK_NULL_HANDLE;
-    VkDeviceMemory m_memory = VK_NULL_HANDLE;
+    VulkanSurfaceContents m_contents;
 };
 
 } // namespace KWin

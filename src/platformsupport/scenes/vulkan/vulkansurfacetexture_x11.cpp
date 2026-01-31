@@ -334,13 +334,9 @@ VulkanSurfaceTextureX11::VulkanSurfaceTextureX11(VulkanBackend *backend, Surface
 
 VulkanSurfaceTextureX11::~VulkanSurfaceTextureX11()
 {
-    // Clear base class handles BEFORE destroying m_texture to prevent double-destruction.
-    // The base class destructor would otherwise try to destroy these already-freed handles.
-    m_image = VK_NULL_HANDLE;
-    m_imageView = VK_NULL_HANDLE;
-
+    // Clear the contents to release textures
+    m_contents.reset();
     m_stagingBuffer.reset();
-    m_texture.reset();
 }
 
 bool VulkanSurfaceTextureX11::create()
@@ -690,10 +686,6 @@ bool VulkanSurfaceTextureX11::createWithDmaBuf()
         }
     }
 
-    // Set the VkImage/VkImageView on the base class for compatibility
-    m_image = m_texture->image();
-    m_imageView = m_texture->imageView();
-
     bool needsYFlip = detectYInversionFromX11Surface();
 
     if (needsYFlip) {
@@ -878,10 +870,6 @@ bool VulkanSurfaceTextureX11::createWithCpuUpload()
 
     // Do initial upload
     updateWithCpuUpload(QRegion(QRect(QPoint(0, 0), m_size)));
-
-    // Set the VkImage/VkImageView on the base class for compatibility
-    m_image = m_texture->image();
-    m_imageView = m_texture->imageView();
 
     return true;
 }

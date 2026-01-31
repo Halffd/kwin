@@ -50,6 +50,20 @@ public:
         return m_texture.get();
     }
 
+    /**
+     * @brief Get the Vulkan surface contents (planes) for rendering.
+     */
+    VulkanSurfaceContents surfaceContents() const
+    {
+        VulkanSurfaceContents contents;
+        if (m_texture) {
+            // Create a shared_ptr from unique_ptr without transferring ownership
+            // The shared_ptr will not delete the object (no-op deleter)
+            contents.planes.push_back(std::shared_ptr<VulkanTexture>(m_texture.get(), [](VulkanTexture *) { }));
+        }
+        return contents;
+    }
+
 private:
     /**
      * @brief Get the parent X11Window for this surface texture.
