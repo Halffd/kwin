@@ -776,12 +776,12 @@ bool VulkanSurfaceTextureX11::createWithDmaBuf()
     // Check both normalized and unnormalized coordinates for the 0.5x scaling pattern
     QMatrix4x4 unnormalizedMatrix = m_texture->matrix(VulkanCoordinateType::Unnormalized);
 
-    // For normalized coordinates: expect 1.0, look for 0.5
-    bool normalizedIssue = (qAbs(normalizedMatrix(0, 0) - 0.5) < 0.01 && qAbs(normalizedMatrix(1, 1) - 0.5) < 0.01);
-    // For unnormalized coordinates: expect 1.0/width and 1.0/height, look for 0.5/width and 0.5/height
+    // For normalized coordinates: expect 1.0, look for values close to 0.5 (1/4 scale issue)
+    bool normalizedIssue = (qAbs(normalizedMatrix(0, 0) - 0.5) < 0.1 && qAbs(normalizedMatrix(1, 1) - 0.5) < 0.1);
+    // For unnormalized coordinates: expect 1.0/width and 1.0/height, look for values close to 0.5/width and 0.5/height
     qreal expectedXScale = 1.0 / m_size.width();
     qreal expectedYScale = 1.0 / m_size.height();
-    bool unnormalizedIssue = (qAbs(unnormalizedMatrix(0, 0) - 0.5 * expectedXScale) < 0.0001 && qAbs(unnormalizedMatrix(1, 1) - 0.5 * expectedYScale) < 0.0001);
+    bool unnormalizedIssue = (qAbs(unnormalizedMatrix(0, 0) - 0.5 * expectedXScale) < 0.001 || qAbs(unnormalizedMatrix(0, 0) - 0.5) < 0.05 || qAbs(normalizedMatrix(0, 0) - 0.5) < 0.1);
 
     qDebug() << "  - 1/4 scale detection:";
     qDebug() << "    * Normalized matrix scale:" << normalizedMatrix(0, 0) << "x" << normalizedMatrix(1, 1);
@@ -811,6 +811,12 @@ bool VulkanSurfaceTextureX11::createWithDmaBuf()
         // Apply the correction to the texture
         m_texture->setContentTransform(OutputTransform::Normal);
         m_texture->setCorrectionMatrix(correctionMatrix);
+    } else {
+        // Log detection for debugging but don't apply correction
+        // This helps identify potential 1/4 scale issues without changing behavior
+        qDebug() << "  - No 1/4 scale issue detected, skipping correction";
+        qDebug() << "    * Normalized matrix scale:" << normalizedMatrix(0, 0) << "x" << normalizedMatrix(1, 1);
+        qDebug() << "    * Unnormalized matrix scale:" << unnormalizedMatrix(0, 0) << "x" << unnormalizedMatrix(1, 1);
     }
 
     // Summary of the DMA-BUF import process
