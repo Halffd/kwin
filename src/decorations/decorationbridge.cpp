@@ -124,16 +124,16 @@ bool DecorationBridge::initPlugin()
 {
     const KPluginMetaData metaData = KPluginMetaData::findPluginById(s_pluginName, m_plugin);
     if (!metaData.isValid()) {
-        qCWarning(KWIN_DECORATIONS) << "Could not locate decoration plugin" << m_plugin;
+        qWarning(KWIN_DECORATIONS) << "Could not locate decoration plugin" << m_plugin;
         return false;
     }
-    qCDebug(KWIN_DECORATIONS) << "Trying to load decoration plugin: " << metaData.fileName();
+    qDebug(KWIN_DECORATIONS) << "Trying to load decoration plugin: " << metaData.fileName();
     if (auto factoryResult = KPluginFactory::loadFactory(metaData)) {
         m_factory.reset(factoryResult.plugin);
         loadMetaData(metaData.rawData());
         return true;
     } else {
-        qCWarning(KWIN_DECORATIONS) << "Error loading plugin:" << factoryResult.errorText;
+        qWarning(KWIN_DECORATIONS) << "Error loading plugin:" << factoryResult.errorText;
         return false;
     }
 }

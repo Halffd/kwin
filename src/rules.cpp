@@ -934,7 +934,7 @@ WindowRules RuleBook::find(const Window *window) const
     QList<Rules *> ret;
     for (Rules *rule : m_rules) {
         if (rule->match(window)) {
-            qCDebug(KWIN_CORE) << "Rule found:" << rule << ":" << window;
+            qDebug() << "Rule found:" << rule << ":" << window;
             ret.append(rule);
         }
     }
@@ -957,7 +957,7 @@ void RuleBook::edit(Window *c, bool whole_app)
     connect(p, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished), p, &QProcess::deleteLater);
     connect(p, &QProcess::errorOccurred, this, [p](QProcess::ProcessError e) {
         if (e == QProcess::FailedToStart) {
-            qCDebug(KWIN_CORE) << "Failed to start" << p->program();
+            qDebug() << "Failed to start" << p->program();
         }
     });
     p->start();
@@ -984,7 +984,7 @@ void RuleBook::save()
 {
     m_updateTimer->stop();
     if (!m_book) {
-        qCWarning(KWIN_CORE) << "RuleBook::save invoked without prior invocation of RuleBook::load";
+        qWarning() << "RuleBook::save invoked without prior invocation of RuleBook::load";
         return;
     }
     m_book->save();

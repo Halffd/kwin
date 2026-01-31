@@ -1182,7 +1182,7 @@ void X11Window::focusInEvent(xcb_focus_in_event_t *e)
         if (workspace()->restoreFocus()) {
             demandAttention();
         } else {
-            qCWarning(KWIN_CORE, "Failed to restore focus. Activating 0x%x", window());
+            qWarning(KWIN_CORE, "Failed to restore focus. Activating 0x%x", window());
             setActive(true);
         }
     }

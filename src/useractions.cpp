@@ -385,7 +385,7 @@ void UserActionsMenu::showHideActivityMenu()
         return;
     }
     const QStringList &openActivities_ = Workspace::self()->activities()->all();
-    qCDebug(KWIN_CORE) << "activities:" << openActivities_.size();
+    qDebug() << "activities:" << openActivities_.size();
     if (openActivities_.size() < 2) {
         delete m_activityMenu;
         m_activityMenu = nullptr;
@@ -735,9 +735,8 @@ void UserActionsMenu::slotWindowOperation(QAction *action)
     // user actions menu closed before we destroy the decoration. Otherwise Qt crashes
     QMetaObject::invokeMethod(
         workspace(), [c, op]() {
-            workspace()->performWindowOperation(c, op);
-        },
-        Qt::QueuedConnection);
+        workspace()->performWindowOperation(c, op);
+    }, Qt::QueuedConnection);
 }
 
 //****************************************

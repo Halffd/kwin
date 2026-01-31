@@ -668,27 +668,27 @@ void Options::setGlPlatformInterface(OpenGLPlatformInterface interface)
     const QByteArray envOpenGLInterface(qgetenv("KWIN_OPENGL_INTERFACE"));
     if (!envOpenGLInterface.isEmpty()) {
         if (qstrcmp(envOpenGLInterface, "egl") == 0) {
-            qCDebug(KWIN_CORE) << "Forcing EGL native interface through environment variable";
+            qDebug() << "Forcing EGL native interface through environment variable";
             interface = EglPlatformInterface;
         } else if (qstrcmp(envOpenGLInterface, "glx") == 0) {
-            qCDebug(KWIN_CORE) << "Forcing GLX native interface through environment variable";
+            qDebug() << "Forcing GLX native interface through environment variable";
             interface = GlxPlatformInterface;
         }
     }
     if (kwinApp()->shouldUseWaylandForCompositing() && interface == GlxPlatformInterface) {
         // Glx is impossible on Wayland, enforce egl
-        qCDebug(KWIN_CORE) << "Forcing EGL native interface for Wayland mode";
+        qDebug() << "Forcing EGL native interface for Wayland mode";
         interface = EglPlatformInterface;
     }
 #if !HAVE_GLX
-    qCDebug(KWIN_CORE) << "Forcing EGL native interface as compiled without GLX support";
+    qDebug() << "Forcing EGL native interface as compiled without GLX support";
     interface = EglPlatformInterface;
 #endif
     if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGLES) {
-        qCDebug(KWIN_CORE) << "Forcing EGL native interface as Qt uses OpenGL ES";
+        qDebug() << "Forcing EGL native interface as Qt uses OpenGL ES";
         interface = EglPlatformInterface;
     } else if (qstrcmp(qgetenv("KWIN_COMPOSE"), "O2ES") == 0) {
-        qCDebug(KWIN_CORE) << "Forcing EGL native interface as OpenGL ES requested through KWIN_COMPOSE environment variable.";
+        qDebug() << "Forcing EGL native interface as OpenGL ES requested through KWIN_COMPOSE environment variable.";
         interface = EglPlatformInterface;
     }
 
@@ -763,30 +763,30 @@ void Options::loadConfig()
     if (const char *c = getenv("KWIN_COMPOSE")) {
         switch (c[0]) {
         case 'O':
-            qCDebug(KWIN_CORE) << "Compositing forced to OpenGL mode by environment variable";
+            qDebug() << "Compositing forced to OpenGL mode by environment variable";
             compositingMode = OpenGLCompositing;
             useCompositing = true;
             break;
         case 'V':
-            qCDebug(KWIN_CORE) << "Compositing forced to Vulkan mode by environment variable";
+            qDebug() << "Compositing forced to Vulkan mode by environment variable";
             compositingMode = VulkanCompositing;
             useCompositing = true;
             break;
         case 'Q':
-            qCDebug(KWIN_CORE) << "QPainter compositing is not supported on X11, using OpenGL";
+            qDebug() << "QPainter compositing is not supported on X11, using OpenGL";
             compositingMode = OpenGLCompositing;
             useCompositing = true;
             break;
         case 'N':
             if (getenv("KDE_FAILSAFE")) {
-                qCDebug(KWIN_CORE) << "Compositing disabled forcefully by KDE failsafe mode";
+                qDebug() << "Compositing disabled forcefully by KDE failsafe mode";
             } else {
-                qCDebug(KWIN_CORE) << "Compositing disabled forcefully by environment variable";
+                qDebug() << "Compositing disabled forcefully by environment variable";
             }
             compositingMode = NoCompositing;
             break;
         default:
-            qCDebug(KWIN_CORE) << "Unknown KWIN_COMPOSE mode set, ignoring";
+            qDebug() << "Unknown KWIN_COMPOSE mode set, ignoring";
             break;
         }
     }

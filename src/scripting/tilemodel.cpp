@@ -141,7 +141,7 @@ void TileModel::beginRemoveTile(CustomTile *tile)
 {
     const auto parentTile = static_cast<CustomTile *>(tile->parentTile());
     if (!parentTile) {
-        qCWarning(KWIN_CORE) << "Can't remove the root tile";
+        qWarning() << "Can't remove the root tile";
         return;
     }
 

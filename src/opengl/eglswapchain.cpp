@@ -118,7 +118,7 @@ std::shared_ptr<EglSwapchainSlot> EglSwapchain::acquire()
         .modifiers = {m_modifier},
     });
     if (!buffer) {
-        qCWarning(KWIN_OPENGL) << "Failed to allocate an egl gbm swapchain graphics buffer";
+        qWarning(KWIN_OPENGL) << "Failed to allocate an egl gbm swapchain graphics buffer";
         return nullptr;
     }
 

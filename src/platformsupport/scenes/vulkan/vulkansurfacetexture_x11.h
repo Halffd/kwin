@@ -50,6 +50,9 @@ private:
     bool createWithCpuUpload();
     void updateWithCpuUpload(const QRegion &region);
 
+    // Helper function to convert VkImageLayout to string for better logging
+    QString layoutToString(VkImageLayout layout) const;
+
     SurfacePixmapX11 *m_pixmap;
     VulkanContext *m_context;
     std::unique_ptr<VulkanTexture> m_texture;

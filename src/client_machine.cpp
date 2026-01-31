@@ -122,7 +122,7 @@ bool GetAddrInfo::resolved(QFutureWatcher<int> *watcher)
         return false;
     }
     if (watcher->result() != 0) {
-        qCDebug(KWIN_CORE) << "getaddrinfo failed with error:" << gai_strerror(watcher->result());
+        qDebug() << "getaddrinfo failed with error:" << gai_strerror(watcher->result());
         // call failed;
         deleteLater();
         return false;

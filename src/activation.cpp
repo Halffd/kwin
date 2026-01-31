@@ -404,7 +404,7 @@ bool Workspace::takeActivity(Window *window, ActivityFlags flags)
         flags &= ~ActivityFocus;
     }
     if (!window->isShown()) { // shouldn't happen, call activateWindow() if needed
-        qCWarning(KWIN_CORE) << "takeActivity: not shown";
+        qWarning() << "takeActivity: not shown";
         return false;
     }
 
@@ -572,20 +572,20 @@ bool Workspace::allowFullClientRaising(const KWin::Window *window, uint32_t time
         return false;
     }
     if (ac == nullptr || ac->isDesktop()) {
-        qCDebug(KWIN_CORE) << "Raising: No window active, allowing";
+        qDebug() << "Raising: No window active, allowing";
         return true; // no active window -> always allow
     }
     // TODO window urgency  -> return true?
     if (Window::belongToSameApplication(window, ac, Window::SameApplicationCheck::RelaxedForActive)) {
-        qCDebug(KWIN_CORE) << "Raising: Belongs to active application";
+        qDebug() << "Raising: Belongs to active application";
         return true;
     }
     if (level == 3) { // high
         return false;
     }
     xcb_timestamp_t user_time = ac->userTime();
-    qCDebug(KWIN_CORE) << "Raising, compared:" << time << ":" << user_time
-                       << ":" << (NET::timestampCompare(time, user_time) >= 0);
+    qDebug() << "Raising, compared:" << time << ":" << user_time
+             << ":" << (NET::timestampCompare(time, user_time) >= 0);
     return NET::timestampCompare(time, user_time) >= 0; // time >= user_time
 }
 

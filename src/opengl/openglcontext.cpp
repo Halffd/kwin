@@ -378,7 +378,7 @@ void OpenGlContext::initDebugOutput()
         switch (type) {
         case GL_DEBUG_TYPE_ERROR:
         case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:
-            qCWarning(KWIN_OPENGL, "%#x: %.*s", id, length, message);
+            qWarning(KWIN_OPENGL, "%#x: %.*s", id, length, message);
             break;
 
         case GL_DEBUG_TYPE_OTHER:
@@ -386,7 +386,7 @@ void OpenGlContext::initDebugOutput()
         case GL_DEBUG_TYPE_PORTABILITY:
         case GL_DEBUG_TYPE_PERFORMANCE:
         default:
-            qCDebug(KWIN_OPENGL, "%#x: %.*s", id, length, message);
+            qDebug(KWIN_OPENGL, "%#x: %.*s", id, length, message);
             break;
         }
     };

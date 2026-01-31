@@ -149,15 +149,15 @@ bool FallApartEffect::isRealWindow(EffectWindow *w)
 {
     // TODO: isSpecialWindow is rather generic, maybe tell windowtypes separately?
     /*
-    qCDebug(KWIN_FALLAPART) << "--" << w->caption() << "--------------------------------";
-    qCDebug(KWIN_FALLAPART) << "Tooltip:" << w->isTooltip();
-    qCDebug(KWIN_FALLAPART) << "Toolbar:" << w->isToolbar();
-    qCDebug(KWIN_FALLAPART) << "Desktop:" << w->isDesktop();
-    qCDebug(KWIN_FALLAPART) << "Special:" << w->isSpecialWindow();
-    qCDebug(KWIN_FALLAPART) << "TopMenu:" << w->isTopMenu();
-    qCDebug(KWIN_FALLAPART) << "Notific:" << w->isNotification();
-    qCDebug(KWIN_FALLAPART) << "Splash:" << w->isSplash();
-    qCDebug(KWIN_FALLAPART) << "Normal:" << w->isNormalWindow();
+    qDebug(KWIN_FALLAPART) << "--" << w->caption() << "--------------------------------";
+    qDebug(KWIN_FALLAPART) << "Tooltip:" << w->isTooltip();
+    qDebug(KWIN_FALLAPART) << "Toolbar:" << w->isToolbar();
+    qDebug(KWIN_FALLAPART) << "Desktop:" << w->isDesktop();
+    qDebug(KWIN_FALLAPART) << "Special:" << w->isSpecialWindow();
+    qDebug(KWIN_FALLAPART) << "TopMenu:" << w->isTopMenu();
+    qDebug(KWIN_FALLAPART) << "Notific:" << w->isNotification();
+    qDebug(KWIN_FALLAPART) << "Splash:" << w->isSplash();
+    qDebug(KWIN_FALLAPART) << "Normal:" << w->isNormalWindow();
     */
     if (w->isPopupWindow()) {
         return false;

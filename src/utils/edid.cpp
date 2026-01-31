@@ -152,7 +152,7 @@ Edid::Edid(QByteArrayView data)
 
     auto info = di_info_parse_edid(data.data(), data.size());
     if (!info) {
-        qCWarning(KWIN_CORE, "parsing edid failed");
+        qWarning(KWIN_CORE, "parsing edid failed");
         return;
     }
     const di_edid *edid = di_info_get_edid(info);
@@ -187,7 +187,7 @@ Edid::Edid(QByteArrayView data)
                 white,
             };
         } else {
-            qCWarning(KWIN_CORE) << "EDID colorimetry" << red << green << blue << white << "is invalid";
+            qWarning() << "EDID colorimetry" << red << green << blue << white << "is invalid";
         }
     } else {
         m_colorimetry.reset();

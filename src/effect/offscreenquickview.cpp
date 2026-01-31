@@ -97,7 +97,7 @@ OffscreenQuickView::OffscreenQuickView(ExportMode exportMode, bool alpha)
     const bool usingGl = d->m_view->rendererInterface()->graphicsApi() == QSGRendererInterface::OpenGL;
 
     if (!usingGl) {
-        qCDebug(LIBKWINEFFECTS) << "QtQuick Software rendering mode detected";
+        qDebug(LIBKWINEFFECTS) << "QtQuick Software rendering mode detected";
         d->m_useBlit = true;
         // explicilty do not call QQuickRenderControl::initialize, see Qt docs
     } else {
@@ -129,7 +129,7 @@ OffscreenQuickView::OffscreenQuickView(ExportMode exportMode, bool alpha)
 
         // On Wayland, contexts are implicitly shared and QOpenGLContext::globalShareContext() is null.
         if (shareContext && !d->m_glcontext->shareContext()) {
-            qCDebug(LIBKWINEFFECTS) << "Failed to create a shared context, falling back to raster rendering";
+            qDebug(LIBKWINEFFECTS) << "Failed to create a shared context, falling back to raster rendering";
             // still render via GL, but blit for presentation
             d->m_useBlit = true;
         }
@@ -521,12 +521,12 @@ void OffscreenQuickView::Private::updateTouchState(Qt::TouchPointState state, qi
     // points to Stationary so we only have one touch point with a different
     // state.
     touchPoints.erase(std::remove_if(touchPoints.begin(), touchPoints.end(), [](QTouchEvent::TouchPoint &point) {
-                          if (point.state() == QEventPoint::Released) {
-                              return true;
-                          }
-                          QMutableEventPoint::setState(point, QEventPoint::Stationary);
-                          return false;
-                      }),
+        if (point.state() == QEventPoint::Released) {
+            return true;
+        }
+        QMutableEventPoint::setState(point, QEventPoint::Stationary);
+        return false;
+    }),
                       touchPoints.end());
 
     // QtQuick Pointer Handlers incorrectly consider a touch point with ID 0
@@ -603,7 +603,7 @@ void OffscreenQuickScene::setSource(const QUrl &source, const QVariantMap &initi
 
     d->qmlComponent->loadUrl(source);
     if (d->qmlComponent->isError()) {
-        qCWarning(LIBKWINEFFECTS).nospace() << "Failed to load effect quick view " << source << ": " << d->qmlComponent->errors();
+        qWarning(LIBKWINEFFECTS).nospace() << "Failed to load effect quick view " << source << ": " << d->qmlComponent->errors();
         d->qmlComponent.reset();
         return;
     }
@@ -613,7 +613,7 @@ void OffscreenQuickScene::setSource(const QUrl &source, const QVariantMap &initi
     std::unique_ptr<QObject> qmlObject(d->qmlComponent->createWithInitialProperties(initialProperties));
     QQuickItem *item = qobject_cast<QQuickItem *>(qmlObject.get());
     if (!item) {
-        qCWarning(LIBKWINEFFECTS) << "Root object of effect quick view" << source << "is not a QQuickItem";
+        qWarning(LIBKWINEFFECTS) << "Root object of effect quick view" << source << "is not a QQuickItem";
         return;
     }
 

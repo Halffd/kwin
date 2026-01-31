@@ -8,11 +8,11 @@
 */
 
 #include "watchdoglogging.h"
-#include <unistd.h>
-#include <sys/types.h>
 #include <QCoreApplication>
 #include <QTimer>
+#include <sys/types.h>
 #include <systemd/sd-daemon.h>
+#include <unistd.h>
 
 class Watchdog : public QObject
 {
@@ -25,13 +25,13 @@ public:
         // by 1/2 to have some margin to hit the watchdog interval timely, as recommended by the docs
         const std::chrono::microseconds watchdogIntervalInUs(qEnvironmentVariableIntValue("WATCHDOG_USEC", &ok) / 2);
         if (!ok) {
-            qCDebug(KWIN_WATCHDOG) << "Watchdog: disabled, not running on a systemd environment or watchdog is not set up. No WATCHDOG_USEC.";
+            qDebug(KWIN_WATCHDOG) << "Watchdog: disabled, not running on a systemd environment or watchdog is not set up. No WATCHDOG_USEC.";
             deleteLater();
             return;
         }
         m_onBehalf = qEnvironmentVariableIntValue("WATCHDOG_PID", &ok);
         if (!ok) {
-            qCDebug(KWIN_WATCHDOG) << "Watchdog: disabled, not running on a systemd environment or watchdog is not set up. No WATCHDOG_PID.";
+            qDebug(KWIN_WATCHDOG) << "Watchdog: disabled, not running on a systemd environment or watchdog is not set up. No WATCHDOG_PID.";
             deleteLater();
             return;
         }
@@ -46,7 +46,7 @@ public:
         if (notified < 1) {
             qCCritical(KWIN_WATCHDOG) << "Watchdog: failed to set the process as ready, systemd will probably kill the process soon. :'(" << notified << strerror(-notified);
         } else {
-            qCInfo(KWIN_WATCHDOG) << "Watchdog: enabled. Interval:" << watchdogIntervalInUs << t->interval() << qgetenv("NOTIFY_SOCKET") << geteuid();
+            qInfo(KWIN_WATCHDOG) << "Watchdog: enabled. Interval:" << watchdogIntervalInUs << t->interval() << qgetenv("NOTIFY_SOCKET") << geteuid();
         }
 
         const auto bark = [this]() {
@@ -54,7 +54,7 @@ public:
             if (ret < 1) {
                 qCCritical(KWIN_WATCHDOG) << "Watchdog: failed to bark, systemd will probably kill the process soon. :'(" << ret << strerror(-ret);
             } else {
-                qCDebug(KWIN_WATCHDOG) << "Watchdog: bark!";
+                qDebug(KWIN_WATCHDOG) << "Watchdog: bark!";
             }
         };
         bark();

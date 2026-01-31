@@ -113,7 +113,7 @@ GLFramebuffer::GLFramebuffer(GLuint handle, const QSize &size)
 GLFramebuffer::~GLFramebuffer()
 {
     if (!OpenGlContext::currentContext()) {
-        qCWarning(KWIN_OPENGL, "Could not delete framebuffer because no context is current");
+        qWarning(KWIN_OPENGL, "Could not delete framebuffer because no context is current");
         return;
     }
     if (!m_foreign && m_valid) {

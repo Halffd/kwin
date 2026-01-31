@@ -65,7 +65,7 @@ void ColorManager::handleOutputRemoved(Output *output)
         return device->output() == output;
     });
     if (it == d->devices.end()) {
-        qCWarning(KWIN_CORE) << "Could not find any color device for output" << output;
+        qWarning() << "Could not find any color device for output" << output;
         return;
     }
     ColorDevice *device = *it;

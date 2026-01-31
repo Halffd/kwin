@@ -166,7 +166,7 @@ std::unique_ptr<OpenGLBackend> X11StandaloneBackend::createOpenGLBackend()
         if (hasGlx()) {
             return std::make_unique<GlxBackend>(m_x11Display, this);
         } else {
-            qCWarning(KWIN_X11STANDALONE) << "Glx not available, trying EGL instead.";
+            qWarning(KWIN_X11STANDALONE) << "Glx not available, trying EGL instead.";
             // no break, needs fall-through
             Q_FALLTHROUGH();
         }
@@ -534,7 +534,7 @@ void X11StandaloneBackend::updateRefreshRate()
 {
     int refreshRate = currentRefreshRate();
     if (refreshRate <= 0) {
-        qCWarning(KWIN_X11STANDALONE) << "Bogus refresh rate" << refreshRate;
+        qWarning(KWIN_X11STANDALONE) << "Bogus refresh rate" << refreshRate;
         refreshRate = 60000;
     }
 

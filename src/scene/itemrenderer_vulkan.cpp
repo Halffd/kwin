@@ -67,7 +67,7 @@ std::unique_ptr<ImageItem> ItemRendererVulkan::createImageItem(Item *parent)
 void ItemRendererVulkan::beginFrame(const RenderTarget &renderTarget, const RenderViewport &viewport)
 {
     if (!m_context->makeCurrent()) {
-        qCWarning(KWIN_CORE) << "Failed to make Vulkan context current";
+        qWarning() << "Failed to make Vulkan context current";
         return;
     }
 
@@ -82,7 +82,7 @@ void ItemRendererVulkan::beginFrame(const RenderTarget &renderTarget, const Rend
     // Allocate command buffer for this frame
     m_currentCommandBuffer = m_context->allocateCommandBuffer();
     if (m_currentCommandBuffer == VK_NULL_HANDLE) {
-        qCWarning(KWIN_CORE) << "Failed to allocate command buffer";
+        qWarning() << "Failed to allocate command buffer";
         return;
     }
 
@@ -92,10 +92,10 @@ void ItemRendererVulkan::beginFrame(const RenderTarget &renderTarget, const Rend
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
     if (vkBeginCommandBuffer(m_currentCommandBuffer, &beginInfo) != VK_SUCCESS) {
-        qCWarning(KWIN_CORE) << "Failed to begin command buffer recording";
+        qWarning() << "Failed to begin command buffer recording";
         return;
     }
-    qCDebug(KWIN_CORE) << "Successfully began command buffer recording";
+    qDebug() << "Successfully began command buffer recording";
 
     // Get the framebuffer from render target
     // Extract the VulkanRenderTarget from the RenderTarget
@@ -135,10 +135,10 @@ void ItemRendererVulkan::beginFrame(const RenderTarget &renderTarget, const Rend
             clearValues[1].depthStencil = {1.0f, 0};
         }
 
-        qCDebug(KWIN_CORE) << "Beginning render pass with" << (m_currentFramebuffer->renderPass()->config().hasDepth ? 2 : 1) << "clear values";
+        qDebug() << "Beginning render pass with" << (m_currentFramebuffer->renderPass()->config().hasDepth ? 2 : 1) << "clear values";
         m_currentFramebuffer->beginRenderPass(m_currentCommandBuffer, clearValues.data(),
                                               m_currentFramebuffer->renderPass()->config().hasDepth ? 2 : 1);
-        qCDebug(KWIN_CORE) << "Render pass begun successfully";
+        qDebug() << "Render pass begun successfully";
     }
 
     // Set viewport with Y-flip to match OpenGL coordinate conventions
@@ -153,7 +153,7 @@ void ItemRendererVulkan::beginFrame(const RenderTarget &renderTarget, const Rend
     vkViewport.maxDepth = 1.0f;
     vkCmdSetViewport(m_currentCommandBuffer, 0, 1, &vkViewport);
 
-    qCDebug(KWIN_CORE) << "beginFrame: Set viewport to" << size.width() << "x" << size.height();
+    qDebug() << "beginFrame: Set viewport to" << size.width() << "x" << size.height();
 
     // Set scissor
     VkRect2D scissor{};
@@ -161,34 +161,34 @@ void ItemRendererVulkan::beginFrame(const RenderTarget &renderTarget, const Rend
     scissor.extent = {static_cast<uint32_t>(size.width()), static_cast<uint32_t>(size.height())};
     vkCmdSetScissor(m_currentCommandBuffer, 0, 1, &scissor);
 
-    qCDebug(KWIN_CORE) << "beginFrame: Set scissor to" << size.width() << "x" << size.height();
+    qDebug() << "beginFrame: Set scissor to" << size.width() << "x" << size.height();
 
-    qCDebug(KWIN_CORE) << "ItemRendererVulkan::beginFrame() - viewport:" << size;
+    qDebug() << "ItemRendererVulkan::beginFrame() - viewport:" << size;
 }
 
 void ItemRendererVulkan::endFrame()
 {
     if (m_currentCommandBuffer == VK_NULL_HANDLE) {
-        qCWarning(KWIN_CORE) << "endFrame called with null command buffer";
+        qWarning() << "endFrame called with null command buffer";
         return;
     }
 
     // End render pass if we were rendering to a framebuffer
     if (m_currentFramebuffer) {
-        qCDebug(KWIN_CORE) << "Ending render pass";
+        qDebug() << "Ending render pass";
         m_currentFramebuffer->endRenderPass(m_currentCommandBuffer);
-        qCDebug(KWIN_CORE) << "Render pass ended successfully";
+        qDebug() << "Render pass ended successfully";
     } else {
-        qCDebug(KWIN_CORE) << "endFrame: No framebuffer to end render pass";
+        qDebug() << "endFrame: No framebuffer to end render pass";
     }
 
     // End command buffer recording
     VkResult result = vkEndCommandBuffer(m_currentCommandBuffer);
     if (result != VK_SUCCESS) {
-        qCWarning(KWIN_CORE) << "Failed to end command buffer recording:" << result;
+        qWarning() << "Failed to end command buffer recording:" << result;
         return;
     }
-    qCDebug(KWIN_CORE) << "Successfully ended command buffer recording";
+    qDebug() << "Successfully ended command buffer recording";
 
     // Submit command buffer to graphics queue
     VkSubmitInfo submitInfo{};
@@ -199,9 +199,9 @@ void ItemRendererVulkan::endFrame()
     // Check if we have GPU-GPU synchronization info (swapchain rendering)
     const bool hasGpuSync = m_currentSyncInfo.imageAvailableSemaphore != VK_NULL_HANDLE && m_currentSyncInfo.renderFinishedSemaphore != VK_NULL_HANDLE;
 
-    qCDebug(KWIN_CORE) << "GPU-GPU sync check:" << (hasGpuSync ? "enabled" : "disabled")
-                       << "imageAvailableSemaphore:" << m_currentSyncInfo.imageAvailableSemaphore
-                       << "renderFinishedSemaphore:" << m_currentSyncInfo.renderFinishedSemaphore;
+    qDebug() << "GPU-GPU sync check:" << (hasGpuSync ? "enabled" : "disabled")
+             << "imageAvailableSemaphore:" << m_currentSyncInfo.imageAvailableSemaphore
+             << "renderFinishedSemaphore:" << m_currentSyncInfo.renderFinishedSemaphore;
 
     if (hasGpuSync) {
         // GPU-GPU semaphore synchronization (no CPU blocking needed for render-present sync)
@@ -226,13 +226,13 @@ void ItemRendererVulkan::endFrame()
 
         VkResult result = vkQueueSubmit(m_backend->graphicsQueue(), 1, &submitInfo, fence);
         if (result != VK_SUCCESS) {
-            qCWarning(KWIN_CORE) << "Failed to submit command buffer with GPU-GPU sync:" << result;
+            qWarning() << "Failed to submit command buffer with GPU-GPU sync:" << result;
             m_currentCommandBuffer = VK_NULL_HANDLE;
             m_currentFramebuffer = nullptr;
             m_currentSyncInfo = VulkanSyncInfo{};
             return;
         }
-        qCDebug(KWIN_CORE) << "Successfully submitted command buffer with GPU-GPU sync, waiting for fence" << fence;
+        qDebug() << "Successfully submitted command buffer with GPU-GPU sync, waiting for fence" << fence;
 
         // No blocking wait here! The GPU-GPU synchronization handles the timing:
         // - Render waits on imageAvailableSemaphore (signaled by acquireNextImage)
@@ -267,9 +267,9 @@ void ItemRendererVulkan::endFrame()
         }
         m_releasePoints.clear();
 
-        qCDebug(KWIN_CORE) << "ItemRendererVulkan::endFrame() - GPU-GPU semaphore sync";
+        qDebug() << "ItemRendererVulkan::endFrame() - GPU-GPU semaphore sync";
     } else {
-        qCDebug(KWIN_CORE) << "Using fallback path: no swapchain semaphores, use blocking synchronization";
+        qDebug() << "Using fallback path: no swapchain semaphores, use blocking synchronization";
         // Fallback: no swapchain semaphores, use blocking synchronization
         // This path is used for:
         // - Rendering to offscreen textures
@@ -287,7 +287,7 @@ void ItemRendererVulkan::endFrame()
                                 releasePoint->addReleaseFence(syncFd);
                             }
                         }
-                        qCDebug(KWIN_CORE) << "ItemRendererVulkan::endFrame() - non-blocking sync with export fence";
+                        qDebug() << "ItemRendererVulkan::endFrame() - non-blocking sync with export fence";
                     } else {
                         vkWaitForFences(m_backend->device(), 1, &exportableFence, VK_TRUE, UINT64_MAX);
                     }
@@ -308,19 +308,19 @@ void ItemRendererVulkan::endFrame()
 
         VkResult result = vkQueueSubmit(m_backend->graphicsQueue(), 1, &submitInfo, fence);
         if (result != VK_SUCCESS) {
-            qCWarning(KWIN_CORE) << "Failed to submit command buffer:" << result;
+            qWarning() << "Failed to submit command buffer:" << result;
             m_currentCommandBuffer = VK_NULL_HANDLE;
             m_currentFramebuffer = nullptr;
             m_currentSyncInfo = VulkanSyncInfo{};
             return;
         }
-        qCDebug(KWIN_CORE) << "Successfully submitted command buffer with export fence";
+        qDebug() << "Successfully submitted command buffer with export fence";
 
         // Wait for the frame to complete
         vkWaitForFences(m_backend->device(), 1, &fence, VK_TRUE, UINT64_MAX);
         m_releasePoints.clear();
 
-        qCDebug(KWIN_CORE) << "ItemRendererVulkan::endFrame() - blocking sync (fallback)";
+        qDebug() << "ItemRendererVulkan::endFrame() - blocking sync (fallback)";
     }
 
     m_currentCommandBuffer = VK_NULL_HANDLE;
@@ -343,7 +343,7 @@ void ItemRendererVulkan::renderBackground(const RenderTarget &renderTarget, cons
     // If we need to render a specific background color or pattern, we'd do it here
     // For now, the clear in beginFrame handles this
 
-    qCDebug(KWIN_CORE) << "ItemRendererVulkan::renderBackground() - region:" << region.boundingRect();
+    qDebug() << "ItemRendererVulkan::renderBackground() - region:" << region.boundingRect();
 }
 
 QVector4D ItemRendererVulkan::modulate(float opacity, float brightness) const
@@ -791,10 +791,10 @@ void ItemRendererVulkan::renderNodes(const RenderContext &context, VkCommandBuff
 
         // Validate vertex buffer before binding
         if (vertexBuffers[0] == VK_NULL_HANDLE) {
-            qCWarning(KWIN_CORE) << "Vertex buffer is null, skipping vertex buffer binding";
+            qWarning() << "Vertex buffer is null, skipping vertex buffer binding";
         } else {
             vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
-            qCDebug(KWIN_CORE) << "Bound vertex buffer at offset 0, using firstVertex for actual position";
+            qDebug() << "Bound vertex buffer at offset 0, using firstVertex for actual position";
         }
     }
 
@@ -809,13 +809,13 @@ void ItemRendererVulkan::renderNodes(const RenderContext &context, VkCommandBuff
         // Get or create pipeline for this node's traits
         VulkanPipeline *pipeline = pipelineManager->pipeline(node.traits);
         if (!pipeline) {
-            qCWarning(KWIN_CORE) << "Failed to get pipeline for traits:" << static_cast<int>(node.traits);
+            qWarning() << "Failed to get pipeline for traits:" << static_cast<int>(node.traits);
             continue;
         }
 
         // Validate pipeline before using it
         if (!pipeline->isValid()) {
-            qCWarning(KWIN_CORE) << "Pipeline is invalid for traits:" << static_cast<int>(node.traits);
+            qWarning() << "Pipeline is invalid for traits:" << static_cast<int>(node.traits);
             continue;
         }
 
@@ -824,9 +824,9 @@ void ItemRendererVulkan::renderNodes(const RenderContext &context, VkCommandBuff
             if (pipeline->pipeline() != VK_NULL_HANDLE) {
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline());
                 currentPipeline = pipeline;
-                qCDebug(KWIN_CORE) << "Bound pipeline with traits:" << static_cast<int>(node.traits);
+                qDebug() << "Bound pipeline with traits:" << static_cast<int>(node.traits);
             } else {
-                qCWarning(KWIN_CORE) << "Skipping null pipeline binding for traits:" << static_cast<int>(node.traits);
+                qWarning() << "Skipping null pipeline binding for traits:" << static_cast<int>(node.traits);
                 continue;
             }
         }
@@ -871,7 +871,7 @@ void ItemRendererVulkan::renderNodes(const RenderContext &context, VkCommandBuff
         if (!node.textures.isEmpty() && node.textures[0]) {
             VkDescriptorSet descriptorSet = m_context->allocateDescriptorSet(pipeline->descriptorSetLayout());
             if (descriptorSet == VK_NULL_HANDLE) {
-                qCWarning(KWIN_CORE) << "Failed to allocate descriptor set, skipping node";
+                qWarning() << "Failed to allocate descriptor set, skipping node";
                 continue;
             }
 
@@ -880,7 +880,7 @@ void ItemRendererVulkan::renderNodes(const RenderContext &context, VkCommandBuff
             imageInfo.sampler = node.textures[0]->sampler();
             imageInfo.imageView = node.textures[0]->imageView();
             if (imageInfo.imageView == VK_NULL_HANDLE) {
-                qCWarning(KWIN_CORE) << "Texture has null image view, skipping node";
+                qWarning() << "Texture has null image view, skipping node";
                 continue;
             }
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -936,11 +936,11 @@ void ItemRendererVulkan::renderNodes(const RenderContext &context, VkCommandBuff
                                    descriptorWrites.data(), 0, nullptr);
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     pipeline->layout(), 0, 1, &descriptorSet, 0, nullptr);
-            qCDebug(KWIN_CORE) << "Bound descriptor set with texture and UBO";
+            qDebug() << "Bound descriptor set with texture and UBO";
         } else {
             // No texture available but pipeline expects one - skip this node
             // TODO: Add default 1x1 white texture for non-textured draws
-            qCDebug(KWIN_CORE) << "No texture for MapTexture pipeline, skipping node";
+            qDebug() << "No texture for MapTexture pipeline, skipping node";
             continue;
         }
 
@@ -982,7 +982,7 @@ void ItemRendererVulkan::renderNodes(const RenderContext &context, VkCommandBuff
 void ItemRendererVulkan::renderItem(const RenderTarget &renderTarget, const RenderViewport &viewport, Item *item, int mask, const QRegion &region, const WindowPaintData &data)
 {
     if (m_currentCommandBuffer == VK_NULL_HANDLE) {
-        qCWarning(KWIN_CORE) << "No active command buffer for rendering";
+        qWarning() << "No active command buffer for rendering";
         return;
     }
 
@@ -1030,7 +1030,7 @@ void ItemRendererVulkan::renderItem(const RenderTarget &renderTarget, const Rend
     // Render all nodes
     renderNodes(context, m_currentCommandBuffer);
 
-    qCDebug(KWIN_CORE) << "ItemRendererVulkan::renderItem() - rendered" << context.renderNodes.size() << "nodes for item:" << item;
+    qDebug() << "ItemRendererVulkan::renderItem() - rendered" << context.renderNodes.size() << "nodes for item:" << item;
 }
 
 } // namespace KWin

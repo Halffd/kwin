@@ -1161,11 +1161,11 @@ void EffectsHandler::unloadEffect(const QString &name)
         return pair.first == name;
     });
     if (it == effect_order.end()) {
-        qCDebug(KWIN_CORE) << "EffectsHandler::unloadEffect : Effect not loaded :" << name;
+        qDebug() << "EffectsHandler::unloadEffect : Effect not loaded :" << name;
         return;
     }
 
-    qCDebug(KWIN_CORE) << "EffectsHandler::unloadEffect : Unloading Effect :" << name;
+    qDebug() << "EffectsHandler::unloadEffect : Unloading Effect :" << name;
     destroyEffect((*it).second);
     effect_order.erase(it);
     effectsChanged();

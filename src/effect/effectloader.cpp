@@ -118,12 +118,12 @@ bool ScriptedEffectLoader::loadEffect(const KPluginMetaData &effect, LoadEffectF
 {
     const QString name = effect.pluginId();
     if (!flags.testFlag(LoadEffectFlag::Load)) {
-        qCDebug(KWIN_CORE) << "Loading flags disable effect: " << name;
+        qDebug() << "Loading flags disable effect: " << name;
         return false;
     }
 
     if (m_loadedEffects.contains(name)) {
-        qCDebug(KWIN_CORE) << name << "already loaded";
+        qDebug() << name << "already loaded";
         return false;
     }
 
@@ -133,8 +133,9 @@ bool ScriptedEffectLoader::loadEffect(const KPluginMetaData &effect, LoadEffectF
     } else if (api == QLatin1String("declarativescript")) {
         return loadDeclarativeEffect(effect);
     } else {
-        qCWarning(KWIN_CORE, "Failed to load %s effect: invalid X-Plasma-API field: %s. "
-                             "Available options are javascript, and declarativescript", qPrintable(name), qPrintable(api));
+        qWarning(KWIN_CORE, "Failed to load %s effect: invalid X-Plasma-API field: %s. "
+                            "Available options are javascript, and declarativescript",
+                 qPrintable(name), qPrintable(api));
     }
 
     return false;
@@ -144,20 +145,20 @@ bool ScriptedEffectLoader::loadJavascriptEffect(const KPluginMetaData &effect)
 {
     const QString name = effect.pluginId();
     if (!ScriptedEffect::supported()) {
-        qCDebug(KWIN_CORE) << "Effect is not supported: " << name;
+        qDebug() << "Effect is not supported: " << name;
         return false;
     }
 
     ScriptedEffect *e = ScriptedEffect::create(effect);
     if (!e) {
-        qCDebug(KWIN_CORE) << "Could not initialize scripted effect: " << name;
+        qDebug() << "Could not initialize scripted effect: " << name;
         return false;
     }
     connect(e, &ScriptedEffect::destroyed, this, [this, name]() {
         m_loadedEffects.removeAll(name);
     });
 
-    qCDebug(KWIN_CORE) << "Successfully loaded scripted effect: " << name;
+    qDebug() << "Successfully loaded scripted effect: " << name;
     Q_EMIT effectLoaded(e, name);
     m_loadedEffects << name;
     return true;
@@ -170,7 +171,7 @@ bool ScriptedEffectLoader::loadDeclarativeEffect(const KPluginMetaData &metadata
     if (scriptFile.isNull()) {
         scriptFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin/effects/") + name + QLatin1String("/contents/ui/main.qml"));
         if (scriptFile.isNull()) {
-            qCWarning(KWIN_CORE) << "Could not locate the effect script";
+            qWarning() << "Could not locate the effect script";
             return false;
         }
     }
@@ -179,14 +180,14 @@ bool ScriptedEffectLoader::loadDeclarativeEffect(const KPluginMetaData &metadata
     QQmlComponent component(engine);
     component.loadUrl(QUrl::fromLocalFile(scriptFile));
     if (component.isError()) {
-        qCWarning(KWIN_CORE).nospace() << "Failed to load " << scriptFile << ": " << component.errors();
+        qWarning().nospace() << "Failed to load " << scriptFile << ": " << component.errors();
         return false;
     }
 
     QObject *object = component.beginCreate(engine->rootContext());
     auto effect = qobject_cast<ScriptedQuickSceneEffect *>(object);
     if (!effect) {
-        qCDebug(KWIN_CORE) << "Could not initialize scripted effect: " << name;
+        qDebug() << "Could not initialize scripted effect: " << name;
         delete object;
         return false;
     }
@@ -197,7 +198,7 @@ bool ScriptedEffectLoader::loadDeclarativeEffect(const KPluginMetaData &metadata
         m_loadedEffects.removeAll(name);
     });
 
-    qCDebug(KWIN_CORE) << "Successfully loaded scripted effect: " << name;
+    qDebug() << "Successfully loaded scripted effect: " << name;
     Q_EMIT effectLoaded(effect, name);
     m_loadedEffects << name;
     return true;
@@ -212,17 +213,16 @@ void ScriptedEffectLoader::queryAndLoadAll()
     QFutureWatcher<QList<KPluginMetaData>> *watcher = new QFutureWatcher<QList<KPluginMetaData>>(this);
     m_queryConnection = connect(
         watcher, &QFutureWatcher<QList<KPluginMetaData>>::finished, this, [this, watcher]() {
-            const auto effects = watcher->result();
-            for (const auto &effect : effects) {
-                const LoadEffectFlags flags = readConfig(effect.pluginId(), effect.isEnabledByDefault());
-                if (flags.testFlag(LoadEffectFlag::Load)) {
-                    m_queue->enqueue(qMakePair(effect, flags));
-                }
+        const auto effects = watcher->result();
+        for (const auto &effect : effects) {
+            const LoadEffectFlags flags = readConfig(effect.pluginId(), effect.isEnabledByDefault());
+            if (flags.testFlag(LoadEffectFlag::Load)) {
+                m_queue->enqueue(qMakePair(effect, flags));
             }
-            watcher->deleteLater();
-            m_queryConnection = QMetaObject::Connection();
-        },
-        Qt::QueuedConnection);
+        }
+        watcher->deleteLater();
+        m_queryConnection = QMetaObject::Connection();
+    }, Qt::QueuedConnection);
     watcher->setFuture(QtConcurrent::run(&ScriptedEffectLoader::findAllEffects, this));
 }
 
@@ -276,8 +276,8 @@ KPluginMetaData PluginEffectLoader::findEffect(const QString &name) const
 {
     const auto plugins = KPluginMetaData::findPlugins(m_pluginSubDirectory,
                                                       [name](const KPluginMetaData &data) {
-                                                          return data.pluginId().compare(name, Qt::CaseInsensitive) == 0;
-                                                      });
+        return data.pluginId().compare(name, Qt::CaseInsensitive) == 0;
+    });
     if (plugins.isEmpty()) {
         return KPluginMetaData();
     }
@@ -305,14 +305,14 @@ EffectPluginFactory *PluginEffectLoader::factory(const KPluginMetaData &info) co
     } else {
         QPluginLoader loader(info.fileName());
         if (loader.metaData().value("IID").toString() != QLatin1String(EffectPluginFactory_iid)) {
-            qCDebug(KWIN_CORE) << info.pluginId() << " has not matching plugin version, expected " << PluginFactory_iid << "got "
-                               << loader.metaData().value("IID");
+            qDebug() << info.pluginId() << " has not matching plugin version, expected " << PluginFactory_iid << "got "
+                     << loader.metaData().value("IID");
             return nullptr;
         }
         factory = qobject_cast<KPluginFactory *>(loader.instance());
     }
     if (!factory) {
-        qCDebug(KWIN_CORE) << "Did not get KPluginFactory for " << info.pluginId();
+        qDebug() << "Did not get KPluginFactory for " << info.pluginId();
         return nullptr;
     }
     return dynamic_cast<EffectPluginFactory *>(factory);
@@ -325,7 +325,7 @@ QStringList PluginEffectLoader::listOfKnownEffects() const
     for (const auto &plugin : plugins) {
         result << plugin.pluginId();
     }
-    qCDebug(KWIN_CORE) << result;
+    qDebug() << result;
     return result;
 }
 
@@ -338,33 +338,33 @@ bool PluginEffectLoader::loadEffect(const QString &name)
 bool PluginEffectLoader::loadEffect(const KPluginMetaData &info, LoadEffectFlags flags)
 {
     if (!info.isValid()) {
-        qCDebug(KWIN_CORE) << "Plugin info is not valid";
+        qDebug() << "Plugin info is not valid";
         return false;
     }
     const QString name = info.pluginId();
     if (!flags.testFlag(LoadEffectFlag::Load)) {
-        qCDebug(KWIN_CORE) << "Loading flags disable effect: " << name;
+        qDebug() << "Loading flags disable effect: " << name;
         return false;
     }
     if (m_loadedEffects.contains(name)) {
-        qCDebug(KWIN_CORE) << name << " already loaded";
+        qDebug() << name << " already loaded";
         return false;
     }
     EffectPluginFactory *effectFactory = factory(info);
     if (!effectFactory) {
-        qCDebug(KWIN_CORE) << "Couldn't get an EffectPluginFactory for: " << name;
+        qDebug() << "Couldn't get an EffectPluginFactory for: " << name;
         return false;
     }
 
     effects->makeOpenGLContextCurrent(); // TODO: remove it
     if (!effectFactory->isSupported()) {
-        qCDebug(KWIN_CORE) << "Effect is not supported: " << name;
+        qDebug() << "Effect is not supported: " << name;
         return false;
     }
 
     if (flags.testFlag(LoadEffectFlag::CheckDefaultFunction)) {
         if (!effectFactory->enabledByDefault()) {
-            qCDebug(KWIN_CORE) << "Enabled by default function disables effect: " << name;
+            qDebug() << "Enabled by default function disables effect: " << name;
             return false;
         }
     }
@@ -372,7 +372,7 @@ bool PluginEffectLoader::loadEffect(const KPluginMetaData &info, LoadEffectFlags
     // ok, now we can try to create the Effect
     Effect *e = effectFactory->createEffect();
     if (!e) {
-        qCDebug(KWIN_CORE) << "Failed to create effect: " << name;
+        qDebug() << "Failed to create effect: " << name;
         return false;
     }
     // insert in our loaded effects
@@ -380,7 +380,7 @@ bool PluginEffectLoader::loadEffect(const KPluginMetaData &info, LoadEffectFlags
     connect(e, &Effect::destroyed, this, [this, name]() {
         m_loadedEffects.removeAll(name);
     });
-    qCDebug(KWIN_CORE) << "Successfully loaded plugin effect: " << name;
+    qDebug() << "Successfully loaded plugin effect: " << name;
     Q_EMIT effectLoaded(e, name);
     return true;
 }

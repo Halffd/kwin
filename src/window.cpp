@@ -798,8 +798,8 @@ QStringList Window::desktopIds() const
     std::transform(desks.constBegin(), desks.constEnd(),
                    std::back_inserter(ids),
                    [](const VirtualDesktop *vd) {
-                       return vd->id();
-                   });
+        return vd->id();
+    });
     return ids;
 }
 
@@ -1106,7 +1106,7 @@ QSizeF Window::minSize() const
 
 void Window::maximize(MaximizeMode mode, const QRectF &restore)
 {
-    qCWarning(KWIN_CORE, "%s doesn't support setting maximized state", metaObject()->className());
+    qWarning(KWIN_CORE, "%s doesn't support setting maximized state", metaObject()->className());
 }
 
 void Window::setMaximize(bool vertically, bool horizontally, const QRectF &restore)
@@ -3833,7 +3833,7 @@ void Window::sendToOutput(Output *newOutput)
 void Window::checkWorkspacePosition(QRectF oldGeometry, const VirtualDesktop *oldDesktop)
 {
     if (isDeleted()) {
-        qCWarning(KWIN_CORE) << "Window::checkWorkspacePosition: called for a closed window. Consider this a bug";
+        qWarning() << "Window::checkWorkspacePosition: called for a closed window. Consider this a bug";
         return;
     }
     if (isDock() || isDesktop() || !isPlaceable()) {
@@ -4134,7 +4134,7 @@ bool Window::isRequestedFullScreen() const
  */
 void Window::setFullScreen(bool set)
 {
-    qCWarning(KWIN_CORE, "%s doesn't support setting fullscreen state", metaObject()->className());
+    qWarning(KWIN_CORE, "%s doesn't support setting fullscreen state", metaObject()->className());
 }
 
 bool Window::wantsAdaptiveSync() const
@@ -4224,7 +4224,7 @@ bool Window::userCanSetNoBorder() const
 
 void Window::setNoBorder(bool set)
 {
-    qCWarning(KWIN_CORE, "%s doesn't support setting decorations", metaObject()->className());
+    qWarning(KWIN_CORE, "%s doesn't support setting decorations", metaObject()->className());
 }
 
 void Window::checkNoBorder()
@@ -4234,7 +4234,7 @@ void Window::checkNoBorder()
 
 void Window::showOnScreenEdge()
 {
-    qCWarning(KWIN_CORE, "%s doesn't support screen edge activation", metaObject()->className());
+    qWarning(KWIN_CORE, "%s doesn't support screen edge activation", metaObject()->className());
 }
 
 bool Window::isPlaceable() const

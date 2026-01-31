@@ -162,7 +162,7 @@ QPlatformOpenGLContext *Integration::createPlatformOpenGLContext(QOpenGLContext 
         return nullptr;
     }
     if (kwinApp()->outputBackend()->sceneEglGlobalShareContext() == EGL_NO_CONTEXT) {
-        qCWarning(KWIN_QPA) << "Attempting to create a QOpenGLContext before the scene is initialized";
+        qWarning(KWIN_QPA) << "Attempting to create a QOpenGLContext before the scene is initialized";
         return nullptr;
     }
     const auto eglDisplay = kwinApp()->outputBackend()->sceneEglDisplayObject();
@@ -212,7 +212,7 @@ void Integration::handleOutputDisabled(Output *output)
 {
     Screen *platformScreen = m_screens.take(output);
     if (!platformScreen) {
-        qCWarning(KWIN_QPA) << "Unknown output" << output;
+        qWarning(KWIN_QPA) << "Unknown output" << output;
         return;
     }
 

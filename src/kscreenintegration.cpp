@@ -62,14 +62,14 @@ static QHash<Output *, QJsonObject> outputsConfig(const QList<Output *> &outputs
 
     QFile f(kscreenJsonPath);
     if (!f.open(QIODevice::ReadOnly)) {
-        qCWarning(KWIN_CORE) << "Could not open file" << kscreenJsonPath;
+        qWarning() << "Could not open file" << kscreenJsonPath;
         return {};
     }
 
     QJsonParseError error;
     const auto doc = QJsonDocument::fromJson(f.readAll(), &error);
     if (error.error != QJsonParseError::NoError) {
-        qCWarning(KWIN_CORE) << "Failed to parse" << kscreenJsonPath << error.errorString();
+        qWarning() << "Failed to parse" << kscreenJsonPath << error.errorString();
         return {};
     }
 
@@ -126,7 +126,7 @@ static std::optional<QJsonObject> globalOutputConfig(Output *output)
     if (!f.open(QIODevice::ReadOnly)) {
         f.setFileName(kscreenPath % hash);
         if (!f.open(QIODevice::ReadOnly)) {
-            qCWarning(KWIN_CORE) << "Could not open file" << f.fileName();
+            qWarning() << "Could not open file" << f.fileName();
             return std::nullopt;
         }
     }
@@ -134,7 +134,7 @@ static std::optional<QJsonObject> globalOutputConfig(Output *output)
     QJsonParseError error;
     const auto doc = QJsonDocument::fromJson(f.readAll(), &error);
     if (error.error != QJsonParseError::NoError) {
-        qCWarning(KWIN_CORE) << "Failed to parse" << f.fileName() << error.errorString();
+        qWarning() << "Failed to parse" << f.fileName() << error.errorString();
         return std::nullopt;
     }
     return doc.object();
@@ -194,20 +194,20 @@ std::optional<std::pair<OutputConfiguration, QList<Output *>>> readOutputConfig(
         auto props = cfg.changeSet(output);
         const QJsonObject outputInfo = outputsInfo[output];
         const auto globalOutputInfo = globalOutputConfig(output);
-        qCDebug(KWIN_CORE) << "Reading output configuration for " << output;
+        qDebug() << "Reading output configuration for " << output;
         if (!outputInfo.isEmpty() || globalOutputInfo.has_value()) {
             // settings that are per output setup:
             props->enabled = outputInfo["enabled"].toBool(true);
             if (outputInfo["primary"].toBool()) {
                 outputOrder.push_back(std::make_pair(1, output));
                 if (!props->enabled) {
-                    qCWarning(KWIN_CORE) << "KScreen config would disable the primary output!";
+                    qWarning() << "KScreen config would disable the primary output!";
                     return std::nullopt;
                 }
             } else if (int prio = outputInfo["priority"].toInt(); prio > 0) {
                 outputOrder.push_back(std::make_pair(prio, output));
                 if (!props->enabled) {
-                    qCWarning(KWIN_CORE) << "KScreen config would disable an output with priority!";
+                    qWarning() << "KScreen config would disable an output with priority!";
                     return std::nullopt;
                 }
             } else {
@@ -254,7 +254,7 @@ std::optional<std::pair<OutputConfiguration, QList<Output *>>> readOutputConfig(
         return !cfg.changeSet(output)->enabled.value_or(output->isEnabled());
     });
     if (allDisabled) {
-        qCWarning(KWIN_CORE) << "KScreen config would disable all outputs!";
+        qWarning() << "KScreen config would disable all outputs!";
         return std::nullopt;
     }
     std::erase_if(outputOrder, [&cfg](const auto &pair) {

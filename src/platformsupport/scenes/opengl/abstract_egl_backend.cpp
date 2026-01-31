@@ -165,7 +165,7 @@ EGLImageKHR AbstractEglBackend::importBufferAsImage(GraphicsBuffer *buffer, int 
             m_display->destroyImage(m_importedBuffers.take(key));
         });
     } else {
-        qCWarning(KWIN_OPENGL) << "failed to import dmabuf" << buffer;
+        qWarning(KWIN_OPENGL) << "failed to import dmabuf" << buffer;
     }
 
     return image;
@@ -187,7 +187,7 @@ EGLImageKHR AbstractEglBackend::importBufferAsImage(GraphicsBuffer *buffer)
             m_display->destroyImage(m_importedBuffers.take(key));
         });
     } else {
-        qCWarning(KWIN_OPENGL) << "failed to import dmabuf" << buffer;
+        qWarning(KWIN_OPENGL) << "failed to import dmabuf" << buffer;
     }
 
     return image;

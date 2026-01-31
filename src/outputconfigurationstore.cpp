@@ -672,13 +672,13 @@ void OutputConfigurationStore::load()
 
     QFile f(jsonPath);
     if (!f.open(QIODevice::ReadOnly)) {
-        qCWarning(KWIN_CORE) << "Could not open file" << jsonPath;
+        qWarning() << "Could not open file" << jsonPath;
         return;
     }
     QJsonParseError error;
     const auto doc = QJsonDocument::fromJson(f.readAll(), &error);
     if (error.error != QJsonParseError::NoError) {
-        qCWarning(KWIN_CORE) << "Failed to parse" << jsonPath << error.errorString();
+        qWarning() << "Failed to parse" << jsonPath << error.errorString();
         return;
     }
     const auto array = doc.array();
@@ -730,7 +730,7 @@ void OutputConfigurationStore::load()
             // without an identifier the settings are useless
             // we still have to push something into the list so that the indices stay correct
             outputDatas.push_back(std::nullopt);
-            qCWarning(KWIN_CORE, "Output in config is missing identifiers");
+            qWarning(KWIN_CORE, "Output in config is missing identifiers");
             continue;
         }
         const bool hasDuplicate = std::any_of(outputDatas.begin(), outputDatas.end(), [&state](const auto &data) {
@@ -741,7 +741,7 @@ void OutputConfigurationStore::load()
                 && data->connectorName == state.connectorName;
         });
         if (hasDuplicate) {
-            qCWarning(KWIN_CORE) << "Duplicate output found in config for edidIdentifier:" << state.edidIdentifier << "; connectorName:" << state.connectorName << "; mstPath:" << state.mstPath;
+            qWarning() << "Duplicate output found in config for edidIdentifier:" << state.edidIdentifier << "; connectorName:" << state.connectorName << "; mstPath:" << state.mstPath;
             outputDatas.push_back(std::nullopt);
             continue;
         }
@@ -1154,7 +1154,7 @@ void OutputConfigurationStore::save()
     const QString path = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + "/kwinoutputconfig.json";
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly)) {
-        qCWarning(KWIN_CORE, "Couldn't open output config file %s", qPrintable(path));
+        qWarning(KWIN_CORE, "Couldn't open output config file %s", qPrintable(path));
         return;
     }
     document.setArray(array);

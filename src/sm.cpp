@@ -86,7 +86,7 @@ static WindowType txtToWindowType(const char *txt)
  */
 void SessionManager::storeSession(const QString &sessionName, SMSavePhase phase)
 {
-    qCDebug(KWIN_CORE) << "storing session" << sessionName << "in phase" << phase;
+    qDebug() << "storing session" << sessionName << "in phase" << phase;
     KConfig *config = sessionConfig(sessionName, QString());
 
     KConfigGroup cg(config, QStringLiteral("Session"));

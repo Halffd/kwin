@@ -154,7 +154,7 @@ std::unique_ptr<UdevDevice> Udev::deviceFromSyspath(const char *syspath)
 {
     auto dev = udev_device_new_from_syspath(m_udev, syspath);
     if (!dev) {
-        qCWarning(KWIN_CORE) << "failed to retrieve device for" << syspath << strerror(errno);
+        qWarning() << "failed to retrieve device for" << syspath << strerror(errno);
         return {};
     }
     return std::make_unique<UdevDevice>(dev);

@@ -29,7 +29,7 @@ GLRenderTimeQuery::~GLRenderTimeQuery()
     const auto previousContext = OpenGlContext::currentContext();
     const auto context = m_context.lock();
     if (!context || !context->makeCurrent()) {
-        qCWarning(KWIN_OPENGL, "Could not delete render time query because no context is current");
+        qWarning(KWIN_OPENGL, "Could not delete render time query because no context is current");
         return;
     }
     glDeleteQueries(1, &m_gpuProbe.query);

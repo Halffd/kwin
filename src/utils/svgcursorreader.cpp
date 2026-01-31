@@ -114,7 +114,7 @@ QList<CursorSprite> SvgCursorReader::load(const QString &containerPath, int desi
     const QString metadataFilePath = containerDir.filePath(QStringLiteral("metadata.json"));
     const auto metadata = SvgCursorMetaData::parse(metadataFilePath);
     if (!metadata.has_value()) {
-        qCWarning(KWIN_CORE) << "Failed to parse" << metadataFilePath;
+        qWarning() << "Failed to parse" << metadataFilePath;
         return {};
     }
 
@@ -125,7 +125,7 @@ QList<CursorSprite> SvgCursorReader::load(const QString &containerPath, int desi
 
         QSvgRenderer renderer(filePath);
         if (!renderer.isValid()) {
-            qCWarning(KWIN_CORE) << "Failed to render" << filePath;
+            qWarning() << "Failed to render" << filePath;
             return {};
         }
 

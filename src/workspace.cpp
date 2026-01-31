@@ -896,7 +896,7 @@ void Workspace::reconfigure()
 
 void Workspace::slotReconfigure()
 {
-    qCDebug(KWIN_CORE) << "Workspace::slotReconfigure()";
+    qDebug() << "Workspace::slotReconfigure()";
     reconfigureTimer.stop();
 
     bool borderlessMaximizedWindows = options->borderlessMaximizedWindows();
@@ -2212,7 +2212,7 @@ void Workspace::rearrange()
         // this is a violation to EWMH, as KWin just ignores the strut
         for (const Output *output : std::as_const(m_outputs)) {
             if (!r.intersects(output->geometry())) {
-                qCDebug(KWIN_CORE) << "Adjusted client area would exclude a complete screen, ignore";
+                qDebug() << "Adjusted client area would exclude a complete screen, ignore";
                 r = m_geometry;
                 break;
             }

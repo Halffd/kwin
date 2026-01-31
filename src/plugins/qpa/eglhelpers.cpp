@@ -55,21 +55,21 @@ EGLConfig configFromFormat(EglDisplay *display, const QSurfaceFormat &surfaceFor
 
     EGLint configCount;
     if (!eglChooseConfig(display->handle(), attributes.data(), nullptr, 0, &configCount)) {
-        qCWarning(KWIN_QPA, "eglChooseConfig failed: %x", eglGetError());
+        qWarning(KWIN_QPA, "eglChooseConfig failed: %x", eglGetError());
         return EGL_NO_CONFIG_KHR;
     }
     if (configCount == 0) {
-        qCWarning(KWIN_QPA, "eglChooseConfig did not return any configs");
+        qWarning(KWIN_QPA, "eglChooseConfig did not return any configs");
         return EGL_NO_CONFIG_KHR;
     }
 
     QList<EGLConfig> configs(configCount);
     if (!eglChooseConfig(display->handle(), attributes.data(), configs.data(), configCount, &configCount)) {
-        qCWarning(KWIN_QPA, "eglChooseConfig failed: %x", eglGetError());
+        qWarning(KWIN_QPA, "eglChooseConfig failed: %x", eglGetError());
         return EGL_NO_CONFIG_KHR;
     }
     if (configCount != configs.size()) {
-        qCWarning(KWIN_QPA, "eglChooseConfig did not return requested configs");
+        qWarning(KWIN_QPA, "eglChooseConfig did not return requested configs");
         return EGL_NO_CONFIG_KHR;
     }
 

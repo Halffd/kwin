@@ -120,6 +120,31 @@ public:
     bool supportsDmaBufImport() const;
 
     /**
+     * @brief Check if a specific DRM format and modifier combination is supported.
+     *
+     * This function verifies whether the Vulkan implementation supports importing
+     * a DMA-BUF with the given format and modifier. This is crucial for determining
+     * if a DMA-BUF import will succeed before attempting the actual import.
+     *
+     * @param drmFormat The DRM format (e.g., DRM_FORMAT_ARGB8888)
+     * @param drmModifier The DRM format modifier
+     * @return True if the format/modifier combination is supported, false otherwise
+     */
+    bool checkFormatModifierSupport(uint32_t drmFormat, uint64_t drmModifier);
+
+    /**
+     * @brief Find the optimal memory type for DMA-BUF import.
+     *
+     * This function selects the most appropriate memory type for importing
+     * DMA-BUF, prioritizing device-local memory with appropriate external
+     * memory capabilities.
+     *
+     * @param memoryTypeBits Bitmask of allowed memory types
+     * @return The index of the optimal memory type, or UINT32_MAX if none found
+     */
+    uint32_t findMemoryTypeForDmaBuf(uint32_t memoryTypeBits);
+
+    /**
      * @brief Push a framebuffer onto the FBO stack.
      */
     void pushFramebuffer(VulkanFramebuffer *fbo);
@@ -161,6 +186,17 @@ public:
      * @brief Check if external fence fd export is supported.
      */
     bool supportsExternalFenceFd() const;
+
+    /**
+     * @brief Get a human-readable string for a VkResult code.
+     *
+     * This function translates Vulkan result codes to human-readable strings
+     * for better error reporting and diagnostics.
+     *
+     * @param result The VkResult code to translate
+     * @return A human-readable string representation of the result
+     */
+    static QString getVulkanResultString(VkResult result);
 
 private:
     bool createCommandPool();

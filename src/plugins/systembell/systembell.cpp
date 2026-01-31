@@ -58,7 +58,7 @@ SystemBellEffect::SystemBellEffect()
 
     int ret = ca_context_create(&m_caContext);
     if (ret != CA_SUCCESS) {
-        qCWarning(KWIN_SYSTEMBELL) << "Failed to initialize canberra context for audio notification:" << ca_strerror(ret);
+        qWarning(KWIN_SYSTEMBELL) << "Failed to initialize canberra context for audio notification:" << ca_strerror(ret);
         m_caContext = nullptr;
     } else {
         ret = ca_context_change_props(m_caContext,
@@ -68,7 +68,7 @@ SystemBellEffect::SystemBellEffect()
                                       qApp->desktopFileName().toUtf8().constData(),
                                       nullptr);
         if (ret != CA_SUCCESS) {
-            qCWarning(KWIN_SYSTEMBELL) << "Failed to set application properties on canberra context for audio notification:" << ca_strerror(ret);
+            qWarning(KWIN_SYSTEMBELL) << "Failed to set application properties on canberra context for audio notification:" << ca_strerror(ret);
         }
     }
 }

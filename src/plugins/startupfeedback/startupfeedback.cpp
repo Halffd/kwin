@@ -152,9 +152,9 @@ void StartupFeedbackEffect::reconfigure(Effect::ReconfigureFlags flags)
             ensureResources();
             m_blinkingShader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), QStringLiteral(":/effects/startupfeedback/shaders/blinking-startup.frag"));
             if (m_blinkingShader->isValid()) {
-                qCDebug(KWIN_STARTUPFEEDBACK) << "Blinking Shader is valid";
+                qDebug(KWIN_STARTUPFEEDBACK) << "Blinking Shader is valid";
             } else {
-                qCDebug(KWIN_STARTUPFEEDBACK) << "Blinking Shader is not valid";
+                qDebug(KWIN_STARTUPFEEDBACK) << "Blinking Shader is not valid";
             }
         }
     } else {

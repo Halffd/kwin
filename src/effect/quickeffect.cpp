@@ -166,7 +166,7 @@ QuickSceneView *QuickSceneView::qmlAttachedProperties(QObject *object)
             return view;
         }
     }
-    qCWarning(LIBKWINEFFECTS) << "Could not find SceneView for" << object;
+    qWarning(LIBKWINEFFECTS) << "Could not find SceneView for" << object;
     return nullptr;
 }
 
@@ -428,8 +428,8 @@ void QuickSceneEffect::addScreen(Output *screen)
             QJSEngine::setObjectOwnership(view.get(), QJSEngine::CppOwnership);
             d->views[screen] = std::move(view);
         } else if (incubator->isError()) {
-            qCWarning(LIBKWINEFFECTS) << "Could not create a view for QML file" << d->delegate->url();
-            qCWarning(LIBKWINEFFECTS) << incubator->errors();
+            qWarning(LIBKWINEFFECTS) << "Could not create a view for QML file" << d->delegate->url();
+            qWarning(LIBKWINEFFECTS) << incubator->errors();
         }
     });
     incubator->setInitialProperties(properties);

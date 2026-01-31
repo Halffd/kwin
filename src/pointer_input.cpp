@@ -881,17 +881,17 @@ void WaylandCursorImage::updateCursorTheme()
 
     m_cursorTheme = CursorTheme(pointerCursor->themeName(), pointerCursor->themeSize(), targetDevicePixelRatio);
     if (m_cursorTheme.isEmpty()) {
-        qCWarning(KWIN_CORE) << "Failed to load cursor theme" << pointerCursor->themeName();
+        qWarning() << "Failed to load cursor theme" << pointerCursor->themeName();
         m_cursorTheme = CursorTheme(Cursor::defaultThemeName(), Cursor::defaultThemeSize(), targetDevicePixelRatio);
 
         if (m_cursorTheme.isEmpty()) {
-            qCWarning(KWIN_CORE) << "Failed to load cursor theme" << Cursor::defaultThemeName();
+            qWarning() << "Failed to load cursor theme" << Cursor::defaultThemeName();
             m_cursorTheme = CursorTheme(Cursor::fallbackThemeName(), Cursor::defaultThemeSize(), targetDevicePixelRatio);
         }
     }
 
     if (m_cursorTheme.isEmpty()) {
-        qCWarning(KWIN_CORE) << "Unable to load any cursor theme";
+        qWarning() << "Unable to load any cursor theme";
     }
 
     Q_EMIT themeChanged();

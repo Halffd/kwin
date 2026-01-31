@@ -93,18 +93,18 @@ bool X11SyncObject::finish()
     glGetSynciv(m_sync, GL_SYNC_STATUS, 1, nullptr, &value);
 
     if (value != GL_SIGNALED) {
-        qCDebug(KWIN_CORE) << "Waiting for X fence to finish";
+        qDebug() << "Waiting for X fence to finish";
 
         // Wait for the fence to become signaled with a one second timeout
         const GLenum result = glClientWaitSync(m_sync, 0, 1000000000);
 
         switch (result) {
         case GL_TIMEOUT_EXPIRED:
-            qCWarning(KWIN_CORE) << "Timeout while waiting for X fence";
+            qWarning() << "Timeout while waiting for X fence";
             return false;
 
         case GL_WAIT_FAILED:
-            qCWarning(KWIN_CORE) << "glClientWaitSync() failed";
+            qWarning() << "glClientWaitSync() failed";
             return false;
         }
     }
@@ -153,10 +153,10 @@ X11SyncManager *X11SyncManager::create(RenderBackend *backend)
         const QString useExplicitSync = qEnvironmentVariable("KWIN_EXPLICIT_SYNC");
 
         if (useExplicitSync != QLatin1String("0")) {
-            qCDebug(KWIN_CORE) << "Initializing fences for synchronization with the X command stream";
+            qDebug() << "Initializing fences for synchronization with the X command stream";
             return new X11SyncManager;
         } else {
-            qCDebug(KWIN_CORE) << "Explicit synchronization with the X command stream disabled by environment variable";
+            qDebug() << "Explicit synchronization with the X command stream disabled by environment variable";
         }
     }
     return nullptr;

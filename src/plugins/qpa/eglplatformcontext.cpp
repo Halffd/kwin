@@ -64,7 +64,7 @@ bool EGLPlatformContext::makeCurrent(QPlatformSurface *surface)
     }
     const bool ok = m_eglContext->makeCurrent();
     if (!ok) {
-        qCWarning(KWIN_QPA, "eglMakeCurrent failed: %x", eglGetError());
+        qWarning(KWIN_QPA, "eglMakeCurrent failed: %x", eglGetError());
         return false;
     }
     if (m_eglContext->checkGraphicsResetStatus() != GL_NO_ERROR) {
@@ -174,7 +174,7 @@ GLuint EGLPlatformContext::defaultFramebufferObject(QPlatformSurface *surface) c
         if (m_current) {
             return m_current->fbo->handle();
         }
-        qCDebug(KWIN_QPA) << "No default framebuffer object for internal window";
+        qDebug(KWIN_QPA) << "No default framebuffer object for internal window";
     }
 
     return 0;
@@ -183,20 +183,20 @@ GLuint EGLPlatformContext::defaultFramebufferObject(QPlatformSurface *surface) c
 void EGLPlatformContext::create(const QSurfaceFormat &format, ::EGLContext shareContext)
 {
     if (!eglBindAPI(isOpenGLES() ? EGL_OPENGL_ES_API : EGL_OPENGL_API)) {
-        qCWarning(KWIN_QPA, "eglBindAPI failed: 0x%x", eglGetError());
+        qWarning(KWIN_QPA, "eglBindAPI failed: 0x%x", eglGetError());
         return;
     }
 
     m_config = configFromFormat(m_eglDisplay, format);
     if (m_config == EGL_NO_CONFIG_KHR) {
-        qCWarning(KWIN_QPA) << "Could not find suitable EGLConfig for" << format;
+        qWarning(KWIN_QPA) << "Could not find suitable EGLConfig for" << format;
         return;
     }
 
     m_format = formatFromConfig(m_eglDisplay, m_config);
     m_eglContext = EglContext::create(m_eglDisplay, m_config, shareContext);
     if (!m_eglContext) {
-        qCWarning(KWIN_QPA) << "Failed to create EGL context";
+        qWarning(KWIN_QPA) << "Failed to create EGL context";
         return;
     }
     updateFormatFromContext();
@@ -216,7 +216,7 @@ void EGLPlatformContext::updateFormatFromContext()
         m_format.setMajorVersion(major);
         m_format.setMinorVersion(minor);
     } else {
-        qCWarning(KWIN_QPA) << "Unrecognized OpenGL version:" << version;
+        qWarning(KWIN_QPA) << "Unrecognized OpenGL version:" << version;
     }
 
     GLint value;

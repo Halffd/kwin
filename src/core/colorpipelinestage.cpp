@@ -34,7 +34,7 @@ std::unique_ptr<ColorPipelineStage> ColorPipelineStage::dup() const
         if (dup) {
             return std::make_unique<ColorPipelineStage>(dup);
         } else {
-            qCWarning(KWIN_CORE) << "Failed to duplicate cmsStage!";
+            qWarning() << "Failed to duplicate cmsStage!";
         }
     }
     return nullptr;

@@ -42,19 +42,19 @@ public:
     {
         const int flags = fcntl(m_fileDescriptor.get(), F_GETFL, 0);
         if (flags == -1) {
-            qCWarning(KWIN_SCREENSHOT) << "failed to get screenshot fd flags:" << strerror(errno);
+            qWarning(KWIN_SCREENSHOT) << "failed to get screenshot fd flags:" << strerror(errno);
             return;
         }
         if (!(flags & O_NONBLOCK)) {
             if (fcntl(m_fileDescriptor.get(), F_SETFL, flags | O_NONBLOCK) == -1) {
-                qCWarning(KWIN_SCREENSHOT) << "failed to make screenshot fd non blocking:" << strerror(errno);
+                qWarning(KWIN_SCREENSHOT) << "failed to make screenshot fd non blocking:" << strerror(errno);
                 return;
             }
         }
 
         QFile file;
         if (!file.open(m_fileDescriptor.get(), QIODevice::WriteOnly)) {
-            qCWarning(KWIN_SCREENSHOT) << Q_FUNC_INFO << "failed to open pipe:" << file.errorString();
+            qWarning(KWIN_SCREENSHOT) << Q_FUNC_INFO << "failed to open pipe:" << file.errorString();
             return;
         }
 
@@ -69,21 +69,21 @@ public:
             const int ready = poll(pfds, 1, 60000);
             if (ready < 0) {
                 if (errno != EINTR) {
-                    qCWarning(KWIN_SCREENSHOT) << Q_FUNC_INFO << "poll() failed:" << strerror(errno);
+                    qWarning(KWIN_SCREENSHOT) << Q_FUNC_INFO << "poll() failed:" << strerror(errno);
                     return;
                 }
             } else if (ready == 0) {
-                qCWarning(KWIN_SCREENSHOT) << Q_FUNC_INFO << "timed out writing to pipe";
+                qWarning(KWIN_SCREENSHOT) << Q_FUNC_INFO << "timed out writing to pipe";
                 return;
             } else if (!(pfds[0].revents & POLLOUT)) {
-                qCWarning(KWIN_SCREENSHOT) << Q_FUNC_INFO << "pipe is broken";
+                qWarning(KWIN_SCREENSHOT) << Q_FUNC_INFO << "pipe is broken";
                 return;
             } else {
                 const char *chunk = buffer.constData() + (buffer.size() - remainingSize);
                 const qint64 writtenCount = file.write(chunk, remainingSize);
 
                 if (writtenCount < 0) {
-                    qCWarning(KWIN_SCREENSHOT) << Q_FUNC_INFO << "write() failed:" << file.errorString();
+                    qWarning(KWIN_SCREENSHOT) << Q_FUNC_INFO << "write() failed:" << file.errorString();
                     return;
                 }
 
@@ -395,7 +395,7 @@ QVariantMap ScreenShotDBusInterface2::CaptureWindow(const QString &handle,
         if (ok) {
             window = effects->findWindow(winId);
         } else {
-            qCWarning(KWIN_SCREENSHOT) << "Invalid handle:" << handle;
+            qWarning(KWIN_SCREENSHOT) << "Invalid handle:" << handle;
         }
     }
     if (!window) {

@@ -126,13 +126,13 @@ static GraphicsBuffer *allocateDumb(gbm_device *device, const GraphicsBufferOpti
     createArgs.width = uint32_t(options.size.width());
     createArgs.bpp = 32;
     if (drmIoctl(gbm_device_get_fd(device), DRM_IOCTL_MODE_CREATE_DUMB, &createArgs) != 0) {
-        qCWarning(KWIN_CORE) << "DRM_IOCTL_MODE_CREATE_DUMB failed:" << strerror(errno);
+        qWarning() << "DRM_IOCTL_MODE_CREATE_DUMB failed:" << strerror(errno);
         return nullptr;
     }
 
     int primeFd;
     if (drmPrimeHandleToFD(gbm_device_get_fd(device), createArgs.handle, DRM_CLOEXEC, &primeFd) != 0) {
-        qCWarning(KWIN_CORE) << "drmPrimeHandleToFD() failed:" << strerror(errno);
+        qWarning() << "drmPrimeHandleToFD() failed:" << strerror(errno);
         drm_mode_destroy_dumb destroyArgs{
             .handle = createArgs.handle,
         };
@@ -141,15 +141,15 @@ static GraphicsBuffer *allocateDumb(gbm_device *device, const GraphicsBufferOpti
     }
 
     return new DumbGraphicsBuffer(gbm_device_get_fd(device), createArgs.handle, DmaBufAttributes{
-        .planeCount = 1,
-        .width = options.size.width(),
-        .height = options.size.height(),
-        .format = options.format,
-        .modifier = DRM_FORMAT_MOD_LINEAR,
-        .fd = {FileDescriptor(primeFd), FileDescriptor{}, FileDescriptor{}, FileDescriptor{}},
-        .offset = {0, 0, 0, 0},
-        .pitch = {createArgs.pitch, 0, 0, 0},
-    });
+                                                                                    .planeCount = 1,
+                                                                                    .width = options.size.width(),
+                                                                                    .height = options.size.height(),
+                                                                                    .format = options.format,
+                                                                                    .modifier = DRM_FORMAT_MOD_LINEAR,
+                                                                                    .fd = {FileDescriptor(primeFd), FileDescriptor{}, FileDescriptor{}, FileDescriptor{}},
+                                                                                    .offset = {0, 0, 0, 0},
+                                                                                    .pitch = {createArgs.pitch, 0, 0, 0},
+                                                                                });
 }
 
 static GraphicsBuffer *allocateDmaBuf(gbm_device *device, const GraphicsBufferOptions &options)
@@ -305,13 +305,13 @@ GraphicsBuffer::Map DumbGraphicsBuffer::map(MapFlags flags)
         drm_mode_map_dumb mapArgs{};
         mapArgs.handle = m_handle;
         if (drmIoctl(m_drmFd, DRM_IOCTL_MODE_MAP_DUMB, &mapArgs) != 0) {
-            qCWarning(KWIN_CORE) << "DRM_IOCTL_MODE_MAP_DUMB failed:" << strerror(errno);
+            qWarning() << "DRM_IOCTL_MODE_MAP_DUMB failed:" << strerror(errno);
             return {};
         }
 
         void *address = mmap(nullptr, m_size, PROT_READ | PROT_WRITE, MAP_SHARED, m_drmFd, mapArgs.offset);
         if (address == MAP_FAILED) {
-            qCWarning(KWIN_CORE) << "mmap() failed:" << strerror(errno);
+            qWarning() << "mmap() failed:" << strerror(errno);
             return {};
         }
 

@@ -9,8 +9,8 @@
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 
-//#define QT_CLEAN_NAMESPACE
-// own
+// #define QT_CLEAN_NAMESPACE
+//  own
 #include "tabbox.h"
 // tabbox
 #include "tabbox/clientmodel.h"
@@ -501,7 +501,7 @@ void TabBox::hide(bool abort)
     }
     Q_EMIT tabBoxClosed();
     if (isDisplayed()) {
-        qCDebug(KWIN_TABBOX) << "Tab box was not properly closed by an effect";
+        qDebug(KWIN_TABBOX) << "Tab box was not properly closed by an effect";
     }
     m_tabBox->hide(abort);
 }
@@ -714,9 +714,9 @@ static bool areKeySymXsDepressed(const uint keySyms[], int nKeySyms)
                 continue;
             }
 
-            qCDebug(KWIN_TABBOX) << iKeySym << ": keySymX=0x" << QString::number(keySymX, 16)
-                                 << " i=" << i << " mask=0x" << QString::number(mask, 16)
-                                 << " keymap[i]=0x" << QString::number(keymap[i], 16);
+            qDebug(KWIN_TABBOX) << iKeySym << ": keySymX=0x" << QString::number(keySymX, 16)
+                                << " i=" << i << " mask=0x" << QString::number(mask, 16)
+                                << " keymap[i]=0x" << QString::number(keymap[i], 16);
 
             if (keymap[i] & mask) {
                 depressed = true;

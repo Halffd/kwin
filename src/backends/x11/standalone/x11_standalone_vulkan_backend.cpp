@@ -44,7 +44,7 @@ std::optional<OutputLayerBeginFrameInfo> VulkanLayer::doBeginFrame()
 {
     // Get the context
     if (!m_backend->vulkanContext()) {
-        qCWarning(KWIN_X11STANDALONE) << "VulkanLayer::doBeginFrame() - no context";
+        qWarning(KWIN_X11STANDALONE) << "VulkanLayer::doBeginFrame() - no context";
         return std::nullopt;
     }
 
@@ -52,7 +52,7 @@ std::optional<OutputLayerBeginFrameInfo> VulkanLayer::doBeginFrame()
     auto *x11Backend = static_cast<X11StandaloneVulkanBackend *>(m_backend);
     auto *swapchain = x11Backend->swapchain();
     if (!swapchain || !swapchain->isValid()) {
-        qCWarning(KWIN_X11STANDALONE) << "VulkanLayer::doBeginFrame() - no swapchain";
+        qWarning(KWIN_X11STANDALONE) << "VulkanLayer::doBeginFrame() - no swapchain";
         return std::nullopt;
     }
 
@@ -67,18 +67,18 @@ std::optional<OutputLayerBeginFrameInfo> VulkanLayer::doBeginFrame()
     if (imageIndex == UINT32_MAX) {
         // Swapchain needs recreation (resize, etc.)
         if (swapchain->needsRecreation()) {
-            qCDebug(KWIN_X11STANDALONE) << "Swapchain needs recreation";
+            qDebug(KWIN_X11STANDALONE) << "Swapchain needs recreation";
             // Try to recreate - for now just fail this frame
             return std::nullopt;
         }
-        qCWarning(KWIN_X11STANDALONE) << "VulkanLayer::doBeginFrame() - failed to acquire image";
+        qWarning(KWIN_X11STANDALONE) << "VulkanLayer::doBeginFrame() - failed to acquire image";
         return std::nullopt;
     }
 
     // Get the framebuffer for this image
     auto *framebuffer = swapchain->currentFramebuffer();
     if (!framebuffer) {
-        qCWarning(KWIN_X11STANDALONE) << "VulkanLayer::doBeginFrame() - no framebuffer";
+        qWarning(KWIN_X11STANDALONE) << "VulkanLayer::doBeginFrame() - no framebuffer";
         return std::nullopt;
     }
 
@@ -191,7 +191,7 @@ void X11StandaloneVulkanBackend::init()
         return;
     }
 
-    qCDebug(KWIN_X11STANDALONE) << "Successfully created Vulkan context";
+    qDebug(KWIN_X11STANDALONE) << "Successfully created Vulkan context";
 
     // Create overlay window first - we need the X11 window for the Vulkan surface
     if (!initOverlayWindow()) {
@@ -214,7 +214,7 @@ void X11StandaloneVulkanBackend::init()
     // Connect to workspace geometry changes for resize handling
     connect(workspace(), &Workspace::geometryChanged, this, &X11StandaloneVulkanBackend::screenGeometryChanged);
 
-    qCDebug(KWIN_X11STANDALONE) << "Successfully initialized Vulkan backend";
+    qDebug(KWIN_X11STANDALONE) << "Successfully initialized Vulkan backend";
 }
 
 bool X11StandaloneVulkanBackend::initInstance()
@@ -250,18 +250,18 @@ bool X11StandaloneVulkanBackend::initSurface()
 
     VkResult result = vkCreateXcbSurfaceKHR(instance(), &createInfo, nullptr, &m_surface);
     if (result != VK_SUCCESS) {
-        qCWarning(KWIN_X11STANDALONE) << "Failed to create Vulkan surface:" << result;
+        qWarning(KWIN_X11STANDALONE) << "Failed to create Vulkan surface:" << result;
         return false;
     }
 
-    qCDebug(KWIN_X11STANDALONE) << "Successfully created Vulkan surface";
+    qDebug(KWIN_X11STANDALONE) << "Successfully created Vulkan surface";
 
     // Check if the surface is supported by the selected physical device
     VkBool32 presentSupport = false;
     vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice(), graphicsQueueFamily(), m_surface, &presentSupport);
 
     if (!presentSupport) {
-        qCWarning(KWIN_X11STANDALONE) << "Vulkan surface is not supported by the physical device";
+        qWarning(KWIN_X11STANDALONE) << "Vulkan surface is not supported by the physical device";
         return false;
     }
 
@@ -277,11 +277,11 @@ bool X11StandaloneVulkanBackend::initSwapchain()
     const QSize size = workspace()->geometry().size();
     m_swapchain = VulkanSwapchain::create(m_context.get(), m_surface, size);
     if (!m_swapchain || !m_swapchain->isValid()) {
-        qCWarning(KWIN_X11STANDALONE) << "Failed to create Vulkan swapchain";
+        qWarning(KWIN_X11STANDALONE) << "Failed to create Vulkan swapchain";
         return false;
     }
 
-    qCDebug(KWIN_X11STANDALONE) << "Successfully created Vulkan swapchain";
+    qDebug(KWIN_X11STANDALONE) << "Successfully created Vulkan swapchain";
 
     // Connect the swapchain's render pass to the pipeline manager
     m_context->pipelineManager()->setRenderPass(m_swapchain->renderPass()->renderPass());
@@ -309,7 +309,7 @@ bool X11StandaloneVulkanBackend::initOverlayWindow()
         // Resize overlay BEFORE setup - this sets m_size which is needed for input shape
         overlayWindow()->resize(size);
         overlayWindow()->setup(m_window);
-        qCDebug(KWIN_X11STANDALONE) << "Successfully created and setup overlay window";
+        qDebug(KWIN_X11STANDALONE) << "Successfully created and setup overlay window";
         return true;
     } else {
         qCCritical(KWIN_X11STANDALONE) << "Failed to create overlay window";
@@ -328,7 +328,7 @@ bool X11StandaloneVulkanBackend::present(Output *output, const std::shared_ptr<O
     m_frame = frame;
 
     if (!m_swapchain || !m_swapchain->isValid()) {
-        qCWarning(KWIN_X11STANDALONE) << "present() - no valid swapchain";
+        qWarning(KWIN_X11STANDALONE) << "present() - no valid swapchain";
         return false;
     }
 
@@ -341,17 +341,17 @@ bool X11StandaloneVulkanBackend::present(Output *output, const std::shared_ptr<O
 
     if (m_frame) {
         if (presentSuccess) {
-            qCDebug(KWIN_X11STANDALONE) << "Present successful, marking frame as presented";
+            qDebug(KWIN_X11STANDALONE) << "Present successful, marking frame as presented";
             m_frame->presented(presentNanos, PresentationMode::VSync);
         } else {
             // Present failed, likely swapchain needs recreation
-            qCWarning(KWIN_X11STANDALONE) << "Present failed, checking if swapchain needs recreation";
+            qWarning(KWIN_X11STANDALONE) << "Present failed, checking if swapchain needs recreation";
             if (m_swapchain->needsRecreation()) {
-                qCDebug(KWIN_X11STANDALONE) << "Swapchain needs recreation after present failure";
+                qDebug(KWIN_X11STANDALONE) << "Swapchain needs recreation after present failure";
                 // Try to recreate
                 const QSize size = workspace()->geometry().size();
                 if (!m_swapchain->recreate(size)) {
-                    qCWarning(KWIN_X11STANDALONE) << "Failed to recreate swapchain";
+                    qWarning(KWIN_X11STANDALONE) << "Failed to recreate swapchain";
                 }
             }
             // Even if present failed, we still mark the frame as presented to avoid blocking
@@ -365,10 +365,10 @@ bool X11StandaloneVulkanBackend::present(Output *output, const std::shared_ptr<O
 
     // Show the overlay window
     if (overlayWindow()->window()) {
-        qCDebug(KWIN_X11STANDALONE) << "Showing overlay window";
+        qDebug(KWIN_X11STANDALONE) << "Showing overlay window";
         overlayWindow()->show();
     } else {
-        qCWarning(KWIN_X11STANDALONE) << "Overlay window is not valid, cannot show";
+        qWarning(KWIN_X11STANDALONE) << "Overlay window is not valid, cannot show";
     }
 
     return presentSuccess;

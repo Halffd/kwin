@@ -111,19 +111,19 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 {
     switch (messageSeverity) {
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-        qCDebug(KWIN_CORE) << "Vulkan validation (verbose):" << pCallbackData->pMessage;
+        qDebug() << "Vulkan validation (verbose):" << pCallbackData->pMessage;
         break;
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-        qCInfo(KWIN_CORE) << "Vulkan validation (info):" << pCallbackData->pMessage;
+        qInfo() << "Vulkan validation (info):" << pCallbackData->pMessage;
         break;
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-        qCWarning(KWIN_CORE) << "Vulkan validation (warning):" << pCallbackData->pMessage;
+        qWarning() << "Vulkan validation (warning):" << pCallbackData->pMessage;
         break;
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
         qCCritical(KWIN_CORE) << "Vulkan validation (error):" << pCallbackData->pMessage;
         break;
     default:
-        qCDebug(KWIN_CORE) << "Vulkan validation:" << pCallbackData->pMessage;
+        qDebug() << "Vulkan validation:" << pCallbackData->pMessage;
         break;
     }
     return VK_FALSE;
@@ -151,7 +151,7 @@ bool VulkanBackend::checkGraphicsReset()
     if (m_device != VK_NULL_HANDLE) {
         VkResult result = vkDeviceWaitIdle(m_device);
         if (result == VK_ERROR_DEVICE_LOST) {
-            qCWarning(KWIN_CORE) << "Vulkan device lost";
+            qWarning() << "Vulkan device lost";
             return true;
         }
     }
@@ -160,7 +160,7 @@ bool VulkanBackend::checkGraphicsReset()
 
 void VulkanBackend::setFailed(const QString &reason)
 {
-    qCWarning(KWIN_CORE) << "Creating Vulkan backend failed:" << reason;
+    qWarning() << "Creating Vulkan backend failed:" << reason;
     m_failed = true;
 }
 
@@ -220,7 +220,7 @@ bool VulkanBackend::createInstance(const QList<const char *> &requiredExtensions
     }
 #endif
 
-    qCDebug(KWIN_CORE) << "Vulkan instance created successfully";
+    qDebug() << "Vulkan instance created successfully";
     return true;
 }
 
@@ -256,7 +256,7 @@ bool VulkanBackend::selectPhysicalDevice()
             if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 m_physicalDevice = device;
                 m_graphicsQueueFamily = i;
-                qCDebug(KWIN_CORE) << "Selected Vulkan device:" << deviceProperties.deviceName;
+                qDebug() << "Selected Vulkan device:" << deviceProperties.deviceName;
                 return true;
             }
         }
@@ -300,20 +300,27 @@ bool VulkanBackend::createDevice(const QList<const char *> &requiredDeviceExtens
     bool hasExternalMemoryFd = false;
     bool hasDmaBufImport = false;
     bool hasDrmFormatModifier = false;
+
+    qInfo() << "[DMA-BUF] Checking for required Vulkan extensions...";
     bool hasExternalFenceFd = false;
     bool hasExternalFenceCapabilities = false;
 
     for (const auto &ext : availableExtensions) {
         if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME) == 0) {
             hasExternalMemoryFd = true;
+            qInfo() << "[DMA-BUF] Found extension:" << VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME;
         } else if (strcmp(ext.extensionName, VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME) == 0) {
             hasDmaBufImport = true;
+            qInfo() << "[DMA-BUF] Found extension:" << VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME;
         } else if (strcmp(ext.extensionName, VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME) == 0) {
             hasDrmFormatModifier = true;
+            qInfo() << "[DMA-BUF] Found extension:" << VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME;
         } else if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME) == 0) {
             hasExternalFenceFd = true;
+            qInfo() << "[DMA-BUF] Found extension:" << VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME;
         } else if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME) == 0) {
             hasExternalFenceCapabilities = true;
+            qInfo() << "[DMA-BUF] Found extension:" << VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME;
         }
     }
 
@@ -322,12 +329,21 @@ bool VulkanBackend::createDevice(const QList<const char *> &requiredDeviceExtens
         extensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
         extensions.push_back(VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME);
         extensions.push_back(VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME);
-        qCDebug(KWIN_CORE) << "DMA-BUF import extensions enabled";
+        qInfo() << "[DMA-BUF] All required extensions found and enabled:";
+        qInfo() << "[DMA-BUF]   - " << VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME;
+        qInfo() << "[DMA-BUF]   - " << VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME;
+        qInfo() << "[DMA-BUF]   - " << VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME;
     } else {
-        qCDebug(KWIN_CORE) << "DMA-BUF import not supported - missing extensions:"
-                           << "hasExternalMemoryFd:" << hasExternalMemoryFd
-                           << "hasDmaBufImport:" << hasDmaBufImport
-                           << "hasDrmFormatModifier:" << hasDrmFormatModifier;
+        qWarning() << "[DMA-BUF] Import not supported - missing extensions:";
+        if (!hasExternalMemoryFd) {
+            qWarning() << "[DMA-BUF]   - Missing" << VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME;
+        }
+        if (!hasDmaBufImport) {
+            qWarning() << "[DMA-BUF]   - Missing" << VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME;
+        }
+        if (!hasDrmFormatModifier) {
+            qWarning() << "[DMA-BUF]   - Missing" << VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME;
+        }
     }
 
     // Enable external fence fd extension if available (requires external_fence_capabilities)
@@ -335,7 +351,19 @@ bool VulkanBackend::createDevice(const QList<const char *> &requiredDeviceExtens
         extensions.push_back(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME);
         extensions.push_back(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
         m_supportsExternalFenceFd = true;
-        qCDebug(KWIN_CORE) << "VK_KHR_external_fence_fd extension enabled";
+        qDebug() << "VK_KHR_external_fence_fd extension enabled";
+    } else {
+        qDebug() << "External fence fd not supported - missing extensions:"
+                 << "hasExternalFenceFd:" << hasExternalFenceFd
+                 << "hasExternalFenceCapabilities:" << hasExternalFenceCapabilities;
+    }
+
+    // Enable external fence fd extension if available (requires external_fence_capabilities)
+    if (hasExternalFenceFd && hasExternalFenceCapabilities) {
+        extensions.push_back(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME);
+        extensions.push_back(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
+        m_supportsExternalFenceFd = true;
+        qDebug() << "VK_KHR_external_fence_fd extension enabled";
     }
 
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
@@ -363,12 +391,12 @@ bool VulkanBackend::createDevice(const QList<const char *> &requiredDeviceExtens
         m_vkGetFenceFdKHR = reinterpret_cast<PFN_vkGetFenceFdKHR>(
             vkGetDeviceProcAddr(m_device, "vkGetFenceFdKHR"));
         if (!m_vkGetFenceFdKHR) {
-            qCWarning(KWIN_CORE) << "Failed to load vkGetFenceFdKHR, disabling external fence support";
+            qWarning() << "Failed to load vkGetFenceFdKHR, disabling external fence support";
             m_supportsExternalFenceFd = false;
         }
     }
 
-    qCDebug(KWIN_CORE) << "Vulkan logical device created successfully";
+    qDebug() << "Vulkan logical device created successfully";
     return true;
 }
 

@@ -463,13 +463,13 @@ void Extensions::init()
     if (m_sync.present) {
         initVersion<xcb_sync_initialize_reply_t>(syncVersion, &xcb_sync_initialize_reply, &m_sync);
     }
-    qCDebug(KWIN_CORE) << "Extensions: shape: 0x" << QString::number(m_shape.version, 16)
-                       << " composite: 0x" << QString::number(m_composite.version, 16)
-                       << " render: 0x" << QString::number(m_render.version, 16)
-                       << " fixes: 0x" << QString::number(m_fixes.version, 16)
-                       << " randr: 0x" << QString::number(m_randr.version, 16)
-                       << " sync: 0x" << QString::number(m_sync.version, 16)
-                       << " damage: 0x " << QString::number(m_damage.version, 16);
+    qDebug() << "Extensions: shape: 0x" << QString::number(m_shape.version, 16)
+             << " composite: 0x" << QString::number(m_composite.version, 16)
+             << " render: 0x" << QString::number(m_render.version, 16)
+             << " fixes: 0x" << QString::number(m_fixes.version, 16)
+             << " randr: 0x" << QString::number(m_randr.version, 16)
+             << " sync: 0x" << QString::number(m_sync.version, 16)
+             << " damage: 0x " << QString::number(m_damage.version, 16);
 }
 
 void Extensions::extensionQueryReply(const xcb_query_extension_reply_t *extension, ExtensionData *dataToFill)
@@ -579,25 +579,25 @@ bool Shm::init()
 {
     const xcb_query_extension_reply_t *ext = xcb_get_extension_data(connection(), &xcb_shm_id);
     if (!ext || !ext->present) {
-        qCDebug(KWIN_CORE) << "SHM extension not available";
+        qDebug() << "SHM extension not available";
         return false;
     }
     UniqueCPtr<xcb_shm_query_version_reply_t> version(xcb_shm_query_version_reply(connection(),
                                                                                   xcb_shm_query_version_unchecked(connection()), nullptr));
     if (!version) {
-        qCDebug(KWIN_CORE) << "Failed to get SHM extension version information";
+        qDebug() << "Failed to get SHM extension version information";
         return false;
     }
     m_pixmapFormat = version->pixmap_format;
     const int MAXSIZE = 4096 * 2048 * 4; // TODO check there are not larger windows
     m_shmId = shmget(IPC_PRIVATE, MAXSIZE, IPC_CREAT | 0600);
     if (m_shmId < 0) {
-        qCDebug(KWIN_CORE) << "Failed to allocate SHM segment";
+        qDebug() << "Failed to allocate SHM segment";
         return false;
     }
     m_buffer = shmat(m_shmId, nullptr, 0 /*read/write*/);
     if (-1 == reinterpret_cast<long>(m_buffer)) {
-        qCDebug(KWIN_CORE) << "Failed to attach SHM segment";
+        qDebug() << "Failed to attach SHM segment";
         shmctl(m_shmId, IPC_RMID, nullptr);
         return false;
     }
@@ -607,7 +607,7 @@ bool Shm::init()
     const xcb_void_cookie_t cookie = xcb_shm_attach_checked(connection(), m_segment, m_shmId, false);
     UniqueCPtr<xcb_generic_error_t> error(xcb_request_check(connection(), cookie));
     if (error) {
-        qCDebug(KWIN_CORE) << "xcb_shm_attach error: " << error->error_code;
+        qDebug() << "xcb_shm_attach error: " << error->error_code;
         shmdt(m_buffer);
         return false;
     }
@@ -617,9 +617,9 @@ bool Shm::init()
 
 uint32_t toXNative(qreal value)
 {
-    //debug helper, check for things getting mangled
+    // debug helper, check for things getting mangled
     if (!qFuzzyIsNull(std::fmod(kwinApp()->xwaylandScale() * value, 1))) {
-        qCDebug(KWIN_CORE) << "precision lost! floating value sent to X" << kwinApp()->xwaylandScale() * value;
+        qDebug() << "precision lost! floating value sent to X" << kwinApp()->xwaylandScale() * value;
     }
     return static_cast<int32_t>(std::round(kwinApp()->xwaylandScale() * value));
 }

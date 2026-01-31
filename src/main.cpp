@@ -441,12 +441,12 @@ bool Application::dispatchEvent(xcb_generic_event_t *event)
                 if (errorName.isEmpty()) {
                     errorName = QByteArrayLiteral("Unknown");
                 }
-                qCWarning(KWIN_CORE, "XCB error: %d (%s), sequence: %d, resource id: %d, major code: %d (%s), minor code: %d (%s)",
-                          int(error->error_code), errorName.constData(),
-                          int(error->sequence), int(error->resource_id),
-                          int(error->major_code), extension.name.constData(),
-                          int(error->minor_code),
-                          extension.opCodes.size() > error->minor_code ? extension.opCodes.at(error->minor_code).constData() : "Unknown");
+                qWarning(KWIN_CORE, "XCB error: %d (%s), sequence: %d, resource id: %d, major code: %d (%s), minor code: %d (%s)",
+                         int(error->error_code), errorName.constData(),
+                         int(error->sequence), int(error->resource_id),
+                         int(error->major_code), extension.name.constData(),
+                         int(error->minor_code),
+                         extension.opCodes.size() > error->minor_code ? extension.opCodes.at(error->minor_code).constData() : "Unknown");
                 return true;
             }
         }
@@ -498,7 +498,7 @@ static quint32 monotonicTime()
 
     const int result = clock_gettime(CLOCK_MONOTONIC, &ts);
     if (result) {
-        qCWarning(KWIN_CORE, "Failed to query monotonic time: %s", strerror(errno));
+        qWarning(KWIN_CORE, "Failed to query monotonic time: %s", strerror(errno));
     }
 
     return ts.tv_sec * 1000 + ts.tv_nsec / 1000000L;

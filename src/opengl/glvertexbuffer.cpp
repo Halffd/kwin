@@ -44,7 +44,7 @@ IndexBuffer::IndexBuffer()
 IndexBuffer::~IndexBuffer()
 {
     if (!OpenGlContext::currentContext()) {
-        qCWarning(KWIN_OPENGL, "Could not delete index buffer because no context is current");
+        qWarning(KWIN_OPENGL, "Could not delete index buffer because no context is current");
         return;
     }
     glDeleteBuffers(1, &m_buffer);
@@ -177,7 +177,7 @@ public:
     ~GLVertexBufferPrivate()
     {
         if (!OpenGlContext::currentContext()) {
-            qCWarning(KWIN_OPENGL, "Could not delete vertex buffer because no context is current");
+            qWarning(KWIN_OPENGL, "Could not delete vertex buffer because no context is current");
             return;
         }
         deleteAll(fences);
@@ -281,7 +281,7 @@ bool GLVertexBufferPrivate::awaitFence(intptr_t end)
     const BufferFence &fence = fences.front();
 
     if (!fence.signaled()) {
-        qCDebug(KWIN_OPENGL) << "Stalling on VBO fence";
+        qDebug(KWIN_OPENGL) << "Stalling on VBO fence";
         const GLenum ret = glClientWaitSync(fence.sync, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000);
 
         if (ret == GL_TIMEOUT_EXPIRED || ret == GL_WAIT_FAILED) {

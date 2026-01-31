@@ -359,7 +359,7 @@ void Workspace::raiseOrLowerWindow(Window *window)
 void Workspace::lowerWindow(Window *window, bool nogroup)
 {
     if (window->isDeleted()) {
-        qCWarning(KWIN_CORE) << "Workspace::lowerWindow: closed window" << window << "cannot be restacked";
+        qWarning() << "Workspace::lowerWindow: closed window" << window << "cannot be restacked";
         return;
     }
 
@@ -387,7 +387,7 @@ void Workspace::lowerWindow(Window *window, bool nogroup)
 void Workspace::lowerWindowWithinApplication(Window *window)
 {
     if (window->isDeleted()) {
-        qCWarning(KWIN_CORE) << "Workspace::lowerWindowWithinApplication: closed window" << window << "cannot be restacked";
+        qWarning() << "Workspace::lowerWindowWithinApplication: closed window" << window << "cannot be restacked";
         return;
     }
 
@@ -418,7 +418,7 @@ void Workspace::lowerWindowWithinApplication(Window *window)
 void Workspace::raiseWindow(Window *window, bool nogroup)
 {
     if (window->isDeleted()) {
-        qCWarning(KWIN_CORE) << "Workspace::raiseWindow: closed window" << window << "cannot be restacked";
+        qWarning() << "Workspace::raiseWindow: closed window" << window << "cannot be restacked";
         return;
     }
 
@@ -444,7 +444,7 @@ void Workspace::raiseWindow(Window *window, bool nogroup)
 void Workspace::raiseWindowWithinApplication(Window *window)
 {
     if (window->isDeleted()) {
-        qCWarning(KWIN_CORE) << "Workspace::raiseWindowWithinApplication: closed window" << window << "cannot be restacked";
+        qWarning() << "Workspace::raiseWindowWithinApplication: closed window" << window << "cannot be restacked";
         return;
     }
 
@@ -496,7 +496,7 @@ void Workspace::lowerWindowRequest(X11Window *window, NET::RequestSource src, xc
 void Workspace::stackBelow(Window *window, Window *reference)
 {
     if (window->isDeleted()) {
-        qCWarning(KWIN_CORE) << "Workspace::stackBelow: closed window" << window << "cannot be restacked";
+        qWarning() << "Workspace::stackBelow: closed window" << window << "cannot be restacked";
         return;
     }
 
@@ -515,7 +515,7 @@ void Workspace::stackBelow(Window *window, Window *reference)
 void Workspace::stackAbove(Window *window, Window *reference)
 {
     if (window->isDeleted()) {
-        qCWarning(KWIN_CORE) << "Workspace::stackAbove: closed window" << window << "cannot be restacked";
+        qWarning() << "Workspace::stackAbove: closed window" << window << "cannot be restacked";
         return;
     }
 

@@ -59,7 +59,7 @@ QVariant dbusToVariant(const QVariant &variant)
             return map;
         }
         default:
-            qCWarning(KWIN_SCRIPTING) << "Couldn't unwrap QDBusArgument of type" << argument.currentType();
+            qWarning(KWIN_SCRIPTING) << "Couldn't unwrap QDBusArgument of type" << argument.currentType();
             return variant;
         }
     } else if (variant.canConvert<QDBusObjectPath>()) {

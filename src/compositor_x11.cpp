@@ -179,7 +179,7 @@ void X11Compositor::releaseCompositorSelection()
         break;
     case State::Off:
         if (m_selectionOwner) {
-            qCDebug(KWIN_CORE) << "Releasing compositor selection";
+            qDebug() << "Releasing compositor selection";
             m_selectionOwner->setOwning(false);
             m_selectionOwner->release();
         }
@@ -197,7 +197,7 @@ bool X11Compositor::attemptOpenGLCompositing()
 {
     // Some broken drivers crash on glXQuery() so to prevent constant KWin crashes:
     if (openGLCompositingIsBroken()) {
-        qCWarning(KWIN_CORE) << "KWin has detected that your OpenGL library is unsafe to use";
+        qWarning() << "KWin has detected that your OpenGL library is unsafe to use";
         return false;
     }
 
@@ -220,21 +220,21 @@ bool X11Compositor::attemptOpenGLCompositing()
     const QByteArray forceEnv = qgetenv("KWIN_COMPOSE");
     if (!forceEnv.isEmpty()) {
         if (qstrcmp(forceEnv, "O2") == 0 || qstrcmp(forceEnv, "O2ES") == 0) {
-            qCDebug(KWIN_CORE) << "OpenGL 2 compositing enforced by environment variable";
+            qDebug() << "OpenGL 2 compositing enforced by environment variable";
         } else {
             // OpenGL 2 disabled by environment variable
             return false;
         }
     } else {
         if (backend->openglContext()->glPlatform()->recommendedCompositor() < OpenGLCompositing) {
-            qCDebug(KWIN_CORE) << "Driver does not recommend OpenGL compositing";
+            qDebug() << "Driver does not recommend OpenGL compositing";
             return false;
         }
     }
 
     // We only support the OpenGL 2+ shader API, not GL_ARB_shader_objects
     if (!backend->openglContext()->hasVersion(Version(2, 0))) {
-        qCDebug(KWIN_CORE) << "OpenGL 2.0 is not supported";
+        qDebug() << "OpenGL 2.0 is not supported";
         return false;
     }
 
@@ -246,7 +246,7 @@ bool X11Compositor::attemptOpenGLCompositing()
     m_scene = std::make_unique<WorkspaceSceneOpenGL>(backend.get());
     m_backend = std::move(backend);
 
-    qCDebug(KWIN_CORE) << "OpenGL compositing has been successfully initialized";
+    qDebug() << "OpenGL compositing has been successfully initialized";
     return true;
 }
 
@@ -254,13 +254,13 @@ bool X11Compositor::attemptVulkanCompositing()
 {
     std::unique_ptr<VulkanBackend> backend = kwinApp()->outputBackend()->createVulkanBackend();
     if (!backend) {
-        qCDebug(KWIN_CORE) << "Failed to create Vulkan backend";
+        qDebug() << "Failed to create Vulkan backend";
         return false;
     }
 
     backend->init();
     if (backend->isFailed()) {
-        qCDebug(KWIN_CORE) << "Vulkan backend initialization failed";
+        qDebug() << "Vulkan backend initialization failed";
         return false;
     }
 
@@ -269,7 +269,7 @@ bool X11Compositor::attemptVulkanCompositing()
     m_scene = std::make_unique<WorkspaceSceneVulkan>(backend.get());
     m_backend = std::move(backend);
 
-    qCDebug(KWIN_CORE) << "Vulkan compositing has been successfully initialized";
+    qDebug() << "Vulkan compositing has been successfully initialized";
     return true;
 }
 
@@ -283,10 +283,10 @@ void X11Compositor::start()
         if (m_suspended & BlockRuleSuspend) {
             reasons << QStringLiteral("Disabled by Window");
         }
-        qCInfo(KWIN_CORE) << "Compositing is suspended, reason:" << reasons;
+        qInfo() << "Compositing is suspended, reason:" << reasons;
         return;
     } else if (!compositingPossible()) {
-        qCWarning(KWIN_CORE) << "Compositing is not possible";
+        qWarning() << "Compositing is not possible";
         return;
     }
 
@@ -322,28 +322,28 @@ void X11Compositor::start()
         candidateCompositors.erase(userConfigIt);
         candidateCompositors.prepend(options->compositingMode());
     } else {
-        qCWarning(KWIN_CORE) << "Configured compositor not supported by Platform. Falling back to defaults";
+        qWarning() << "Configured compositor not supported by Platform. Falling back to defaults";
     }
 
     for (auto type : std::as_const(candidateCompositors)) {
         bool stop = false;
         switch (type) {
         case OpenGLCompositing:
-            qCDebug(KWIN_CORE) << "Attempting to load the OpenGL scene";
+            qDebug() << "Attempting to load the OpenGL scene";
             stop = attemptOpenGLCompositing();
             if (stop) {
                 QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
             }
             break;
         case VulkanCompositing:
-            qCDebug(KWIN_CORE) << "Attempting to load the Vulkan scene";
+            qDebug() << "Attempting to load the Vulkan scene";
             stop = attemptVulkanCompositing();
             if (stop) {
                 QQuickWindow::setGraphicsApi(QSGRendererInterface::Vulkan);
             }
             break;
         case NoCompositing:
-            qCDebug(KWIN_CORE) << "Starting without compositing...";
+            qDebug() << "Starting without compositing...";
             stop = true;
             break;
         }
@@ -481,7 +481,7 @@ void X11Compositor::composite(RenderLoop *renderLoop)
     }
 
     if (m_backend->checkGraphicsReset()) {
-        qCDebug(KWIN_CORE) << "Graphics reset occurred";
+        qDebug() << "Graphics reset occurred";
 #if KWIN_BUILD_NOTIFICATIONS
         auto notification = new KNotification(QStringLiteral("graphicsreset"));
         notification->setComponentName(QStringLiteral("kwin-x11"));
@@ -526,8 +526,8 @@ void X11Compositor::composite(RenderLoop *renderLoop)
 
     if (m_syncManager) {
         if (!m_syncManager->endFrame()) {
-            qCDebug(KWIN_CORE) << "Aborting explicit synchronization with the X command stream.";
-            qCDebug(KWIN_CORE) << "Future frames will be rendered unsynchronized.";
+            qDebug() << "Aborting explicit synchronization with the X command stream.";
+            qDebug() << "Future frames will be rendered unsynchronized.";
             m_syncManager.reset();
         }
     }
@@ -550,9 +550,8 @@ void X11Compositor::inhibit(Window *window)
     if (!(m_suspended & BlockRuleSuspend)) {
         QMetaObject::invokeMethod(
             this, [this]() {
-                suspend(BlockRuleSuspend);
-            },
-            Qt::QueuedConnection);
+            suspend(BlockRuleSuspend);
+        }, Qt::QueuedConnection);
     }
 }
 
@@ -566,9 +565,8 @@ void X11Compositor::uninhibit(Window *window)
             // Do NOT attempt to call suspend(false) from within the eventchain!
             QMetaObject::invokeMethod(
                 this, [this]() {
-                    resume(BlockRuleSuspend);
-                },
-                Qt::QueuedConnection);
+                resume(BlockRuleSuspend);
+            }, Qt::QueuedConnection);
         }
     }
 }
@@ -615,16 +613,16 @@ bool X11Compositor::compositingPossible() const
     // first off, check whether we figured that we'll crash on detection because of a buggy driver
     KConfigGroup gl_workaround_group(kwinApp()->config(), QStringLiteral("Compositing"));
     if (gl_workaround_group.readEntry("Backend", "OpenGL") == QLatin1String("OpenGL") && openGLCompositingIsBroken()) {
-        qCWarning(KWIN_CORE) << "Compositing disabled: video driver seems unstable. If you think it's a false positive, please try again in a few minutes.";
+        qWarning() << "Compositing disabled: video driver seems unstable. If you think it's a false positive, please try again in a few minutes.";
         return false;
     }
 
     if (!Xcb::Extensions::self()->isCompositeAvailable()) {
-        qCWarning(KWIN_CORE) << "Compositing disabled: no composite extension available";
+        qWarning() << "Compositing disabled: no composite extension available";
         return false;
     }
     if (!Xcb::Extensions::self()->isDamageAvailable()) {
-        qCWarning(KWIN_CORE) << "Compositing disabled: no damage extension available";
+        qWarning() << "Compositing disabled: no damage extension available";
         return false;
     }
     if (Xcb::Extensions::self()->hasGlx()) {
@@ -635,7 +633,7 @@ bool X11Compositor::compositingPossible() const
     } else if (qstrcmp(qgetenv("KWIN_COMPOSE"), "O2ES") == 0) {
         return true;
     }
-    qCWarning(KWIN_CORE) << "Compositing disabled: no OpenGL support";
+    qWarning() << "Compositing disabled: no OpenGL support";
     return false;
 }
 
@@ -665,12 +663,12 @@ void X11Compositor::createOpenGLSafePoint(OpenGLSafePoint safePoint)
             connect(
                 m_openGLFreezeProtection.get(), &QTimer::timeout, m_openGLFreezeProtection.get(),
                 [configName] {
-                    auto group = KConfigGroup(KSharedConfig::openConfig(configName), QStringLiteral("Compositing"));
-                    group.writeEntry(QLatin1String("LastFailureTimestamp"), QDateTime::currentSecsSinceEpoch());
-                    group.sync();
-                    KCrash::setDrKonqiEnabled(false);
-                    qFatal("Freeze in OpenGL initialization detected");
-                },
+                auto group = KConfigGroup(KSharedConfig::openConfig(configName), QStringLiteral("Compositing"));
+                group.writeEntry(QLatin1String("LastFailureTimestamp"), QDateTime::currentSecsSinceEpoch());
+                group.sync();
+                KCrash::setDrKonqiEnabled(false);
+                qFatal("Freeze in OpenGL initialization detected");
+            },
                 Qt::DirectConnection);
         } else {
             Q_ASSERT(m_openGLFreezeProtection);

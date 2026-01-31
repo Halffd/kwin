@@ -147,7 +147,7 @@ static KWin::FPx2 fpx2FromScriptValue(const QJSValue &value)
         const QJSValue value1 = value.property(QStringLiteral("value1"));
         const QJSValue value2 = value.property(QStringLiteral("value2"));
         if (!value1.isNumber() || !value2.isNumber()) {
-            qCDebug(KWIN_SCRIPTING) << "Cannot cast scripted FPx2 to C++";
+            qDebug(KWIN_SCRIPTING) << "Cannot cast scripted FPx2 to C++";
             return FPx2();
         }
         return FPx2(value1.toNumber(), value2.toNumber());
@@ -162,7 +162,7 @@ ScriptedEffect *ScriptedEffect::create(const KPluginMetaData &effect)
     if (scriptFile.isEmpty()) {
         scriptFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QLatin1String("kwin/effects/") + name + QLatin1String("/contents/code/main.js"));
         if (scriptFile.isEmpty()) {
-            qCDebug(KWIN_SCRIPTING) << "Could not locate effect script" << name;
+            qDebug(KWIN_SCRIPTING) << "Could not locate effect script" << name;
             return nullptr;
         }
     }
@@ -217,7 +217,7 @@ bool ScriptedEffect::init(const QString &effectName, const QString &pathToScript
 
     QFile scriptFile(pathToScript);
     if (!scriptFile.open(QIODevice::ReadOnly)) {
-        qCDebug(KWIN_SCRIPTING) << "Could not open script file: " << pathToScript;
+        qDebug(KWIN_SCRIPTING) << "Could not open script file: " << pathToScript;
         return false;
     }
     m_effectName = effectName;
@@ -286,9 +286,9 @@ bool ScriptedEffect::init(const QString &effectName, const QString &pathToScript
     const QJSValue result = m_engine->evaluate(QString::fromUtf8(scriptFile.readAll()));
 
     if (result.isError()) {
-        qCWarning(KWIN_SCRIPTING, "%s:%d: error: %s", qPrintable(scriptFile.fileName()),
-                  result.property(QStringLiteral("lineNumber")).toInt(),
-                  qPrintable(result.property(QStringLiteral("message")).toString()));
+        qWarning(KWIN_SCRIPTING, "%s:%d: error: %s", qPrintable(scriptFile.fileName()),
+                 result.property(QStringLiteral("lineNumber")).toInt(),
+                 qPrintable(result.property(QStringLiteral("message")).toString()));
         return false;
     }
 

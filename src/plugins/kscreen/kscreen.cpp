@@ -175,7 +175,7 @@ void KscreenEffect::propertyNotify(EffectWindow *window, long int atom)
     const uint32_t *data = byteData.isEmpty() ? nullptr : reinterpret_cast<const uint32_t *>(byteData.data());
     if (!data || data[0] >= LastState) { // Property was deleted
         if (data) {
-            qCDebug(KWIN_KSCREEN) << "Incorrect Property state, immediate stop: " << data[0];
+            qDebug(KWIN_KSCREEN) << "Incorrect Property state, immediate stop: " << data[0];
         }
         setState(m_xcbState, StateNormal);
         return;

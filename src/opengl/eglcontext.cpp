@@ -225,7 +225,7 @@ static inline bool shouldUseOpenGLES()
         const auto attribs = candidate->build();
         ::EGLContext ctx = eglCreateContext(display->handle(), config, sharedContext, attribs.data());
         if (ctx != EGL_NO_CONTEXT) {
-            qCDebug(KWIN_OPENGL) << "Created EGL context with attributes:" << candidate.get();
+            qDebug(KWIN_OPENGL) << "Created EGL context with attributes:" << candidate.get();
             return ctx;
         }
     }
@@ -240,7 +240,7 @@ std::shared_ptr<GLTexture> EglContext::importDmaBufAsTexture(const DmaBufAttribu
         const auto info = FormatInfo::get(attributes.format);
         return EGLImageTexture::create(m_display, image, info ? info->openglFormat : GL_RGBA8, QSize(attributes.width, attributes.height), m_display->isExternalOnly(attributes.format, attributes.modifier));
     } else {
-        qCWarning(KWIN_OPENGL) << "Error creating EGLImageKHR: " << getEglErrorString();
+        qWarning(KWIN_OPENGL) << "Error creating EGLImageKHR: " << getEglErrorString();
         return nullptr;
     }
 }

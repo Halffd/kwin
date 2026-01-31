@@ -106,12 +106,12 @@ std::unique_ptr<GlxContext> GlxContext::create(GlxBackend *backend, GLXFBConfig 
         if (nativeHandle) {
             globalShareContext = nativeHandle->nativeContext();
         } else {
-            qCDebug(KWIN_X11STANDALONE) << "Invalid QOpenGLContext::globalShareContext()";
+            qDebug(KWIN_X11STANDALONE) << "Invalid QOpenGLContext::globalShareContext()";
             return nullptr;
         }
     }
     if (!globalShareContext) {
-        qCWarning(KWIN_X11STANDALONE) << "QOpenGLContext::globalShareContext() is required";
+        qWarning(KWIN_X11STANDALONE) << "QOpenGLContext::globalShareContext() is required";
         return nullptr;
     }
 
@@ -159,7 +159,7 @@ std::unique_ptr<GlxContext> GlxContext::create(GlxBackend *backend, GLXFBConfig 
             const auto attribs = it->build();
             handle = glXCreateContextAttribsARB(backend->display(), fbconfig, globalShareContext, true, attribs.data());
             if (handle) {
-                qCDebug(KWIN_X11STANDALONE) << "Created GLX context with attributes:" << &(*it);
+                qDebug(KWIN_X11STANDALONE) << "Created GLX context with attributes:" << &(*it);
                 break;
             }
         }
@@ -168,7 +168,7 @@ std::unique_ptr<GlxContext> GlxContext::create(GlxBackend *backend, GLXFBConfig 
         handle = glXCreateNewContext(backend->display(), fbconfig, GLX_RGBA_TYPE, globalShareContext, true);
     }
     if (!handle) {
-        qCDebug(KWIN_X11STANDALONE) << "Failed to create an OpenGL context.";
+        qDebug(KWIN_X11STANDALONE) << "Failed to create an OpenGL context.";
         return nullptr;
     }
     // KWin doesn't support indirect rendering

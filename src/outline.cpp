@@ -170,12 +170,12 @@ void CompositedOutlineVisual::show()
         const QString fileName = QStandardPaths::locate(QStandardPaths::GenericDataLocation,
                                                         kwinApp()->config()->group(QStringLiteral("Outline")).readEntry("QmlPath", QString(KWIN_DATADIR + QStringLiteral("/outline/plasma/outline.qml"))));
         if (fileName.isEmpty()) {
-            qCDebug(KWIN_CORE) << "Could not locate outline.qml";
+            qDebug() << "Could not locate outline.qml";
             return;
         }
         m_qmlComponent->loadUrl(QUrl::fromLocalFile(fileName));
         if (m_qmlComponent->isError()) {
-            qCDebug(KWIN_CORE) << "Component failed to load: " << m_qmlComponent->errors();
+            qDebug() << "Component failed to load: " << m_qmlComponent->errors();
         } else {
             m_mainItem.reset(m_qmlComponent->create(m_qmlContext.get()));
         }

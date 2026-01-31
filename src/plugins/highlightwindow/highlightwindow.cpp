@@ -143,7 +143,7 @@ void HighlightWindowEffect::slotPropertyNotify(EffectWindow *w, long a, EffectWi
         m_highlightedIds << data[i];
         EffectWindow *foundWin = effects->findWindow(data[i]);
         if (!foundWin) {
-            qCDebug(KWIN_HIGHLIGHTWINDOW) << "Invalid window targetted for highlight. Requested:" << data[i];
+            qDebug(KWIN_HIGHLIGHTWINDOW) << "Invalid window targetted for highlight. Requested:" << data[i];
             continue; // might come in later.
         }
         m_highlightedWindows.append(foundWin);

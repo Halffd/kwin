@@ -98,7 +98,7 @@ void SurfaceItemX11::waitForDamage()
     xcb_xfixes_fetch_region_reply_t *reply =
         xcb_xfixes_fetch_region_reply(kwinApp()->x11Connection(), m_damageCookie, nullptr);
     if (!reply) {
-        qCDebug(KWIN_CORE) << "Failed to check damage region";
+        qDebug() << "Failed to check damage region";
         return;
     }
 
@@ -253,23 +253,23 @@ void SurfacePixmapX11::create()
     Xcb::WindowAttributes windowAttributes(frame);
     Xcb::WindowGeometry windowGeometry(frame);
     if (xcb_generic_error_t *error = xcb_request_check(connection, namePixmapCookie)) {
-        qCDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x (error code %d)",
-                window->window(), error->error_code);
+        qDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x (error code %d)",
+               window->window(), error->error_code);
         free(error);
         return;
     }
     // check that the received pixmap is valid and actually matches what we
     // know about the window (i.e. size)
     if (!windowAttributes || windowAttributes->map_state != XCB_MAP_STATE_VIEWABLE) {
-        qCDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x (not viewable)",
-                window->window());
+        qDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x (not viewable)",
+               window->window());
         xcb_free_pixmap(connection, pixmap);
         return;
     }
     const QRectF bufferGeometry = window->bufferGeometry();
     if (windowGeometry.size() != bufferGeometry.size()) {
-        qCDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x: window size (%dx%d) != buffer size (%fx%f)", window->window(),
-                windowGeometry.size().width(), windowGeometry.size().height(), bufferGeometry.width(), bufferGeometry.height());
+        qDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x: window size (%dx%d) != buffer size (%fx%f)", window->window(),
+               windowGeometry.size().width(), windowGeometry.size().height(), bufferGeometry.width(), bufferGeometry.height());
         xcb_free_pixmap(connection, pixmap);
         return;
     }

@@ -47,7 +47,7 @@ std::optional<QString> exeOf(pid_t pid)
     const QFileInfo info(QStringLiteral("/proc/%1/exe").arg(QString::number(pid)));
     auto baseName = QFileInfo(info.canonicalFilePath()).baseName(); // not const to allow move return
     if (baseName.isEmpty()) {
-        qCWarning(KWIN_KILLER) << "Failed to resolve exe of pid" << pid;
+        qWarning(KWIN_KILLER) << "Failed to resolve exe of pid" << pid;
         return std::nullopt;
     }
     return baseName;
@@ -57,7 +57,7 @@ std::optional<QString> bootId()
 {
     QFile file(QStringLiteral("/proc/sys/kernel/random/boot_id"));
     if (!file.open(QFile::ReadOnly)) {
-        qCWarning(KWIN_KILLER) << "Failed to read /proc/sys/kernel/random/boot_id" << file.errorString();
+        qWarning(KWIN_KILLER) << "Failed to read /proc/sys/kernel/random/boot_id" << file.errorString();
         return std::nullopt;
     }
     return QString::fromUtf8(file.readAll().simplified().replace('-', QByteArrayView()));
@@ -69,7 +69,7 @@ void writeApplicationNotResponding(pid_t pid)
     QDir dir(dirPath);
     if (!dir.exists()) {
         if (!dir.mkpath(dirPath)) {
-            qCWarning(KWIN_KILLER) << "Failed to create ApplicationNotResponding path" << dirPath;
+            qWarning(KWIN_KILLER) << "Failed to create ApplicationNotResponding path" << dirPath;
             return;
         }
     }
@@ -85,7 +85,7 @@ void writeApplicationNotResponding(pid_t pid)
     const QString anrPath = dirPath + QStringLiteral("/%1.%2.%3.%4.json").arg(optionalExe.value(), optionalBootId.value(), QString::number(pid), QString::number(QDateTime::currentMSecsSinceEpoch()));
     QFile file(anrPath);
     if (!file.open(QFile::NewOnly)) {
-        qCWarning(KWIN_KILLER) << "Failed to create ApplicationNotResponding file" << anrPath << file.error() << file.errorString();
+        qWarning(KWIN_KILLER) << "Failed to create ApplicationNotResponding file" << anrPath << file.error() << file.errorString();
         return;
     }
     // No content for now, simply close it once created

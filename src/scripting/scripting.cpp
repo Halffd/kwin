@@ -275,9 +275,9 @@ void KWin::Script::slotScriptLoadedFromFile()
 
     result = m_engine->evaluate(QString::fromUtf8(watcher->result()), fileName());
     if (result.isError()) {
-        qCWarning(KWIN_SCRIPTING, "%s:%d: error: %s", qPrintable(fileName()),
-                  result.property(QStringLiteral("lineNumber")).toInt(),
-                  qPrintable(result.property(QStringLiteral("message")).toString()));
+        qWarning(KWIN_SCRIPTING, "%s:%d: error: %s", qPrintable(fileName()),
+                 result.property(QStringLiteral("lineNumber")).toInt(),
+                 qPrintable(result.property(QStringLiteral("message")).toString()));
         deleteLater();
     }
 
@@ -358,7 +358,7 @@ void KWin::Script::callDBus(const QString &service, const QString &path, const Q
         self->deleteLater();
 
         if (self->isError()) {
-            qCWarning(KWIN_SCRIPTING) << "Received D-Bus message is error:" << self->error().message();
+            qWarning(KWIN_SCRIPTING) << "Received D-Bus message is error:" << self->error().message();
             return;
         }
 
@@ -590,7 +590,7 @@ void KWin::DeclarativeScript::run()
 void KWin::DeclarativeScript::createComponent()
 {
     if (m_component->isError()) {
-        qCWarning(KWIN_SCRIPTING) << "Component failed to load: " << m_component->errors();
+        qWarning(KWIN_SCRIPTING) << "Component failed to load: " << m_component->errors();
     } else {
         if (QObject *object = m_component->create(m_context)) {
             object->setParent(this);
@@ -737,7 +737,7 @@ LoadScriptList KWin::Scripting::queryScriptsToLoad()
             const QString relScriptPath = scriptFolder + pluginName + QLatin1String("/contents/") + (javaScript ? QLatin1String("code/main.js") : QLatin1String("ui/main.qml"));
             const QString file = QStandardPaths::locate(QStandardPaths::GenericDataLocation, relScriptPath);
             if (file.isEmpty()) {
-                qCDebug(KWIN_SCRIPTING) << "Could not find script file for " << pluginName;
+                qDebug(KWIN_SCRIPTING) << "Could not find script file for " << pluginName;
                 continue;
             }
             scriptsToLoad << qMakePair(javaScript, qMakePair(file, pluginName));

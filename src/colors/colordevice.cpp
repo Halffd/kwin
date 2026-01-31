@@ -88,7 +88,7 @@ uint ColorDevice::temperature() const
 void ColorDevice::setTemperature(uint temperature)
 {
     if (temperature > 6500) {
-        qCWarning(KWIN_CORE) << "Got invalid temperature value:" << temperature;
+        qWarning() << "Got invalid temperature value:" << temperature;
         temperature = 6500;
     }
     if (d->temperature == temperature) {
