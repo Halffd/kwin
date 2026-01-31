@@ -184,6 +184,28 @@ public:
     void resetFence();
 
     /**
+     * @brief Get the current swapchain image (after acquireNextImage).
+     */
+    VkImage currentImage() const
+    {
+        if (m_currentImageIndex < m_images.size()) {
+            return m_images[m_currentImageIndex];
+        }
+        return VK_NULL_HANDLE;
+    }
+
+    /**
+     * @brief Get the current image view.
+     */
+    VkImageView currentImageView() const
+    {
+        if (m_currentImageIndex < m_imageViews.size()) {
+            return m_imageViews[m_currentImageIndex];
+        }
+        return VK_NULL_HANDLE;
+    }
+
+    /**
      * @brief Get the current frame index (0 to MAX_FRAMES_IN_FLIGHT-1).
      */
     uint32_t currentFrame() const

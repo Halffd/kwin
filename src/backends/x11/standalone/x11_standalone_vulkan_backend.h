@@ -13,6 +13,7 @@
 #include "platformsupport/scenes/vulkan/vulkancontext.h"
 #include "platformsupport/scenes/vulkan/vulkansurfacetexture_x11.h"
 #include "platformsupport/scenes/vulkan/vulkanswapchain.h"
+#include "platformsupport/scenes/vulkan/vulkantexture.h"
 #include "x11eventfilter.h"
 
 #include <vulkan/vulkan.h>
@@ -63,6 +64,7 @@ public:
     OverlayWindow *overlayWindow() const override;
     void init() override;
     OutputLayer *primaryLayer(Output *output) override;
+    std::pair<std::shared_ptr<VulkanTexture>, ColorDescription> textureForOutput(Output *output) const override;
 
     xcb_connection_t *connection() const;
     xcb_window_t window() const

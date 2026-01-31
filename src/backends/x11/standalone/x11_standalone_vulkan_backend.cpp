@@ -322,6 +322,46 @@ std::unique_ptr<SurfaceTexture> X11StandaloneVulkanBackend::createSurfaceTexture
     return std::make_unique<X11StandaloneVulkanSurfaceTexture>(this, pixmap);
 }
 
+std::pair<std::shared_ptr<VulkanTexture>, ColorDescription> X11StandaloneVulkanBackend::textureForOutput(Output *output) const
+{
+    Q_UNUSED(output);
+
+    if (!m_swapchain || !m_swapchain->isValid()) {
+        qWarning(KWIN_X11STANDALONE) << "textureForOutput() - no valid swapchain";
+        return {nullptr, ColorDescription::sRGB};
+    }
+
+    VulkanContext *context = vulkanContext();
+    if (!context) {
+        qWarning(KWIN_X11STANDALONE) << "textureForOutput() - no context";
+        return {nullptr, ColorDescription::sRGB};
+    }
+
+    // Get the current swapchain image
+    VkImage swapchainImage = m_swapchain->currentImage();
+    if (swapchainImage == VK_NULL_HANDLE) {
+        qWarning(KWIN_X11STANDALONE) << "textureForOutput() - no current image";
+        return {nullptr, ColorDescription::sRGB};
+    }
+
+    // Create a non-owning wrapper around the swapchain image
+    // The swapchain image is already in PRESENT_SRC_KHR layout
+    QSize size = m_swapchain->size();
+    auto texture = VulkanTexture::createNonOwningWrapper(context, swapchainImage, m_swapchain->format(), size);
+
+    if (!texture || !texture->isValid()) {
+        qWarning(KWIN_X11STANDALONE) << "textureForOutput() - failed to create texture wrapper";
+        return {nullptr, ColorDescription::sRGB};
+    }
+
+    // Set the initial layout for the swapchain image
+    texture->setCurrentLayout(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+    qDebug(KWIN_X11STANDALONE) << "textureForOutput() - returning swapchain texture:" << size;
+
+    return {std::move(texture), ColorDescription::sRGB};
+}
+
 bool X11StandaloneVulkanBackend::present(Output *output, const std::shared_ptr<OutputFrame> &frame)
 {
     Q_UNUSED(output);

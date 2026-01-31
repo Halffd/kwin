@@ -47,6 +47,11 @@ std::unique_ptr<ShadowTextureProvider> WorkspaceSceneVulkan::createShadowTexture
     return std::make_unique<VulkanShadowTextureProvider>(shadow);
 }
 
+std::pair<std::shared_ptr<VulkanTexture>, ColorDescription> WorkspaceSceneVulkan::vulkanTextureForOutput(Output *output) const
+{
+    return m_backend->textureForOutput(output);
+}
+
 //-----------------------------------------------------------------------------
 // VulkanShadowTextureProvider
 //-----------------------------------------------------------------------------

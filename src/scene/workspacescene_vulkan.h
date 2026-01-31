@@ -34,6 +34,14 @@ public:
     std::unique_ptr<DecorationRenderer> createDecorationRenderer(Decoration::DecoratedWindowImpl *impl) override;
     std::unique_ptr<ShadowTextureProvider> createShadowTextureProvider(Shadow *shadow) override;
 
+    /**
+     * @brief Get the Vulkan output texture for the given output.
+     *
+     * This is the Vulkan-specific version of textureForOutput() that returns
+     * a VulkanTexture instead of a GLTexture.
+     */
+    std::pair<std::shared_ptr<VulkanTexture>, ColorDescription> vulkanTextureForOutput(Output *output) const;
+
     bool animationsSupported() const override
     {
         return true; // Vulkan supports animations
@@ -58,6 +66,11 @@ public:
     ~VulkanShadowTextureProvider() override;
 
     void update() override;
+
+    VulkanTexture *shadowTexture() const
+    {
+        return m_texture.get();
+    }
 
     VulkanTexture *texture() const
     {
