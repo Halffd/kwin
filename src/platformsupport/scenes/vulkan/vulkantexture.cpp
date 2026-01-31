@@ -15,6 +15,7 @@
 #include "vulkancontext.h"
 
 #include <QDebug>
+#include <QtNumeric>
 #include <cstring>
 
 namespace KWin
@@ -22,6 +23,7 @@ namespace KWin
 
 VulkanTexture::VulkanTexture(VulkanContext *context)
     : m_context(context)
+    , m_hasCorrectionMatrix(false)
 {
 }
 
@@ -44,6 +46,8 @@ VulkanTexture::VulkanTexture(VulkanTexture &&other) noexcept
     , m_filter(other.m_filter)
     , m_wrapMode(other.m_wrapMode)
     , m_ownsImage(other.m_ownsImage)
+    , m_correctionMatrix(other.m_correctionMatrix)
+    , m_hasCorrectionMatrix(other.m_hasCorrectionMatrix)
 {
     other.m_image = VK_NULL_HANDLE;
     other.m_imageView = VK_NULL_HANDLE;
@@ -70,6 +74,8 @@ VulkanTexture &VulkanTexture::operator=(VulkanTexture &&other) noexcept
         m_filter = other.m_filter;
         m_wrapMode = other.m_wrapMode;
         m_ownsImage = other.m_ownsImage;
+        m_correctionMatrix = other.m_correctionMatrix;
+        m_hasCorrectionMatrix = other.m_hasCorrectionMatrix;
 
         other.m_image = VK_NULL_HANDLE;
         other.m_imageView = VK_NULL_HANDLE;
@@ -553,13 +559,22 @@ QMatrix4x4 VulkanTexture::matrix(VulkanCoordinateType type) const
         matrix.translate(-0.5, -0.5);
     }
 
+    // Apply correction matrix if available
+    if (m_hasCorrectionMatrix) {
+        matrix = m_correctionMatrix * matrix;
+    }
+
     // Log detailed matrix analysis
     if (shouldLog) {
+        // Extract translation values for analysis
+        const qreal xTrans = matrix(0, 3);
+        const qreal yTrans = matrix(1, 3);
+
         qDebug() << "  - Final matrix analysis:";
         qDebug() << "    * [0,0]:" << matrix(0, 0) << "(X scale)";
         qDebug() << "    * [1,1]:" << matrix(1, 1) << "(Y scale)";
-        qDebug() << "    * [0,3]:" << matrix(0, 3) << "(X translation)";
-        qDebug() << "    * [1,3]:" << matrix(1, 3) << "(Y translation)";
+        qDebug() << "    * [0,3]:" << xTrans << "(X translation)";
+        qDebug() << "    * [1,3]:" << yTrans << "(Y translation)";
         qDebug() << "    * Texture size:" << m_size;
         qDebug() << "    * Content transform kind:" << static_cast<int>(m_contentTransform.kind());
         qDebug() << "    * Window state: isMaximized=" << m_isFromMaximizedWindow;
@@ -574,25 +589,29 @@ QMatrix4x4 VulkanTexture::matrix(VulkanCoordinateType type) const
             }
         }
 
-        // Check for unusual scaling
-        if (qAbs(matrix(0, 0) - 0.5) < 0.01 && qAbs(matrix(1, 1) - 0.5) < 0.01) {
-            qWarning() << "  - DETECTED: 0.5x scaling in both dimensions (1/4 size issue)";
-            qWarning() << "    * This matches the known opacity mask scaling bug";
-            qWarning() << "    * Texture size:" << m_size;
-            qWarning() << "    * Window state: isMaximized=" << m_isFromMaximizedWindow;
-
-            // Apply correction for non-maximized window backgrounds
-            if (!m_isFromMaximizedWindow) {
-                qWarning() << "    * Applying 4.0x scaling correction for non-maximized window background";
-                matrix.scale(2.0, 2.0); // 2.0 * 2.0 = 4.0x area correction
-                qWarning() << "    * After correction - X scale:" << matrix(0, 0) << "Y scale:" << matrix(1, 1);
+        // Check for dialog background rendering issues in non-maximized windows
+        // For non-maximized windows, dialog backgrounds might have different scaling requirements
+        if (!m_isFromMaximizedWindow) {
+            // For non-maximized windows, check if this could be a dialog background that needs correction
+            // Dialog backgrounds in normal state might have scaling issues
+            if (qAbs(matrix(0, 0) - 1.0) >= 0.1 || qAbs(matrix(1, 1) - 1.0) >= 0.1) {
+                qWarning() << "  - DETECTED NON-MAXIMIZED WINDOW SCALING:";
+                qWarning() << "    * X scale:" << matrix(0, 0) << "Y scale:" << matrix(1, 1);
+                qWarning() << "    * Window state: isMaximized=" << m_isFromMaximizedWindow;
+                qWarning() << "    * This could be a dialog background rendering issue";
             }
         }
+
         // Log unusual scaling for debugging purposes
         if (qAbs(matrix(0, 0) - 1.0) >= 0.1 || qAbs(matrix(1, 1) - 1.0) >= 0.1) {
             qWarning() << "  - UNUSUAL SCALING DETECTED:";
-            qWarning() << "    * X scale:" << matrix(0, 0) << "(expected ~1.0)";
-            qWarning() << "    * Y scale:" << matrix(1, 1) << "(expected ~1.0)";
+            if (type == VulkanCoordinateType::Normalized) {
+                qWarning() << "    * X scale:" << matrix(0, 0) << "(expected ~1.0 for normalized coords)";
+                qWarning() << "    * Y scale:" << matrix(1, 1) << "(expected ~1.0 for normalized coords)";
+            } else {
+                qWarning() << "    * X scale:" << matrix(0, 0) << "(expected ~" << QString::number(1.0 / m_size.width(), 'f', 6) << " for unnormalized coords)";
+                qWarning() << "    * Y scale:" << matrix(1, 1) << "(expected ~" << QString::number(1.0 / m_size.height(), 'f', 6) << " for unnormalized coords)";
+            }
             qWarning() << "    * Texture size:" << m_size;
             qWarning() << "    * Is from maximized window:" << m_isFromMaximizedWindow;
         }
@@ -632,6 +651,13 @@ void VulkanTexture::setContentTransform(OutputTransform transform)
         m_contentTransform = transform;
         m_matrixDirty = true;
     }
+}
+
+void VulkanTexture::setCorrectionMatrix(const QMatrix4x4 &matrix)
+{
+    m_correctionMatrix = matrix;
+    m_hasCorrectionMatrix = true;
+    m_matrixDirty = true;
 }
 
 void VulkanTexture::setFilter(VkFilter filter)

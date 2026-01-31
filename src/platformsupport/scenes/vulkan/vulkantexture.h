@@ -187,6 +187,15 @@ public:
     }
 
     /**
+     * @brief Set a correction matrix to fix scaling issues.
+     *
+     * This is used to fix the 1/4 scale issue with window backgrounds.
+     *
+     * @param matrix The correction matrix to apply.
+     */
+    void setCorrectionMatrix(const QMatrix4x4 &matrix);
+
+    /**
      * @brief Set the texture filter mode.
      */
     void setFilter(VkFilter filter);
@@ -297,6 +306,10 @@ private:
 
     // Whether this texture is from a maximized window
     bool m_isFromMaximizedWindow = false;
+
+    // Correction matrix for scaling issues
+    QMatrix4x4 m_correctionMatrix;
+    bool m_hasCorrectionMatrix = false;
 };
 
 } // namespace KWin
