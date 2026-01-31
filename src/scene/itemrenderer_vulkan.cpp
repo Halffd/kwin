@@ -529,69 +529,46 @@ void ItemRendererVulkan::createRenderNode(Item *item, RenderContext *context)
                 float geomWidth = maxX - minX;
                 float geomHeight = maxY - minY;
 
-                // Always log for panels (small surfaces)
-                if (texture->size().height() < 200 || texture->size() != surfaceItem->bufferSize()) {
+                // Log when texture size doesn't match buffer size
+                if (texture->size() != surfaceItem->bufferSize()) {
                     qWarning() << "VULKAN: SurfaceItem texSize=" << texture->size()
                                << "bufferSize=" << surfaceItem->bufferSize()
                                << "geomBounds=(" << geomWidth << "x" << geomHeight << ")"
                                << "itemPos=" << item->position();
                 }
 
-                // Log vertices for LARGE items (backgrounds) to debug rendering
-                static int largeSurfaceLogCount = 0;
-                if (texture->size().height() >= 1000 && largeSurfaceLogCount < 10) {
-                    qWarning() << "VULKAN: LARGE SurfaceItem (background?) VERTS:";
+                // Log vertices for debugging
+                static int surfaceLogCount = 0;
+                if (surfaceLogCount < 10) {
+                    qWarning() << "VULKAN: SurfaceItem VERTS:";
                     for (int i = 0; i < qMin(geometry.count(), 6); i++) {
                         qWarning() << "  v" << i << ": pos=" << geometry[i].position << "tex=" << geometry[i].texcoord;
                     }
-                    qWarning() << "VULKAN: LARGE SurfaceItem transform:" << context->transformStack.top();
-                    largeSurfaceLogCount++;
+                    qWarning() << "VULKAN: SurfaceItem transform:" << context->transformStack.top();
+                    surfaceLogCount++;
                 }
 
-                // Log vertices for small items (panels) to debug sizing issue
-                static int smallSurfaceLogCount = 0;
-                if (texture->size().height() < 100 && smallSurfaceLogCount < 5) {
-                    qWarning() << "VULKAN: SMALL SurfaceItem VERTS (panel?):";
-                    for (int i = 0; i < qMin(geometry.count(), 6); i++) {
-                        qWarning() << "  v" << i << ": pos=" << geometry[i].position << "tex=" << geometry[i].texcoord;
-                    }
-                    smallSurfaceLogCount++;
-                }
+                // Additional logging is handled by the general logging above
 
                 // Post-process texture coordinates (convert pixel coords to normalized)
                 QMatrix4x4 texMatrix = texture->matrix(VulkanCoordinateType::Unnormalized);
                 geometry.postProcessTextureCoordinates(texMatrix);
 
-                // Log transform matrix and NORMALIZED tex coords for small items (panels)
-                static int smallTransformLogCount = 0;
-                if (texture->size().height() < 100 && smallTransformLogCount < 5) {
-                    qWarning() << "VULKAN: SMALL SurfaceItem texMatrix(0,0)=" << texMatrix(0, 0)
+                // Log transform matrix and texture coordinates for debugging
+                static int transformLogCount = 0;
+                if (transformLogCount < 5) {
+                    qWarning() << "VULKAN: SurfaceItem texMatrix(0,0)=" << texMatrix(0, 0)
                                << "texMatrix(1,1)=" << texMatrix(1, 1)
                                << "texMatrix(0,3)=" << texMatrix(0, 3)
                                << "texMatrix(1,3)=" << texMatrix(1, 3);
-                    qWarning() << "VULKAN: SMALL SurfaceItem NORMALIZED tex coords:";
-                    for (int i = 0; i < qMin(geometry.count(), 6); i++) {
-                        qWarning() << "  v" << i << ": tex=" << geometry[i].texcoord;
-                    }
-                    qWarning() << "VULKAN: SMALL SurfaceItem transform:" << context->transformStack.top();
-                    smallTransformLogCount++;
-                }
-
-                // ALSO log LARGE surfaces (backgrounds/windows) to compare
-                static int largeTransformLogCount = 0;
-                if (texture->size().height() >= 500 && largeTransformLogCount < 5) {
-                    qWarning() << "VULKAN: LARGE SurfaceItem texMatrix(0,0)=" << texMatrix(0, 0)
-                               << "texMatrix(1,1)=" << texMatrix(1, 1)
-                               << "texMatrix(0,3)=" << texMatrix(0, 3)
-                               << "texMatrix(1,3)=" << texMatrix(1, 3);
-                    qWarning() << "VULKAN: LARGE SurfaceItem texSize=" << texture->size()
+                    qWarning() << "VULKAN: SurfaceItem texSize=" << texture->size()
                                << "NORMALIZED tex coords:";
                     for (int i = 0; i < qMin(geometry.count(), 6); i++) {
                         qWarning() << "  v" << i << ": pos=" << geometry[i].position << "tex=" << geometry[i].texcoord;
                     }
-                    qWarning() << "VULKAN: LARGE SurfaceItem transform:" << context->transformStack.top();
-                    qWarning() << "VULKAN: LARGE SurfaceItem opacity=" << context->opacityStack.top();
-                    largeTransformLogCount++;
+                    qWarning() << "VULKAN: SurfaceItem transform:" << context->transformStack.top();
+                    qWarning() << "VULKAN: SurfaceItem opacity=" << context->opacityStack.top();
+                    transformLogCount++;
                 }
 
                 RenderNode node;
@@ -948,31 +925,23 @@ void ItemRendererVulkan::renderNodes(const RenderContext &context, VkCommandBuff
         if (node.vertexCount > 0) {
             vkCmdDraw(cmd, node.vertexCount, 1, node.firstVertex, 0);
 
-            // Log ALL large texture draws (backgrounds)
+            // Log texture draws for debugging
             if (!node.textures.isEmpty()) {
                 QSize texSize = node.textures[0]->size();
-                static int largeDrawCount = 0;
-                static int smallDrawCount = 0;
+                static int drawLogCount = 0;
 
-                if (texSize.height() >= 1000) {
-                    // This is a background - log every time to track
-                    if (largeDrawCount < 30) {
-                        qWarning() << "VULKAN: DRAW LARGE (background?)" << node.vertexCount << "verts"
-                                   << "texSize=" << texSize
-                                   << "opacity=" << node.opacity
-                                   << "firstVert=" << node.firstVertex;
-                        // Log first few vertex positions
-                        if (!node.geometry.isEmpty()) {
-                            qWarning() << "  v0 pos=" << node.geometry[0].position << "tex=" << node.geometry[0].texcoord;
-                            if (node.geometry.size() > 1)
-                                qWarning() << "  v1 pos=" << node.geometry[1].position << "tex=" << node.geometry[1].texcoord;
-                        }
-                        largeDrawCount++;
+                if (drawLogCount < 30) {
+                    qWarning() << "VULKAN: DRAW" << node.vertexCount << "verts"
+                               << "texSize=" << texSize
+                               << "opacity=" << node.opacity
+                               << "firstVert=" << node.firstVertex;
+                    // Log first few vertex positions
+                    if (!node.geometry.isEmpty()) {
+                        qWarning() << "  v0 pos=" << node.geometry[0].position << "tex=" << node.geometry[0].texcoord;
+                        if (node.geometry.size() > 1)
+                            qWarning() << "  v1 pos=" << node.geometry[1].position << "tex=" << node.geometry[1].texcoord;
                     }
-                } else if (smallDrawCount < 10) {
-                    qWarning() << "VULKAN: DRAW SMALL" << node.vertexCount << "verts at offset" << node.firstVertex
-                               << "texSize=" << texSize << "opacity=" << node.opacity;
-                    smallDrawCount++;
+                    drawLogCount++;
                 }
             }
         }

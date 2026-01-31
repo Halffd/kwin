@@ -16,6 +16,11 @@
 
 namespace KWin
 {
+class X11Window;
+}
+
+namespace KWin
+{
 
 class SurfacePixmapX11;
 class VulkanContext;
@@ -46,6 +51,21 @@ public:
     }
 
 private:
+    /**
+     * @brief Get the parent X11Window for this surface texture.
+     *
+     * This method traverses the item hierarchy to find the parent X11Window.
+     * @return X11Window* Pointer to the parent window, or nullptr if not found.
+     */
+    KWin::X11Window *parentWindow() const;
+
+    /**
+     * @brief Check if the parent window is maximized.
+     *
+     * @return bool True if the window is maximized (either horizontally, vertically, or both).
+     */
+    bool isWindowMaximized() const;
+
     bool createWithDmaBuf();
     bool createWithCpuUpload();
     void updateWithCpuUpload(const QRegion &region);

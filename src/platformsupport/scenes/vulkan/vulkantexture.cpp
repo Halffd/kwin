@@ -474,7 +474,22 @@ void VulkanTexture::update(const QImage &image, const QRegion &region)
 
 QMatrix4x4 VulkanTexture::matrix(VulkanCoordinateType type) const
 {
+    // Add detailed debug logging to track matrix calculations
+    static int matrixLogCount = 0;
+    const bool shouldLog = matrixLogCount < 200;
+
+    if (shouldLog) {
+        qDebug() << "VulkanTexture::matrix() ENTRY - texture size:" << m_size
+                 << "type:" << (type == VulkanCoordinateType::Normalized ? "Normalized" : "Unnormalized")
+                 << "contentTransform:" << static_cast<int>(m_contentTransform.kind())
+                 << "cached:" << (!m_matrixDirty && m_cachedMatrixType == type);
+    }
+
     if (!m_matrixDirty && m_cachedMatrixType == type) {
+        if (shouldLog) {
+            qDebug() << "  - Using cached matrix:" << m_cachedMatrix;
+            matrixLogCount++;
+        }
         return m_cachedMatrix;
     }
 
@@ -490,17 +505,106 @@ QMatrix4x4 VulkanTexture::matrix(VulkanCoordinateType type) const
     // DO NOT add scale(1, -1) here - it causes upside-down rendering!
     if (type == VulkanCoordinateType::Unnormalized) {
         // Scale to convert pixel coordinates to normalized coordinates
+        if (shouldLog) {
+            qDebug() << "  - Unnormalized: Scaling by 1.0/" << m_size.width() << " and 1.0/" << m_size.height();
+        }
         matrix.scale(1.0 / m_size.width(), 1.0 / m_size.height());
 
         // NO Y-flip - don't match OpenGL - causes upside-down
+        if (shouldLog) {
+            qDebug() << "  - Translating to center:" << m_size.width() / 2.0 << "," << m_size.height() / 2.0;
+        }
         matrix.translate(m_size.width() / 2.0, m_size.height() / 2.0);
+
+        if (shouldLog) {
+            qDebug() << "  - Before content transform:" << matrix;
+            qDebug() << "  - Content transform matrix:" << m_contentTransform.toMatrix();
+        }
+
+        // Apply the content transform
         matrix *= m_contentTransform.toMatrix();
+
+        if (shouldLog) {
+            qDebug() << "  - After content transform:" << matrix;
+            qDebug() << "  - Translating back from center:" << -m_size.width() / 2.0 << "," << -m_size.height() / 2.0;
+        }
+
         matrix.translate(-m_size.width() / 2.0, -m_size.height() / 2.0);
     } else {
         // Normalized coordinates - apply transform around center (0.5, 0.5)
+        if (shouldLog) {
+            qDebug() << "  - Normalized: Translating to center (0.5, 0.5)";
+        }
         matrix.translate(0.5, 0.5);
+
+        if (shouldLog) {
+            qDebug() << "  - Before content transform:" << matrix;
+            qDebug() << "  - Content transform matrix:" << m_contentTransform.toMatrix();
+        }
+
+        // Apply the content transform
         matrix *= m_contentTransform.toMatrix();
+
+        if (shouldLog) {
+            qDebug() << "  - After content transform:" << matrix;
+            qDebug() << "  - Translating back from center (-0.5, -0.5)";
+        }
+
         matrix.translate(-0.5, -0.5);
+    }
+
+    // Log detailed matrix analysis
+    if (shouldLog) {
+        qDebug() << "  - Final matrix analysis:";
+        qDebug() << "    * [0,0]:" << matrix(0, 0) << "(X scale)";
+        qDebug() << "    * [1,1]:" << matrix(1, 1) << "(Y scale)";
+        qDebug() << "    * [0,3]:" << matrix(0, 3) << "(X translation)";
+        qDebug() << "    * [1,3]:" << matrix(1, 3) << "(Y translation)";
+        qDebug() << "    * Texture size:" << m_size;
+        qDebug() << "    * Content transform kind:" << static_cast<int>(m_contentTransform.kind());
+        qDebug() << "    * Window state: isMaximized=" << m_isFromMaximizedWindow;
+        qDebug() << "    * Size dimensions: " << m_size.width() << "x" << m_size.height();
+
+        // Dump the entire matrix for debugging
+        qDebug() << "  - Full matrix:";
+        for (int row = 0; row < 4; ++row) {
+            QString rowStr;
+            for (int col = 0; col < 4; ++col) {
+                qDebug() << "    * Row " << row << " Col " << col << ": " << QString::number(matrix(row, col)) + " width=" + QString::number(1.0 / matrix(row, col)) + " height=" + QString::number(1.0 / matrix(row, col));
+            }
+        }
+
+        // Check for unusual scaling
+        if (qAbs(matrix(0, 0) - 0.5) < 0.01 && qAbs(matrix(1, 1) - 0.5) < 0.01) {
+            qWarning() << "  - DETECTED: 0.5x scaling in both dimensions (1/4 size issue)";
+            qWarning() << "    * This matches the known opacity mask scaling bug";
+            qWarning() << "    * Texture size:" << m_size;
+            qWarning() << "    * Window state: isMaximized=" << m_isFromMaximizedWindow;
+
+            // Apply correction for non-maximized window backgrounds
+            if (!m_isFromMaximizedWindow) {
+                qWarning() << "    * Applying 4.0x scaling correction for non-maximized window background";
+                matrix.scale(2.0, 2.0); // 2.0 * 2.0 = 4.0x area correction
+                qWarning() << "    * After correction - X scale:" << matrix(0, 0) << "Y scale:" << matrix(1, 1);
+            }
+        }
+        // Log unusual scaling for debugging purposes
+        if (qAbs(matrix(0, 0) - 1.0) >= 0.1 || qAbs(matrix(1, 1) - 1.0) >= 0.1) {
+            qWarning() << "  - UNUSUAL SCALING DETECTED:";
+            qWarning() << "    * X scale:" << matrix(0, 0) << "(expected ~1.0)";
+            qWarning() << "    * Y scale:" << matrix(1, 1) << "(expected ~1.0)";
+            qWarning() << "    * Texture size:" << m_size;
+            qWarning() << "    * Is from maximized window:" << m_isFromMaximizedWindow;
+        }
+
+        // Check for unusual translation
+        if (qAbs(matrix(0, 3)) >= 0.1 || qAbs(matrix(1, 3)) >= 0.1) {
+            qWarning() << "  - UNUSUAL TRANSLATION DETECTED:";
+            qWarning() << "    * X translation:" << matrix(0, 3);
+            qWarning() << "    * Y translation:" << matrix(1, 3);
+        }
+
+        matrixLogCount++;
     }
 
     m_cachedMatrix = matrix;
@@ -508,6 +612,18 @@ QMatrix4x4 VulkanTexture::matrix(VulkanCoordinateType type) const
     m_matrixDirty = false;
 
     return matrix;
+}
+
+void VulkanTexture::setIsFromMaximizedWindow(bool isMaximized)
+{
+    if (m_isFromMaximizedWindow != isMaximized) {
+        m_isFromMaximizedWindow = isMaximized;
+        m_matrixDirty = true; // Force matrix recalculation
+
+        // Add debug logging
+        qDebug() << "VulkanTexture::setIsFromMaximizedWindow - texture size:" << m_size
+                 << "isMaximized:" << isMaximized;
+    }
 }
 
 void VulkanTexture::setContentTransform(OutputTransform transform)

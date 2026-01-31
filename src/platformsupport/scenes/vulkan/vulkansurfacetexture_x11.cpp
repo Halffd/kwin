@@ -27,6 +27,9 @@
 #include <xcb/xcb.h>
 #include <xcb/xcb_image.h>
 
+#include "scene/surfaceitem_x11.h"
+#include "x11window.h"
+
 namespace KWin
 {
 
@@ -370,6 +373,13 @@ bool VulkanSurfaceTextureX11::create()
         if (createWithDmaBuf()) {
             m_useDmaBuf = true;
             qInfo() << "[DMA-BUF] SUCCESS: Using zero-copy DMA-BUF import for pixmap";
+
+            // Set window state information
+            if (m_texture) {
+                m_texture->setIsFromMaximizedWindow(isWindowMaximized());
+                qDebug() << "VulkanSurfaceTextureX11::create() - Set window state: isMaximized =" << isWindowMaximized();
+            }
+
             return true;
         } else {
             qWarning() << "[DMA-BUF] Import failed, falling back to CPU upload path";
@@ -382,6 +392,13 @@ bool VulkanSurfaceTextureX11::create()
     if (createWithCpuUpload()) {
         m_useDmaBuf = false;
         qWarning() << "VulkanSurfaceTextureX11::create() - SUCCESS: using CPU upload";
+
+        // Set window state information
+        if (m_texture) {
+            m_texture->setIsFromMaximizedWindow(isWindowMaximized());
+            qDebug() << "VulkanSurfaceTextureX11::create() - Set window state: isMaximized =" << isWindowMaximized();
+        }
+
         return true;
     }
 
@@ -445,32 +462,6 @@ bool VulkanSurfaceTextureX11::createWithDmaBuf()
         qWarning() << "  - POTENTIAL ISSUE: Geometry size doesn't match stored size";
         qWarning() << "    * Geometry: " << QSize(pixmapWidth, pixmapHeight);
         qWarning() << "    * Stored: " << m_size;
-    }
-
-    // Check for non-maximized window/dialog sizes
-    // Standard sizes for dialogs and small windows
-    const QSize standardDialogSizes[] = {
-        QSize(400, 300), // Small dialog
-        QSize(640, 480), // Medium dialog
-        QSize(800, 600), // Large dialog
-        QSize(1024, 768), // XGA dialog
-    };
-
-    bool isStandardSize = false;
-    for (const QSize &standardSize : standardDialogSizes) {
-        if (pixmapWidth <= standardSize.width() && pixmapHeight <= standardSize.height()) {
-            qDebug() << "  - Window appears to be a non-maximized dialog or small window";
-            qDebug() << "    * Closest standard size:" << standardSize;
-            isStandardSize = true;
-            break;
-        }
-    }
-
-    // Check for potential scaling issues with small windows
-    if (isStandardSize) {
-        qDebug() << "  - Small window/dialog detection:";
-        qDebug() << "    * Non-maximized windows may be affected by the 1/4 scale opacity mask bug";
-        qDebug() << "    * Expected opacity mask size:" << QSize(pixmapWidth / 2, pixmapHeight / 2);
     }
 
     const uint32_t drmFormat = depthToDrmFormat(depth);
@@ -1135,6 +1126,39 @@ void VulkanSurfaceTextureX11::updateWithCpuUpload(const QRegion &region)
     qDebug() << "VulkanSurfaceTextureX11::updateWithCpuUpload() - image layout transition recorded";
 
     m_context->endSingleTimeCommands(cmd);
+}
+
+KWin::X11Window *VulkanSurfaceTextureX11::parentWindow() const
+{
+    if (!m_pixmap) {
+        return nullptr;
+    }
+
+    // Get the SurfaceItemX11 from the SurfacePixmapX11
+    SurfaceItem *item = m_pixmap->item();
+    if (!item) {
+        return nullptr;
+    }
+
+    // Cast to SurfaceItemX11
+    SurfaceItemX11 *x11Item = qobject_cast<SurfaceItemX11 *>(item);
+    if (!x11Item) {
+        return nullptr;
+    }
+
+    // Get the X11Window
+    return x11Item->window();
+}
+
+bool VulkanSurfaceTextureX11::isWindowMaximized() const
+{
+    KWin::X11Window *window = parentWindow();
+    if (!window) {
+        return false;
+    }
+
+    // Check if the window is maximized (either horizontally, vertically, or both)
+    return window->maximizeMode() != MaximizeRestore;
 }
 
 } // namespace KWin

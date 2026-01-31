@@ -235,6 +235,16 @@ public:
     }
 
     /**
+     * @brief Set whether this texture is from a maximized window.
+     *
+     * This information is used to determine whether to apply the scaling fix
+     * for non-maximized window backgrounds.
+     *
+     * @param isMaximized True if the texture is from a maximized window.
+     */
+    void setIsFromMaximizedWindow(bool isMaximized);
+
+    /**
      * @brief Check if this texture owns its image (vs wrapping an external one).
      */
     bool ownsImage() const
@@ -284,6 +294,9 @@ private:
     mutable QMatrix4x4 m_cachedMatrix;
     mutable VulkanCoordinateType m_cachedMatrixType = VulkanCoordinateType::Normalized;
     mutable bool m_matrixDirty = true;
+
+    // Whether this texture is from a maximized window
+    bool m_isFromMaximizedWindow = false;
 };
 
 } // namespace KWin
