@@ -170,6 +170,7 @@ private:
 
     // External fence fd support
     bool m_supportsExternalFenceFd = false;
+    bool m_hasExternalFenceCapabilities = false;
     PFN_vkGetFenceFdKHR m_vkGetFenceFdKHR = nullptr;
 };
 

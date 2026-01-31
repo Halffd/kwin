@@ -197,6 +197,23 @@ bool VulkanBackend::createInstance(const QList<const char *> &requiredExtensions
     createInfo.enabledLayerCount = 0;
 #endif
 
+    // Check for instance-level external fence capabilities extension
+    uint32_t instanceExtensionCount = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr);
+    std::vector<VkExtensionProperties> instanceExtensions(instanceExtensionCount);
+    vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, instanceExtensions.data());
+
+    m_hasExternalFenceCapabilities = false;
+    for (const auto &ext : instanceExtensions) {
+        if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME) == 0) {
+            m_hasExternalFenceCapabilities = true;
+            qInfo() << "[DMA-BUF] Found instance extension:" << VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME;
+            // Enable the capabilities extension at instance level
+            extensions.push_back(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
+            break;
+        }
+    }
+
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
@@ -303,7 +320,6 @@ bool VulkanBackend::createDevice(const QList<const char *> &requiredDeviceExtens
 
     qInfo() << "[DMA-BUF] Checking for required Vulkan extensions...";
     bool hasExternalFenceFd = false;
-    bool hasExternalFenceCapabilities = false;
 
     for (const auto &ext : availableExtensions) {
         if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME) == 0) {
@@ -318,9 +334,6 @@ bool VulkanBackend::createDevice(const QList<const char *> &requiredDeviceExtens
         } else if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME) == 0) {
             hasExternalFenceFd = true;
             qInfo() << "[DMA-BUF] Found extension:" << VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME;
-        } else if (strcmp(ext.extensionName, VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME) == 0) {
-            hasExternalFenceCapabilities = true;
-            qInfo() << "[DMA-BUF] Found extension:" << VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME;
         }
     }
 
@@ -346,24 +359,13 @@ bool VulkanBackend::createDevice(const QList<const char *> &requiredDeviceExtens
         }
     }
 
-    // Enable external fence fd extension if available (requires external_fence_capabilities)
-    if (hasExternalFenceFd && hasExternalFenceCapabilities) {
+    // Enable external fence fd extension if available (requires instance-level external_fence_capabilities)
+    if (hasExternalFenceFd && m_hasExternalFenceCapabilities) {
         extensions.push_back(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME);
-        extensions.push_back(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
         m_supportsExternalFenceFd = true;
         qDebug() << "VK_KHR_external_fence_fd extension enabled";
-    } else {
-        qDebug() << "External fence fd not supported - missing extensions:"
-                 << "hasExternalFenceFd:" << hasExternalFenceFd
-                 << "hasExternalFenceCapabilities:" << hasExternalFenceCapabilities;
-    }
-
-    // Enable external fence fd extension if available (requires external_fence_capabilities)
-    if (hasExternalFenceFd && hasExternalFenceCapabilities) {
-        extensions.push_back(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME);
-        extensions.push_back(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
-        m_supportsExternalFenceFd = true;
-        qDebug() << "VK_KHR_external_fence_fd extension enabled";
+    } else if (hasExternalFenceFd && !m_hasExternalFenceCapabilities) {
+        qDebug() << "VK_KHR_external_fence_fd available but external_fence_capabilities not supported";
     }
 
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
