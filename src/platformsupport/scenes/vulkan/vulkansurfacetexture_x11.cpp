@@ -316,7 +316,11 @@ static VkFormat drmFormatToVkFormat(uint32_t drmFormat)
     qDebug() << "    * Is compressed:" << info.isCompressed;
     qDebug() << "    * Bits per pixel:" << info.bitsPerPixel;
     qDebug() << "    * Is ABGR format (vs RGBA):" << info.isABGR;
-    qDebug() << "  -" << memoryLayout;
+    // Log memory layout description as separate lines
+    QStringList lines = memoryLayout.split("\n");
+    for (const QString &line : lines) {
+        qDebug() << "  -" << line;
+    }
 
     return result;
 }
