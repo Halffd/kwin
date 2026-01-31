@@ -694,14 +694,6 @@ bool VulkanSurfaceTextureX11::createWithDmaBuf()
     m_image = m_texture->image();
     m_imageView = m_texture->imageView();
 
-    // Fix for texture corruption: Apply proper content transform
-    // The GLX backend sets contentTransform based on y_inverted flag from GLX fbconfig.
-    // For Vulkan, we detect Y-inversion state based on X11 visual characteristics.
-    // X11 surfaces are created with bottom-left origin textures, but Vulkan expects top-left origin.
-    // This coordinate mismatch causes the 1/4 rendering issue (bottom-right quarter only).
-    // Detect Y-inversion state and apply appropriate transform.
-
-    // Check if Y-inversion is needed based on X11 visual type
     bool needsYFlip = detectYInversionFromX11Surface();
 
     if (needsYFlip) {
@@ -890,9 +882,6 @@ bool VulkanSurfaceTextureX11::createWithCpuUpload()
     // Set the VkImage/VkImageView on the base class for compatibility
     m_image = m_texture->image();
     m_imageView = m_texture->imageView();
-
-    // Note: We don't apply FlipY here because the viewport already has Y-flip via negative height.
-    // The texture data from X11 has Y=0 at top, which matches Vulkan's image coordinate system.
 
     return true;
 }
