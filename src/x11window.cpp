@@ -1426,10 +1426,10 @@ void X11Window::detectNoBorder()
 void X11Window::updateFrameExtents()
 {
     NETStrut strut;
-    strut.left = Xcb::toXNative(borderLeft());
-    strut.right = Xcb::toXNative(borderRight());
-    strut.top = Xcb::toXNative(borderTop());
-    strut.bottom = Xcb::toXNative(borderBottom());
+    strut.left = Xcb::toXNative(Xcb::nativeRound(borderLeft()));
+    strut.right = Xcb::toXNative(Xcb::nativeRound(borderRight()));
+    strut.top = Xcb::toXNative(Xcb::nativeRound(borderTop()));
+    strut.bottom = Xcb::toXNative(Xcb::nativeRound(borderBottom()));
     info->setFrameExtents(strut);
 }
 
