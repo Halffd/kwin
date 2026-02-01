@@ -82,6 +82,20 @@ public:
      */
     Window *currentSelection() const;
 
+    /**
+     * Sets the configuration parameters for the switcher layout
+     */
+    void setThumbnailWidth(int width);
+    void setPadding(int padding);
+    void setSwitcherScreenCoverage(double coverage);
+
+    /**
+     * Gets the current configuration parameters
+     */
+    int thumbnailWidth() const;
+    int padding() const;
+    double switcherScreenCoverage() const;
+
 Q_SIGNALS:
     void visibilityChanged(bool visible);
     void selectionChanged(Window *window);

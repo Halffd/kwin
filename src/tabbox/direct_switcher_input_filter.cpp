@@ -12,6 +12,8 @@
 #include "../globalshortcuts.h"
 #include "../input.h"
 #include "../keyboard_input.h"
+#include "../main.h" // For kwinApp()
+#include "../tabbox/tabbox.h" // For old tabbox
 #include "../virtualdesktops.h"
 #include "../window.h"
 #include "../workspace.h"
@@ -30,10 +32,76 @@ namespace KWin
 
 DirectSwitcherInputFilter::DirectSwitcherInputFilter(QObject *parent)
     : InputEventSpy(parent)
+    , m_useNewSwitcher(true) // Default to new switcher
     , m_switcherActive(false)
     , m_grabActive(false)
 {
+    // Load configuration to determine which switcher to use
+    loadConfiguration();
+
+    // Create the old tabbox filter for fallback
+    m_oldTabboxFilter = std::make_unique<TabBox::TabBoxInputFilter>();
+
     initShortcuts();
+
+    // Connect to configuration change signals to reload settings
+    connect(kwinApp()->config(), &KConfig::configChanged, this, &DirectSwitcherInputFilter::reloadConfiguration);
+}
+
+void DirectSwitcherInputFilter::loadConfiguration()
+{
+    // Load configuration to determine which switcher to use
+    KConfigGroup config(kwinApp()->config(), "TabBox");
+    m_useNewSwitcher = config.readEntry("UseNewSwitcher", true); // Default to new switcher
+
+    // Load direct switcher configuration
+    KConfigGroup dsConfig(kwinApp()->config(), "DirectSwitcher");
+    const int thumbnailWidth = dsConfig.readEntry("ThumbnailWidth", 600);
+    const int padding = dsConfig.readEntry("ThumbnailPadding", 3);
+    const double screenCoverage = dsConfig.readEntry("ScreenCoverage", 0.9);
+
+    m_directSwitcher.setThumbnailWidth(thumbnailWidth);
+    m_directSwitcher.setPadding(padding);
+    m_directSwitcher.setSwitcherScreenCoverage(screenCoverage);
+}
+
+void DirectSwitcherInputFilter::setUseNewSwitcher(bool useNew)
+{
+    m_useNewSwitcher = useNew;
+}
+
+bool DirectSwitcherInputFilter::useNewSwitcher() const
+{
+    return m_useNewSwitcher;
+}
+
+bool DirectSwitcherInputFilter::shouldUseNewSwitcher() const
+{
+    // Check the configuration to see if we should use the new switcher
+    KConfigGroup config(kwinApp()->config(), "TabBox");
+    return config.readEntry("UseNewSwitcher", true); // Default to new switcher
+}
+
+void DirectSwitcherInputFilter::handleOldTabboxEvent(KeyboardKeyEvent *event)
+{
+    // Forward the event to the old tabbox filter if needed
+    // This would be called when using the old tabbox implementation
+    Q_UNUSED(event);
+    // In a real implementation, we would call m_oldTabboxFilter->keyboardKey(event)
+    // but we need to access the workspace tabbox for this to work properly
+}
+
+void DirectSwitcherInputFilter::reloadConfiguration()
+{
+    // Reload configuration from kwinrc
+    KConfigGroup config(kwinApp()->config(), "DirectSwitcher");
+    const int thumbnailWidth = config.readEntry("ThumbnailWidth", 600);
+    const int padding = config.readEntry("ThumbnailPadding", 3);
+    const double screenCoverage = config.readEntry("ScreenCoverage", 0.9);
+
+    m_directSwitcher.setThumbnailWidth(thumbnailWidth);
+    m_directSwitcher.setPadding(padding);
+    m_directSwitcher.setSwitcherScreenCoverage(screenCoverage);
 }
 
 void DirectSwitcherInputFilter::initShortcuts()
@@ -52,6 +120,14 @@ void DirectSwitcherInputFilter::initShortcuts()
 
 void DirectSwitcherInputFilter::keyboardKey(KeyboardKeyEvent *event)
 {
+    // Check current configuration to determine which switcher to use
+    if (!shouldUseNewSwitcher()) {
+        // Use the old tabbox implementation
+        // In a real implementation, we would delegate to the old tabbox filter
+        // For now, we'll just return to let other filters handle it
+        return;
+    }
+
     if (!m_switcherActive) {
         // Check if this is a key press that should start the switcher
         if (event->state == KeyboardKeyState::Pressed) {
@@ -67,6 +143,11 @@ void DirectSwitcherInputFilter::keyboardKey(KeyboardKeyEvent *event)
                     mode = DirectSwitcher::Mode::WindowsAlternative;
                 } else if (areModKeysDepressed(m_cutWalkThroughCurrentAppWindowsAlternative)) {
                     mode = DirectSwitcher::Mode::CurrentAppWindowsAlternative;
+                }
+
+                // Set the output for the switcher to appear on the active output
+                if (workspace() && workspace()->activeOutput()) {
+                    m_directSwitcher.setOutput(workspace()->activeOutput());
                 }
 
                 // Start the switcher

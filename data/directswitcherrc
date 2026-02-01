@@ -1,0 +1,24 @@
+# Direct Switcher Configuration
+# This section defines the parameters for the new fast switcher implementation
+
+[TabBox]
+# Whether to use the new fast switcher (true) or the old tabbox (false)
+UseNewSwitcher=true
+
+[DirectSwitcher]
+# Width of each thumbnail in pixels
+ThumbnailWidth=600
+
+# Padding around each thumbnail in pixels
+ThumbnailPadding=3
+
+# Coverage of the switcher box as a fraction of the screen (0.0 to 1.0)
+# 0.9 means 90% of the screen will be covered by the switcher
+ScreenCoverage=0.9
+
+# Additional configuration options that could be added:
+# ThumbnailHeight=338              # Height derived from aspect ratio (default 16:9)
+# MaxRows=3                       # Maximum number of rows to display
+# AnimationDuration=200           # Duration of animation in milliseconds
+# SelectedBorderWidth=4           # Width of border around selected thumbnail
+# BackgroundOpacity=0.9           # Opacity of the background overlay

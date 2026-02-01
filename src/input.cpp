@@ -2833,12 +2833,10 @@ void InputRedirection::setupInputFilters()
     installInputEventFilter(m_windowSelector.get());
 
 #if KWIN_BUILD_TABBOX
-    m_tabboxFilter = std::make_unique<TabBoxInputFilter>();
-    installInputEventFilter(m_tabboxFilter.get());
-
-    // Install the new direct switcher filter as an alternative to the traditional tabbox
-    auto directSwitcherFilter = std::make_unique<KWin::DirectSwitcherInputFilter>();
-    installInputEventFilter(directSwitcherFilter.release()); // Transfer ownership to the filter list
+    // Install the new unified switcher filter which can handle both old and new implementations
+    // By default, it uses the new fast switcher, but can fall back to old tabbox based on config
+    auto unifiedSwitcherFilter = std::make_unique<KWin::DirectSwitcherInputFilter>();
+    installInputEventFilter(unifiedSwitcherFilter.release()); // Transfer ownership to the filter list
 #endif
 
     m_effectsFilter = std::make_unique<EffectsFilter>();
