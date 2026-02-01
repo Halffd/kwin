@@ -28,13 +28,9 @@
 #include "pointer_input.h"
 #include "utils/common.h"
 #include "virtualdesktops.h"
-#include "wayland/seat.h"
-#include "wayland_server.h"
+#include "x11window.h"
 #include <window.h>
 #include <workspace.h>
-#if KWIN_BUILD_X11
-#include "x11window.h"
-#endif
 // DBus generated
 #if KWIN_BUILD_SCREENLOCKER
 #include "screenlocker_interface.h"
@@ -242,14 +238,10 @@ bool Edge::activatesForPointer() const
 
     // Most actions do not handle drag and drop properly yet
     // but at least allow "show desktop" and "application launcher".
-    if (waylandServer() && waylandServer()->seat()->isDragPointer()) {
-        if (!m_edges->isDesktopSwitching() && m_action != ElectricActionNone && m_action != ElectricActionShowDesktop && m_action != ElectricActionApplicationLauncher) {
-            return false;
-        }
-        // Don't activate edge when a mouse button is pressed, except when
-        // moving a window. Dragging a scroll bar all the way to the edge
-        // shouldn't activate the edge.
-    } else if (input()->pointer()->areButtonsPressed()) {
+    // Don't activate edge when a mouse button is pressed, except when
+    // moving a window. Dragging a scroll bar all the way to the edge
+    // shouldn't activate the edge.
+    if (input()->pointer()->areButtonsPressed()) {
         auto c = Workspace::self()->moveResizeWindow();
         if (!c || c->isInteractiveResize()) {
             return false;
@@ -728,7 +720,6 @@ void Edge::updateApproaching(const QPointF &point)
     }
 }
 
-#if KWIN_BUILD_X11
 quint32 Edge::window() const
 {
     return 0;
@@ -738,7 +729,6 @@ quint32 Edge::approachWindow() const
 {
     return 0;
 }
-#endif
 
 void Edge::setBorder(ElectricBorder border)
 {
@@ -1369,7 +1359,7 @@ bool ScreenEdges::createEdgeForClient(Window *client, ElectricBorder border)
     const QRect screen = output->geometry();
     switch (border) {
     case ElectricTop:
-        if (!waylandServer() && !isTopScreen(screen, fullArea)) {
+        if (!isTopScreen(screen, fullArea)) {
             return false;
         }
         y = screen.y();
@@ -1378,7 +1368,7 @@ bool ScreenEdges::createEdgeForClient(Window *client, ElectricBorder border)
         width = geo.width();
         break;
     case ElectricBottom:
-        if (!waylandServer() && !isBottomScreen(screen, fullArea)) {
+        if (!isBottomScreen(screen, fullArea)) {
             return false;
         }
         y = screen.y() + screen.height() - 1;
@@ -1387,7 +1377,7 @@ bool ScreenEdges::createEdgeForClient(Window *client, ElectricBorder border)
         width = geo.width();
         break;
     case ElectricLeft:
-        if (!waylandServer() && !isLeftScreen(screen, fullArea)) {
+        if (!isLeftScreen(screen, fullArea)) {
             return false;
         }
         x = screen.x();
@@ -1396,7 +1386,7 @@ bool ScreenEdges::createEdgeForClient(Window *client, ElectricBorder border)
         height = geo.height();
         break;
     case ElectricRight:
-        if (!waylandServer() && !isRightScreen(screen, fullArea)) {
+        if (!isRightScreen(screen, fullArea)) {
             return false;
         }
         x = screen.x() + screen.width() - 1;
@@ -1508,7 +1498,6 @@ bool ScreenEdges::isEntered(const QPointF &pos, std::chrono::microseconds timest
     return activated;
 }
 
-#if KWIN_BUILD_X11
 bool ScreenEdges::handleEnterNotifiy(xcb_window_t window, const QPoint &point, const std::chrono::microseconds &timestamp)
 {
     bool activated = false;
@@ -1547,16 +1536,12 @@ bool ScreenEdges::handleEnterNotifiy(xcb_window_t window, const QPoint &point, c
     }
     return activated;
 }
-#endif
 
 void ScreenEdges::ensureOnTop()
 {
-#if KWIN_BUILD_X11
     Xcb::restackWindowsWithRaise(windows());
-#endif
 }
 
-#if KWIN_BUILD_X11
 bool ScreenEdges::handleDndNotify(xcb_window_t window, const QPoint &point)
 {
     for (const auto &edge : m_edges) {
@@ -1588,7 +1573,6 @@ QList<xcb_window_t> ScreenEdges::windows() const
     }
     return wins;
 }
-#endif
 
 void ScreenEdges::setRemainActiveOnFullscreen(bool remainActive)
 {

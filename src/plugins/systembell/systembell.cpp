@@ -12,9 +12,6 @@
 #include "effect/effecthandler.h"
 #include "opengl/glshader.h"
 #include "opengl/glshadermanager.h"
-#include "wayland/surface.h"
-#include "wayland/xdgsystembell_v1.h"
-#include "wayland_server.h"
 #include "window.h"
 
 #include <QDBusConnection>
@@ -61,7 +58,7 @@ SystemBellEffect::SystemBellEffect()
 
     int ret = ca_context_create(&m_caContext);
     if (ret != CA_SUCCESS) {
-        qCWarning(KWIN_SYSTEMBELL) << "Failed to initialize canberra context for audio notification:" << ca_strerror(ret);
+        qWarning(KWIN_SYSTEMBELL) << "Failed to initialize canberra context for audio notification:" << ca_strerror(ret);
         m_caContext = nullptr;
     } else {
         ret = ca_context_change_props(m_caContext,
@@ -71,32 +68,7 @@ SystemBellEffect::SystemBellEffect()
                                       qApp->desktopFileName().toUtf8().constData(),
                                       nullptr);
         if (ret != CA_SUCCESS) {
-            qCWarning(KWIN_SYSTEMBELL) << "Failed to set application properties on canberra context for audio notification:" << ca_strerror(ret);
-        }
-    }
-
-    if (waylandServer()) {
-        if (!s_systemBellRemoveTimer) {
-            s_systemBellRemoveTimer = new QTimer(QCoreApplication::instance());
-            s_systemBellRemoveTimer->setSingleShot(true);
-            s_systemBellRemoveTimer->callOnTimeout([]() {
-                s_systemBell->remove();
-                s_systemBell = nullptr;
-            });
-        }
-        s_systemBellRemoveTimer->stop();
-        if (!s_systemBell) {
-            s_systemBell = new XdgSystemBellV1Interface(waylandServer()->display(), s_systemBellRemoveTimer);
-            connect(s_systemBell, &XdgSystemBellV1Interface::ringSurface, this, [this](SurfaceInterface *surface) {
-                triggerWindow(effects->findWindow(surface));
-            });
-            connect(s_systemBell, &XdgSystemBellV1Interface::ring, this, [this](ClientConnection *client) {
-                if (effects->activeWindow()) {
-                    if (effects->activeWindow()->surface() && effects->activeWindow()->surface()->client() == client) {
-                        triggerWindow(effects->activeWindow());
-                    }
-                }
-            });
+            qWarning(KWIN_SYSTEMBELL) << "Failed to set application properties on canberra context for audio notification:" << ca_strerror(ret);
         }
     }
 }
@@ -105,10 +77,6 @@ SystemBellEffect::~SystemBellEffect()
 {
     if (m_caContext) {
         ca_context_destroy(m_caContext);
-    }
-    // When compositing is restarted, avoid removing the system bell immediately
-    if (s_systemBell) {
-        s_systemBellRemoveTimer->start(1000);
     }
 }
 

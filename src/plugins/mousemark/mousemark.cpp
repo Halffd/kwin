@@ -144,17 +144,6 @@ void MouseMarkEffect::paintScreen(const RenderTarget &renderTarget, const Render
             glDisable(GL_LINE_SMOOTH);
             glDisable(GL_BLEND);
         }
-    } else if (effects->compositingType() == QPainterCompositing) {
-        QPainter *painter = effects->scenePainter();
-        painter->save();
-        QPen pen(color);
-        pen.setWidth(width);
-        painter->setPen(pen);
-        for (const Mark &mark : std::as_const(marks)) {
-            drawMark(painter, mark);
-        }
-        drawMark(painter, drawing);
-        painter->restore();
     }
 }
 
@@ -175,11 +164,11 @@ void MouseMarkEffect::slotMouseChanged(const QPointF &pos, const QPointF &,
     if (effects->isScreenLocked()) {
         return;
     }
-    qCDebug(KWIN_MOUSEMARK) << "MouseChanged" << pos;
+    qDebug(KWIN_MOUSEMARK) << "MouseChanged" << pos;
     if (modifiers == m_arrowdraw_modifiers && m_arrowdraw_modifiers != Qt::NoModifier) { // start/finish arrow
         if (arrow_tail != nullPoint()) {
             if (drawing.length() != 0) {
-                clearLast();  // clear our arrow with tail at previous position
+                clearLast(); // clear our arrow with tail at previous position
             }
             drawing = createArrow(pos, arrow_tail);
             effects->addRepaintFull();
@@ -191,7 +180,7 @@ void MouseMarkEffect::slotMouseChanged(const QPointF &pos, const QPointF &,
             }
             arrow_tail = pos;
         }
-    } else if (modifiers == m_freedraw_modifiers && m_freedraw_modifiers != Qt::NoModifier ) { // activated
+    } else if (modifiers == m_freedraw_modifiers && m_freedraw_modifiers != Qt::NoModifier) { // activated
         if (arrow_tail != nullPoint()) {
             arrow_tail = nullPoint(); // for the case when user started freedraw right after arrowdraw
             marks.append(drawing);
@@ -244,10 +233,10 @@ MouseMarkEffect::Mark MouseMarkEffect::createArrow(QPointF arrow_head, QPointF a
     // Arrow is made of connected lines. We make it's last point at tail, so freedraw can begin from the tail
     ret += arrow_head;
     ret += arrow_head + QPoint(50 * cos(angle + M_PI / 6),
-                                50 * sin(angle + M_PI / 6)); // right one
+                               50 * sin(angle + M_PI / 6)); // right one
     ret += arrow_head;
     ret += arrow_head + QPoint(50 * cos(angle - M_PI / 6),
-                                50 * sin(angle - M_PI / 6)); // left one
+                               50 * sin(angle - M_PI / 6)); // left one
     ret += arrow_head;
     ret += arrow_tail;
     return ret;

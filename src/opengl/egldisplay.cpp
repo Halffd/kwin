@@ -39,24 +39,24 @@ std::unique_ptr<EglDisplay> EglDisplay::create(::EGLDisplay display, bool owning
     }
     EGLint major, minor;
     if (eglInitialize(display, &major, &minor) == EGL_FALSE) {
-        qCWarning(KWIN_OPENGL) << "eglInitialize failed";
+        qWarning(KWIN_OPENGL) << "eglInitialize failed";
         EGLint error = eglGetError();
         if (error != EGL_SUCCESS) {
-            qCWarning(KWIN_OPENGL) << "Error during eglInitialize " << error;
+            qWarning(KWIN_OPENGL) << "Error during eglInitialize " << error;
         }
         return nullptr;
     }
     EGLint error = eglGetError();
     if (error != EGL_SUCCESS) {
-        qCWarning(KWIN_OPENGL) << "Error during eglInitialize " << error;
+        qWarning(KWIN_OPENGL) << "Error during eglInitialize " << error;
         return nullptr;
     }
-    qCDebug(KWIN_OPENGL) << "Egl Initialize succeeded";
+    qDebug(KWIN_OPENGL) << "Egl Initialize succeeded";
     if (eglBindAPI(shouldUseOpenGLES() ? EGL_OPENGL_ES_API : EGL_OPENGL_API) == EGL_FALSE) {
         qCCritical(KWIN_OPENGL) << "bind OpenGL API failed";
         return nullptr;
     }
-    qCDebug(KWIN_OPENGL) << "EGL version: " << major << "." << minor;
+    qDebug(KWIN_OPENGL) << "EGL version: " << major << "." << minor;
 
     const auto extensions = QByteArray(eglQueryString(display, EGL_EXTENSIONS)).split(' ');
 
@@ -66,7 +66,7 @@ std::unique_ptr<EglDisplay> EglDisplay::create(::EGLDisplay display, bool owning
     };
     for (const QByteArray &extensionName : requiredExtensions) {
         if (!extensions.contains(extensionName)) {
-            qCWarning(KWIN_OPENGL) << extensionName << "extension is unsupported";
+            qWarning(KWIN_OPENGL) << extensionName << "extension is unsupported";
             return nullptr;
         }
     }
@@ -80,7 +80,7 @@ static std::optional<dev_t> devIdForFileName(const QString &path)
     if (device) {
         return device->deviceId();
     } else {
-        qCWarning(KWIN_OPENGL, "couldn't find dev node for drm device %s", qPrintable(path));
+        qWarning(KWIN_OPENGL, "couldn't find dev node for drm device %s", qPrintable(path));
         return std::nullopt;
     }
 }

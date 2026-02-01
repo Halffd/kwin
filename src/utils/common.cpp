@@ -17,10 +17,8 @@
 #include "utils/common.h"
 #include "utils/c_ptr.h"
 
-#if KWIN_BUILD_X11
 #include "effect/xcb.h"
 #include <kkeyserver.h>
-#endif
 
 #include <QPainter>
 #include <QWidget>
@@ -70,8 +68,6 @@ StrutRect &StrutRect::operator=(const StrutRect &other)
     return *this;
 }
 
-#if KWIN_BUILD_X11
-
 static int server_grab_count = 0;
 
 void grabXServer()
@@ -98,11 +94,11 @@ bool grabXKeyboard(xcb_window_t w)
         return false;
     }
     if (keyboard_grabbed) {
-        qCDebug(KWIN_CORE) << "Failed to grab X Keyboard: already grabbed by us";
+        qDebug() << "Failed to grab X Keyboard: already grabbed by us";
         return false;
     }
     if (qApp->activePopupWidget() != nullptr) {
-        qCDebug(KWIN_CORE) << "Failed to grab X Keyboard: no popup widget";
+        qDebug() << "Failed to grab X Keyboard: no popup widget";
         return false;
     }
     if (w == XCB_WINDOW_NONE) {
@@ -112,11 +108,11 @@ bool grabXKeyboard(xcb_window_t w)
                                                                      XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
     UniqueCPtr<xcb_grab_keyboard_reply_t> grab(xcb_grab_keyboard_reply(connection(), c, nullptr));
     if (!grab) {
-        qCDebug(KWIN_CORE) << "Failed to grab X Keyboard: grab null";
+        qDebug() << "Failed to grab X Keyboard: grab null";
         return false;
     }
     if (grab->status != XCB_GRAB_STATUS_SUCCESS) {
-        qCDebug(KWIN_CORE) << "Failed to grab X Keyboard: grab failed with status" << grab->status;
+        qDebug() << "Failed to grab X Keyboard: grab failed with status" << grab->status;
         return false;
     }
     keyboard_grabbed = true;
@@ -127,7 +123,7 @@ void ungrabXKeyboard()
 {
     if (!keyboard_grabbed) {
         // grabXKeyboard() may fail sometimes, so don't fail, but at least warn anyway
-        qCDebug(KWIN_CORE) << "ungrabXKeyboard() called but keyboard not grabbed!";
+        qDebug() << "ungrabXKeyboard() called but keyboard not grabbed!";
     }
     keyboard_grabbed = false;
     xcb_ungrab_keyboard(connection(), XCB_TIME_CURRENT_TIME);
@@ -194,7 +190,6 @@ Qt::KeyboardModifiers x11ToQtKeyboardModifiers(int state)
     return ret;
 }
 
-#endif
 #endif
 
 QPointF popupOffset(const QRectF &anchorRect, const Qt::Edges anchorEdge, const Qt::Edges gravity, const QSizeF popupSize)

@@ -255,7 +255,7 @@ void GlxBackend::init()
         if (haveSwapInterval) {
             setSwapInterval(1);
         } else {
-            qCWarning(KWIN_X11STANDALONE) << "glSwapInterval is unsupported";
+            qWarning(KWIN_X11STANDALONE) << "glSwapInterval is unsupported";
         }
     } else {
         setSwapInterval(0); // disable vsync if possible
@@ -406,8 +406,8 @@ bool GlxBackend::initFbConfig()
     glXGetFBConfigAttrib(display(), fbconfig, GLX_STENCIL_SIZE, &stencil);
     glXGetFBConfigAttrib(display(), fbconfig, GLX_FRAMEBUFFER_SRGB_CAPABLE_ARB, &srgb);
 
-    qCDebug(KWIN_X11STANDALONE, "Choosing GLXFBConfig %#x X visual %#x depth %d RGBA %d:%d:%d:%d ZS %d:%d sRGB: %d",
-            fbconfig_id, visual_id, visualDepth(visual_id), red, green, blue, alpha, depth, stencil, srgb);
+    qDebug(KWIN_X11STANDALONE, "Choosing GLXFBConfig %#x X visual %#x depth %d RGBA %d:%d:%d:%d ZS %d:%d sRGB: %d",
+           fbconfig_id, visual_id, visualDepth(visual_id), red, green, blue, alpha, depth, stencil, srgb);
 
     return true;
 }
@@ -589,7 +589,7 @@ const FBConfigInfo &GlxBackend::infoForVisual(xcb_visualid_t visual)
         glXGetFBConfigAttrib(display(), info.fbconfig, GLX_FBCONFIG_ID, &fbc_id);
         glXGetFBConfigAttrib(display(), info.fbconfig, GLX_VISUAL_ID, &visual_id);
 
-        qCDebug(KWIN_X11STANDALONE).nospace() << "Using FBConfig 0x" << Qt::hex << fbc_id << " for visual 0x" << Qt::hex << visual_id;
+        qDebug(KWIN_X11STANDALONE).nospace() << "Using FBConfig 0x" << Qt::hex << fbc_id << " for visual 0x" << Qt::hex << visual_id;
     }
 
     return info;

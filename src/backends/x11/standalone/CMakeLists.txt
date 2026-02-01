@@ -15,6 +15,7 @@ set(X11PLATFORM_SOURCES
     x11_standalone_effects_keyboard_interception_filter.cpp
     x11_standalone_effects_mouse_interception_filter.cpp
     x11_standalone_egl_backend.cpp
+    x11_standalone_inputbackend.cpp
     x11_standalone_keyboard.cpp
     x11_standalone_logging.cpp
     x11_standalone_non_composited_outline.cpp
@@ -43,6 +44,13 @@ if (HAVE_GLX)
         x11_standalone_omlsynccontrolvsyncmonitor.cpp
         x11_standalone_sgivideosyncvsyncmonitor.cpp
     )
+endif()
+
+if (HAVE_VULKAN)
+    target_sources(KWinX11Platform PRIVATE
+        x11_standalone_vulkan_backend.cpp
+    )
+    target_link_libraries(KWinX11Platform Vulkan::Vulkan)
 endif()
 
 if (HAVE_DL_LIBRARY)

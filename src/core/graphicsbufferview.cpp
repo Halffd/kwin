@@ -63,7 +63,7 @@ GraphicsBufferView::GraphicsBufferView(GraphicsBuffer *buffer, GraphicsBuffer::M
         height = shm->size.height();
         format = shm->format;
     } else {
-        qCWarning(KWIN_CORE) << "Cannot create a graphics buffer view for unknown buffer type" << buffer;
+        qWarning() << "Cannot create a graphics buffer view for unknown buffer type" << buffer;
         return;
     }
 
@@ -71,7 +71,7 @@ GraphicsBufferView::GraphicsBufferView(GraphicsBuffer *buffer, GraphicsBuffer::M
     if (data) {
         m_image = QImage(static_cast<uchar *>(data), width, height, stride, drmFormatToQImageFormat(format));
         if (Q_UNLIKELY(m_image.isNull())) {
-            qCWarning(KWIN_CORE) << "Cannot create a graphics buffer view" << buffer << FormatInfo::drmFormatName(format) << drmFormatToQImageFormat(format);
+            qWarning() << "Cannot create a graphics buffer view" << buffer << FormatInfo::drmFormatName(format) << drmFormatToQImageFormat(format);
         }
     }
 }

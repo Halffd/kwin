@@ -15,6 +15,7 @@
 #include "kwinxrenderutils.h"
 #include "x11_standalone_cursor.h"
 #include "x11_standalone_edge.h"
+#include "x11_standalone_inputbackend.h"
 #include "x11_standalone_placeholderoutput.h"
 #include "x11_standalone_windowselector.h"
 #if HAVE_GLX
@@ -22,6 +23,9 @@
 #endif
 #if HAVE_X11_XINPUT
 #include "x11_standalone_xinputintegration.h"
+#endif
+#if HAVE_VULKAN
+#include "x11_standalone_vulkan_backend.h"
 #endif
 #include "core/renderloop.h"
 #include "opengl/egldisplay.h"
@@ -47,6 +51,7 @@
 #include <QThread>
 #include <private/qtx11extras_p.h>
 
+#include <optional>
 #include <span>
 
 namespace KWin
@@ -161,7 +166,7 @@ std::unique_ptr<OpenGLBackend> X11StandaloneBackend::createOpenGLBackend()
         if (hasGlx()) {
             return std::make_unique<GlxBackend>(m_x11Display, this);
         } else {
-            qCWarning(KWIN_X11STANDALONE) << "Glx not available, trying EGL instead.";
+            qWarning(KWIN_X11STANDALONE) << "Glx not available, trying EGL instead.";
             // no break, needs fall-through
             Q_FALLTHROUGH();
         }
@@ -173,6 +178,13 @@ std::unique_ptr<OpenGLBackend> X11StandaloneBackend::createOpenGLBackend()
         return nullptr;
     }
 }
+
+#if HAVE_VULKAN
+std::unique_ptr<KWin::VulkanBackend> X11StandaloneBackend::createVulkanBackend()
+{
+    return std::make_unique<X11StandaloneVulkanBackend>(this);
+}
+#endif
 
 std::unique_ptr<Edge> X11StandaloneBackend::createScreenEdge(ScreenEdges *edges)
 {
@@ -193,6 +205,11 @@ std::unique_ptr<Cursor> X11StandaloneBackend::createPlatformCursor()
 #else
     return std::make_unique<X11Cursor>(false);
 #endif
+}
+
+std::unique_ptr<InputBackend> X11StandaloneBackend::createInputBackend()
+{
+    return std::make_unique<X11InputBackend>(this);
 }
 
 bool X11StandaloneBackend::hasGlx()
@@ -255,6 +272,9 @@ void X11StandaloneBackend::createEffectsHandler(Compositor *compositor, Workspac
 QList<CompositingType> X11StandaloneBackend::supportedCompositors() const
 {
     QList<CompositingType> compositors;
+#if HAVE_VULKAN
+    compositors << VulkanCompositing;
+#endif
 #if HAVE_GLX
     compositors << OpenGLCompositing;
 #endif
@@ -362,7 +382,22 @@ void X11StandaloneBackend::doUpdateOutputs()
 
                     X11Output::Information information{
                         .name = outputInfo.name(),
+                        .manufacturer = QString(),
+                        .model = QString(),
+                        .serialNumber = QString(),
+                        .eisaId = QString(),
                         .physicalSize = physicalSize,
+                        .edid = Edid(),
+                        .subPixel = Output::SubPixel::Unknown,
+                        .capabilities = Output::Capabilities(),
+                        .panelOrientation = OutputTransform::Normal,
+                        .internal = false,
+                        .placeholder = false,
+                        .nonDesktop = false,
+                        .mstPath = QByteArray(),
+                        .maxPeakBrightness = std::nullopt,
+                        .maxAverageBrightness = std::nullopt,
+                        .minBrightness = 0,
                     };
 
                     auto edidProperty = Xcb::RandR::OutputProperty(xcbOutput, atoms->edid, XCB_ATOM_INTEGER, 0, 100, false, false);
@@ -499,7 +534,7 @@ void X11StandaloneBackend::updateRefreshRate()
 {
     int refreshRate = currentRefreshRate();
     if (refreshRate <= 0) {
-        qCWarning(KWIN_X11STANDALONE) << "Bogus refresh rate" << refreshRate;
+        qWarning(KWIN_X11STANDALONE) << "Bogus refresh rate" << refreshRate;
         refreshRate = 60000;
     }
 

@@ -1,7 +1,6 @@
 add_definitions(-DKWIN_UNIT_TEST)
 remove_definitions(-DQT_USE_QSTRINGBUILDER)
 add_subdirectory(effect)
-add_subdirectory(integration)
 
 ########################################################
 # Test WindowPaintData
@@ -38,97 +37,95 @@ ecm_mark_as_test(testVirtualDesktops)
 ########################################################
 # Test ClientMachine
 ########################################################
-if(KWIN_BUILD_X11)
-    set(testClientMachine_SRCS
-        ../src/client_machine.cpp
-        test_client_machine.cpp
-        xcb_scaling_mock.cpp
-    )
-    add_executable(testClientMachine ${testClientMachine_SRCS})
-    set_target_properties(testClientMachine PROPERTIES COMPILE_DEFINITIONS "NO_NONE_WINDOW")
+set(testClientMachine_SRCS
+    ../src/client_machine.cpp
+    test_client_machine.cpp
+    xcb_scaling_mock.cpp
+)
+add_executable(testClientMachine ${testClientMachine_SRCS})
+set_target_properties(testClientMachine PROPERTIES COMPILE_DEFINITIONS "NO_NONE_WINDOW")
 
-    target_link_libraries(testClientMachine
-        Qt::Concurrent
-        Qt::GuiPrivate
-        Qt::Test
-        Qt::Widgets
+target_link_libraries(testClientMachine
+    Qt::Concurrent
+    Qt::GuiPrivate
+    Qt::Test
+    Qt::Widgets
 
-        KF6::ConfigCore
-        KF6::WindowSystem
+    KF6::ConfigCore
+    KF6::WindowSystem
 
-        XCB::XCB
-        XCB::XFIXES
+    XCB::XCB
+    XCB::XFIXES
 
-        ${X11_X11_LIB} # to make jenkins happy
-    )
-    add_test(NAME kwin-testClientMachine COMMAND testClientMachine)
-    ecm_mark_as_test(testClientMachine)
+    ${X11_X11_LIB} # to make jenkins happy
+)
+add_test(NAME kwin-testClientMachine COMMAND testClientMachine)
+ecm_mark_as_test(testClientMachine)
 
-    ########################################################
-    # Test XcbWrapper
-    ########################################################
-    add_executable(testXcbWrapper test_xcb_wrapper.cpp xcb_scaling_mock.cpp)
+########################################################
+# Test XcbWrapper
+########################################################
+add_executable(testXcbWrapper test_xcb_wrapper.cpp xcb_scaling_mock.cpp)
 
-    target_link_libraries(testXcbWrapper
-        Qt::GuiPrivate
-        Qt::Test
-        Qt::Widgets
+target_link_libraries(testXcbWrapper
+    Qt::GuiPrivate
+    Qt::Test
+    Qt::Widgets
 
-        KF6::ConfigCore
-        KF6::WindowSystem
+    KF6::ConfigCore
+    KF6::WindowSystem
 
-        XCB::XCB
-    )
-    add_test(NAME kwin-testXcbWrapper COMMAND testXcbWrapper)
-    ecm_mark_as_test(testXcbWrapper)
+    XCB::XCB
+)
+add_test(NAME kwin-testXcbWrapper COMMAND testXcbWrapper)
+ecm_mark_as_test(testXcbWrapper)
 
-    add_executable(testXcbSizeHints test_xcb_size_hints.cpp xcb_scaling_mock.cpp)
-    set_target_properties(testXcbSizeHints PROPERTIES COMPILE_DEFINITIONS "NO_NONE_WINDOW")
-    target_link_libraries(testXcbSizeHints
-        Qt::GuiPrivate
-        Qt::Test
-        Qt::Widgets
+add_executable(testXcbSizeHints test_xcb_size_hints.cpp xcb_scaling_mock.cpp)
+set_target_properties(testXcbSizeHints PROPERTIES COMPILE_DEFINITIONS "NO_NONE_WINDOW")
+target_link_libraries(testXcbSizeHints
+    Qt::GuiPrivate
+    Qt::Test
+    Qt::Widgets
 
-        KF6::ConfigCore
-        KF6::WindowSystem
+    KF6::ConfigCore
+    KF6::WindowSystem
 
-        XCB::ICCCM
-        XCB::XCB
-    )
-    add_test(NAME kwin-testXcbSizeHints COMMAND testXcbSizeHints)
-    ecm_mark_as_test(testXcbSizeHints)
+    XCB::ICCCM
+    XCB::XCB
+)
+add_test(NAME kwin-testXcbSizeHints COMMAND testXcbSizeHints)
+ecm_mark_as_test(testXcbSizeHints)
 
-    ########################################################
-    # Test XcbWindow
-    ########################################################
-    add_executable(testXcbWindow test_xcb_window.cpp xcb_scaling_mock.cpp)
+########################################################
+# Test XcbWindow
+########################################################
+add_executable(testXcbWindow test_xcb_window.cpp xcb_scaling_mock.cpp)
 
-    target_link_libraries(testXcbWindow
-        Qt::GuiPrivate
-        Qt::Test
-        Qt::Widgets
+target_link_libraries(testXcbWindow
+    Qt::GuiPrivate
+    Qt::Test
+    Qt::Widgets
 
-        KF6::ConfigCore
-        KF6::WindowSystem
+    KF6::ConfigCore
+    KF6::WindowSystem
 
-        XCB::XCB
-    )
-    add_test(NAME kwin-testXcbWindow COMMAND testXcbWindow)
-    ecm_mark_as_test(testXcbWindow)
+    XCB::XCB
+)
+add_test(NAME kwin-testXcbWindow COMMAND testXcbWindow)
+ecm_mark_as_test(testXcbWindow)
 
-    ########################################################
-    # Test X11 TimestampUpdate
-    ########################################################
-    add_executable(testX11TimestampUpdate test_x11_timestamp_update.cpp)
-    target_link_libraries(testX11TimestampUpdate
-        KF6::CoreAddons
-        Qt::Test
-        Qt::GuiPrivate
-        kwin
-    )
-    add_test(NAME kwin-testX11TimestampUpdate COMMAND testX11TimestampUpdate)
-    ecm_mark_as_test(testX11TimestampUpdate)
-endif()
+########################################################
+# Test X11 TimestampUpdate
+########################################################
+add_executable(testX11TimestampUpdate test_x11_timestamp_update.cpp)
+target_link_libraries(testX11TimestampUpdate
+    KF6::CoreAddons
+    Qt::Test
+    Qt::GuiPrivate
+    kwin
+)
+add_test(NAME kwin-testX11TimestampUpdate COMMAND testX11TimestampUpdate)
+ecm_mark_as_test(testX11TimestampUpdate)
 
 ########################################################
 # Test OnScreenNotification
@@ -249,3 +246,164 @@ target_link_libraries(testColorspaces
 )
 add_test(NAME kwin-testColorspaces COMMAND testColorspaces)
 ecm_mark_as_test(testColorspaces)
+
+########################################################
+# Test Backend Consistency (OpenGL/Vulkan patterns)
+########################################################
+add_executable(testBackendConsistency backend_consistency_test.cpp)
+target_link_libraries(testBackendConsistency
+    Qt::Test
+    kwin
+)
+add_test(NAME kwin-testBackendConsistency COMMAND testBackendConsistency)
+ecm_mark_as_test(testBackendConsistency)
+
+########################################################
+# Test Vulkan Format Conversions
+########################################################
+if(HAVE_VULKAN)
+    add_executable(testVulkanFormat vulkan_format_test.cpp)
+    target_link_libraries(testVulkanFormat
+        Qt::Test
+        kwin
+    )
+    add_test(NAME kwin-testVulkanFormat COMMAND testVulkanFormat)
+    ecm_mark_as_test(testVulkanFormat)
+endif()
+
+########################################################
+# Test Vulkan Pipeline Configuration
+########################################################
+if(HAVE_VULKAN)
+    add_executable(testVulkanPipeline vulkan_pipeline_test.cpp)
+    target_link_libraries(testVulkanPipeline
+        Qt::Test
+        kwin
+    )
+    add_test(NAME kwin-testVulkanPipeline COMMAND testVulkanPipeline)
+    ecm_mark_as_test(testVulkanPipeline)
+endif()
+
+########################################################
+# Test Vulkan Surface Texture
+########################################################
+if(HAVE_VULKAN)
+    add_executable(testVulkanSurfaceTexture vulkan_surface_texture_test.cpp)
+    target_link_libraries(testVulkanSurfaceTexture
+        Qt::Test
+        kwin
+    )
+    add_test(NAME kwin-testVulkanSurfaceTexture COMMAND testVulkanSurfaceTexture)
+    ecm_mark_as_test(testVulkanSurfaceTexture)
+endif()
+
+########################################################
+# Test Vulkan Render Node Creation
+########################################################
+if(HAVE_VULKAN)
+    add_executable(testVulkanRenderNode vulkan_render_node_test.cpp)
+    target_link_libraries(testVulkanRenderNode
+        Qt::Test
+        kwin
+    )
+    add_test(NAME kwin-testVulkanRenderNode COMMAND testVulkanRenderNode)
+    ecm_mark_as_test(testVulkanRenderNode)
+endif()
+
+########################################################
+# Test RenderTarget
+########################################################
+add_executable(testRenderTarget render_target_test.cpp)
+target_link_libraries(testRenderTarget
+    Qt::Test
+    kwin
+)
+add_test(NAME kwin-testRenderTarget COMMAND testRenderTarget)
+ecm_mark_as_test(testRenderTarget)
+
+########################################################
+# Test Texture Formats (OpenGL/Vulkan)
+########################################################
+add_executable(testTextureFormat texture_format_test.cpp)
+target_link_libraries(testTextureFormat
+    Qt::Test
+    kwin
+)
+add_test(NAME kwin-testTextureFormat COMMAND testTextureFormat)
+ecm_mark_as_test(testTextureFormat)
+
+########################################################
+# Test QuickTile Mode
+########################################################
+add_executable(testQuickTile test_quick_tile.cpp)
+target_link_libraries(testQuickTile
+    Qt::Test
+    kwin
+)
+add_test(NAME kwin-testQuickTile COMMAND testQuickTile)
+ecm_mark_as_test(testQuickTile)
+
+########################################################
+# Test Electric Border Enums
+########################################################
+add_executable(testElectricBorder test_electric_border.cpp)
+target_link_libraries(testElectricBorder
+    Qt::Test
+    kwin
+)
+add_test(NAME kwin-testElectricBorder COMMAND testElectricBorder)
+ecm_mark_as_test(testElectricBorder)
+
+########################################################
+# Test Placement Policy
+########################################################
+add_executable(testPlacementPolicy test_placement_policy.cpp)
+target_link_libraries(testPlacementPolicy
+    Qt::Test
+    kwin
+)
+add_test(NAME kwin-testPlacementPolicy COMMAND testPlacementPolicy)
+ecm_mark_as_test(testPlacementPolicy)
+
+########################################################
+# Test Cursor Shape
+########################################################
+add_executable(testCursorShape test_cursor_shape.cpp)
+target_link_libraries(testCursorShape
+    Qt::Test
+    kwin
+)
+add_test(NAME kwin-testCursorShape COMMAND testCursorShape)
+ecm_mark_as_test(testCursorShape)
+
+########################################################
+# Test Surface Textures (OpenGL and Vulkan)
+########################################################
+add_executable(testSurfaceTexture surface_texture_test.cpp)
+target_link_libraries(testSurfaceTexture
+    Qt::Test
+    kwin
+
+    XCB::XCB
+    XCB::XFIXES
+
+    ${X11_X11_LIB}
+)
+add_test(NAME kwin-testSurfaceTexture COMMAND testSurfaceTexture)
+ecm_mark_as_test(testSurfaceTexture)
+
+########################################################
+# Test Item Renderers (OpenGL and Vulkan)
+########################################################
+add_executable(testItemRenderer item_renderer_test.cpp)
+target_link_libraries(testItemRenderer
+    Qt::Test
+    kwin
+
+    XCB::XCB
+    XCB::XFIXES
+
+    ${X11_X11_LIB}
+)
+add_test(NAME kwin-testItemRenderer COMMAND testItemRenderer)
+ecm_mark_as_test(testItemRenderer)

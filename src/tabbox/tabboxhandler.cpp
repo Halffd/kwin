@@ -230,7 +230,7 @@ QObject *TabBoxHandlerPrivate::createSwitcherItem()
         }
         if (path.isEmpty()) {
             // load default
-            qCWarning(KWIN_TABBOX) << "Could not load window switcher package" << config.layoutName() << ". Falling back to default";
+            qWarning(KWIN_TABBOX) << "Could not load window switcher package" << config.layoutName() << ". Falling back to default";
             path = QStandardPaths::locate(QStandardPaths::GenericDataLocation, KWIN_DATADIR + QLatin1String("/tabbox/") + TabBoxConfig::defaultLayoutName(), QStandardPaths::LocateDirectory);
         }
 
@@ -239,12 +239,12 @@ QObject *TabBoxHandlerPrivate::createSwitcherItem()
         file = pkg.filePath("mainscript");
     }
     if (file.isNull()) {
-        qCDebug(KWIN_TABBOX) << "Could not find QML file for window switcher";
+        qDebug(KWIN_TABBOX) << "Could not find QML file for window switcher";
         return nullptr;
     }
     m_qmlComponent->loadUrl(QUrl::fromLocalFile(file));
     if (m_qmlComponent->isError()) {
-        qCWarning(KWIN_TABBOX) << "Component failed to load: " << m_qmlComponent->errors();
+        qWarning(KWIN_TABBOX) << "Component failed to load: " << m_qmlComponent->errors();
         QStringList args;
         args << QStringLiteral("--passivepopup") << i18n("The Window Switcher installation is broken, resources are missing.\n"
                                                          "Contact your distribution about this.")

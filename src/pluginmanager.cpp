@@ -40,7 +40,7 @@ PluginManager::PluginManager()
     const QList<KPluginMetaData> plugins = KPluginMetaData::findPlugins(s_pluginDirectory);
     for (const KPluginMetaData &metadata : plugins) {
         if (m_plugins.find(metadata.pluginId()) != m_plugins.end()) {
-            qCWarning(KWIN_CORE) << "Conflicting plugin id" << metadata.pluginId();
+            qWarning() << "Conflicting plugin id" << metadata.pluginId();
             continue;
         }
         if (checkEnabled(metadata.pluginId(), metadata.rawData())) {
@@ -80,7 +80,7 @@ QStringList PluginManager::availablePlugins() const
 bool PluginManager::loadPlugin(const QString &pluginId)
 {
     if (m_plugins.find(pluginId) != m_plugins.end()) {
-        qCDebug(KWIN_CORE) << "Plugin with id" << pluginId << "is already loaded";
+        qDebug() << "Plugin with id" << pluginId << "is already loaded";
         return false;
     }
     const KPluginMetaData metadata = KPluginMetaData::findPluginById(s_pluginDirectory, pluginId);
@@ -95,20 +95,20 @@ bool PluginManager::loadPlugin(const QString &pluginId)
 bool PluginManager::loadPlugin(const KPluginMetaData &metadata)
 {
     if (!metadata.isValid()) {
-        qCDebug(KWIN_CORE) << "PluginManager::loadPlugin needs a valid plugin metadata";
+        qDebug() << "PluginManager::loadPlugin needs a valid plugin metadata";
         return false;
     }
 
     const QString pluginId = metadata.pluginId();
     QPluginLoader pluginLoader(metadata.fileName());
     if (pluginLoader.metaData().value("IID").toString() != PluginFactory_iid) {
-        qCWarning(KWIN_CORE) << pluginId << "has mismatching plugin version";
+        qWarning() << pluginId << "has mismatching plugin version";
         return false;
     }
 
     std::unique_ptr<PluginFactory> factory(qobject_cast<PluginFactory *>(pluginLoader.instance()));
     if (!factory) {
-        qCWarning(KWIN_CORE) << "Failed to get plugin factory for" << pluginId;
+        qWarning() << "Failed to get plugin factory for" << pluginId;
         return false;
     }
 
@@ -126,7 +126,7 @@ void PluginManager::unloadPlugin(const QString &pluginId)
     if (it != m_plugins.end()) {
         m_plugins.erase(it);
     } else {
-        qCWarning(KWIN_CORE) << "No plugin with the specified id:" << pluginId;
+        qWarning() << "No plugin with the specified id:" << pluginId;
     }
 }
 

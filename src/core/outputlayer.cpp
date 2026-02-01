@@ -6,8 +6,6 @@
 
 #include "outputlayer.h"
 #include "scene/surfaceitem.h"
-#include "scene/surfaceitem_wayland.h"
-#include "wayland/surface.h"
 
 namespace KWin
 {
@@ -65,47 +63,6 @@ bool OutputLayer::needsRepaint() const
     return !m_repaints.isEmpty();
 }
 
-bool OutputLayer::doImportScanoutBuffer(GraphicsBuffer *buffer, const ColorDescription &color, RenderingIntent intent, const std::shared_ptr<OutputFrame> &frame)
-{
-    return false;
-}
-
-bool OutputLayer::importScanoutBuffer(SurfaceItem *surfaceItem, const std::shared_ptr<OutputFrame> &frame)
-{
-    SurfaceItemWayland *wayland = qobject_cast<SurfaceItemWayland *>(surfaceItem);
-    if (!wayland || !wayland->surface()) {
-        return false;
-    }
-    const auto buffer = wayland->surface()->buffer();
-    if (!buffer) {
-        return false;
-    }
-    const auto attrs = buffer->dmabufAttributes();
-    if (!attrs) {
-        return false;
-    }
-    const auto formats = supportedDrmFormats();
-    if (auto it = formats.find(attrs->format); it != formats.end() && !it->contains(attrs->modifier)) {
-        if (m_scanoutCandidate && m_scanoutCandidate != surfaceItem) {
-            m_scanoutCandidate->setScanoutHint(nullptr, {});
-        }
-        m_scanoutCandidate = surfaceItem;
-        surfaceItem->setScanoutHint(scanoutDevice(), formats);
-        return false;
-    }
-    m_sourceRect = surfaceItem->bufferSourceBox();
-    m_bufferTransform = surfaceItem->bufferTransform();
-    const auto desiredTransform = m_output ? m_output->transform() : OutputTransform::Kind::Normal;
-    m_offloadTransform = m_bufferTransform.combine(desiredTransform.inverted());
-    const bool ret = doImportScanoutBuffer(buffer, surfaceItem->colorDescription(), surfaceItem->renderingIntent(), frame);
-    if (ret) {
-        surfaceItem->resetDamage();
-        // ensure the pixmap is updated when direct scanout ends
-        surfaceItem->destroyPixmap();
-    }
-    return ret;
-}
-
 std::optional<OutputLayerBeginFrameInfo> OutputLayer::beginFrame()
 {
     m_sourceRect = QRectF(QPointF(0, 0), m_targetRect.size());
@@ -117,14 +74,6 @@ std::optional<OutputLayerBeginFrameInfo> OutputLayer::beginFrame()
 bool OutputLayer::endFrame(const QRegion &renderedRegion, const QRegion &damagedRegion, OutputFrame *frame)
 {
     return doEndFrame(renderedRegion, damagedRegion, frame);
-}
-
-void OutputLayer::notifyNoScanoutCandidate()
-{
-    if (m_scanoutCandidate) {
-        m_scanoutCandidate->setScanoutHint(nullptr, {});
-        m_scanoutCandidate = nullptr;
-    }
 }
 
 void OutputLayer::setEnabled(bool enable)

@@ -123,7 +123,7 @@ GLTexturePrivate::GLTexturePrivate()
 GLTexturePrivate::~GLTexturePrivate()
 {
     if (!OpenGlContext::currentContext()) {
-        qCWarning(KWIN_OPENGL, "Could not delete texture because no context is current");
+        qWarning(KWIN_OPENGL, "Could not delete texture because no context is current");
         return;
     }
     if (m_texture != 0 && m_owning) {
@@ -499,7 +499,7 @@ std::unique_ptr<GLTexture> GLTexture::allocate(GLenum internalFormat, const QSiz
     GLuint texture = 0;
     glGenTextures(1, &texture);
     if (texture == 0) {
-        qCWarning(KWIN_OPENGL, "generating OpenGL texture handle failed");
+        qWarning(KWIN_OPENGL, "generating OpenGL texture handle failed");
         return nullptr;
     }
     glBindTexture(GL_TEXTURE_2D, texture);
@@ -536,7 +536,7 @@ std::unique_ptr<GLTexture> GLTexture::upload(const QImage &image)
     GLuint texture = 0;
     glGenTextures(1, &texture);
     if (texture == 0) {
-        qCWarning(KWIN_OPENGL, "generating OpenGL texture handle failed");
+        qWarning(KWIN_OPENGL, "generating OpenGL texture handle failed");
         return nullptr;
     }
 

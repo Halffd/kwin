@@ -11,14 +11,10 @@
 #include "main.h"
 #include "utils/common.h"
 
-#if KWIN_BUILD_X11
 #include "effect/xcb.h"
-#endif
 
 // KF5
-#if KWIN_BUILD_X11
 #include <NETWM>
-#endif
 // Qt
 #include <QFutureWatcher>
 #include <QtConcurrentRun>
@@ -126,7 +122,7 @@ bool GetAddrInfo::resolved(QFutureWatcher<int> *watcher)
         return false;
     }
     if (watcher->result() != 0) {
-        qCDebug(KWIN_CORE) << "getaddrinfo failed with error:" << gai_strerror(watcher->result());
+        qDebug() << "getaddrinfo failed with error:" << gai_strerror(watcher->result());
         // call failed;
         deleteLater();
         return false;
@@ -173,7 +169,6 @@ ClientMachine::~ClientMachine()
 {
 }
 
-#if KWIN_BUILD_X11
 void ClientMachine::resolve(xcb_window_t window, xcb_window_t clientLeader)
 {
     if (m_resolved) {
@@ -193,7 +188,6 @@ void ClientMachine::resolve(xcb_window_t window, xcb_window_t clientLeader)
     checkForLocalhost();
     m_resolved = true;
 }
-#endif
 
 void ClientMachine::checkForLocalhost()
 {

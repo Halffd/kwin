@@ -30,7 +30,7 @@ namespace KWin
 
 static inline qreal fixed1616ToReal(FP1616 val)
 {
-    return (val)*1.0 / (1 << 16);
+    return (val) * 1.0 / (1 << 16);
 }
 
 class XInputEventFilter : public X11EventFilter
@@ -131,7 +131,7 @@ void XInputIntegration::init()
     int xi_opcode, event, error;
     // init XInput extension
     if (!XQueryExtension(dpy, "XInputExtension", &xi_opcode, &event, &error)) {
-        qCDebug(KWIN_X11STANDALONE) << "XInputExtension not present";
+        qDebug(KWIN_X11STANDALONE) << "XInputExtension not present";
         return;
     }
 
@@ -139,10 +139,10 @@ void XInputIntegration::init()
     int major = 2, minor = 2;
     int result = XIQueryVersion(dpy, &major, &minor);
     if (result != Success) {
-        qCDebug(KWIN_X11STANDALONE) << "Failed to init XInput 2.2, trying 2.0";
+        qDebug(KWIN_X11STANDALONE) << "Failed to init XInput 2.2, trying 2.0";
         minor = 0;
         if (XIQueryVersion(dpy, &major, &minor) != Success) {
-            qCDebug(KWIN_X11STANDALONE) << "Failed to init XInput";
+            qDebug(KWIN_X11STANDALONE) << "Failed to init XInput";
             return;
         }
     }
@@ -150,7 +150,7 @@ void XInputIntegration::init()
     m_xiOpcode = xi_opcode;
     m_majorVersion = major;
     m_minorVersion = minor;
-    qCDebug(KWIN_X11STANDALONE) << "Has XInput support" << m_majorVersion << "." << m_minorVersion;
+    qDebug(KWIN_X11STANDALONE) << "Has XInput support" << m_majorVersion << "." << m_minorVersion;
 }
 
 void XInputIntegration::setCursor(X11Cursor *cursor)

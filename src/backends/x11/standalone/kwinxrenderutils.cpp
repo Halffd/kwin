@@ -61,7 +61,7 @@ static xcb_render_picture_t createPicture(xcb_pixmap_t pix, int depth)
     }
     QHash<int, xcb_render_pictformat_t>::const_iterator it = s_renderFormats.constFind(depth);
     if (it == s_renderFormats.constEnd()) {
-        qCWarning(LIBKWINXRENDERUTILS) << "Could not find XRender format for depth" << depth;
+        qWarning(LIBKWINXRENDERUTILS) << "Could not find XRender format for depth" << depth;
         return XCB_RENDER_PICTURE_NONE;
     }
     xcb_render_picture_t pic = xcb_generate_id(c);

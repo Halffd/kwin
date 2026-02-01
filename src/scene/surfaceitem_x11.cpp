@@ -98,7 +98,7 @@ void SurfaceItemX11::waitForDamage()
     xcb_xfixes_fetch_region_reply_t *reply =
         xcb_xfixes_fetch_region_reply(kwinApp()->x11Connection(), m_damageCookie, nullptr);
     if (!reply) {
-        qCDebug(KWIN_CORE) << "Failed to check damage region";
+        qDebug() << "Failed to check damage region";
         return;
     }
 
@@ -158,10 +158,33 @@ QList<QRectF> SurfaceItemX11::shape() const
     const QRectF clipRect = m_window->clientGeometry().translated(-m_window->bufferGeometry().topLeft());
     QList<QRectF> shape = m_window->shapeRegion();
     QList<QRectF> shapeRegion;
+
+    // Debug logging for small windows (panels)
+    static int shapeDebugCount = 0;
+    bool shouldLog = m_window->bufferGeometry().height() < 100 && shapeDebugCount < 10;
+    if (shouldLog) {
+        qWarning() << "SurfaceItemX11::shape() DEBUG:"
+                   << "bufferGeom=" << m_window->bufferGeometry()
+                   << "clientGeom=" << m_window->clientGeometry()
+                   << "clipRect=" << clipRect
+                   << "shapeRegionCount=" << shape.size();
+        for (int i = 0; i < shape.size() && i < 5; i++) {
+            qWarning() << "  shapeIn[" << i << "]=" << shape[i];
+        }
+    }
+
     // bounded to clipRect
     for (QRectF &shapePart : shape) {
         shapeRegion += shapePart.intersected(clipRect);
     }
+
+    if (shouldLog) {
+        for (int i = 0; i < shapeRegion.size() && i < 5; i++) {
+            qWarning() << "  shapeOut[" << i << "]=" << shapeRegion[i];
+        }
+        shapeDebugCount++;
+    }
+
     return shapeRegion;
 }
 
@@ -213,8 +236,10 @@ xcb_visualid_t SurfacePixmapX11::visual() const
 
 void SurfacePixmapX11::create()
 {
+    qWarning() << "SurfacePixmapX11::create() called";
     const X11Window *window = static_cast<SurfaceItemX11 *>(m_item)->window();
     if (window->isDeleted()) {
+        qWarning() << "SurfacePixmapX11::create() - window is deleted";
         return;
     }
 
@@ -228,23 +253,23 @@ void SurfacePixmapX11::create()
     Xcb::WindowAttributes windowAttributes(frame);
     Xcb::WindowGeometry windowGeometry(frame);
     if (xcb_generic_error_t *error = xcb_request_check(connection, namePixmapCookie)) {
-        qCDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x (error code %d)",
-                window->window(), error->error_code);
+        qDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x (error code %d)",
+               window->window(), error->error_code);
         free(error);
         return;
     }
     // check that the received pixmap is valid and actually matches what we
     // know about the window (i.e. size)
     if (!windowAttributes || windowAttributes->map_state != XCB_MAP_STATE_VIEWABLE) {
-        qCDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x (not viewable)",
-                window->window());
+        qDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x (not viewable)",
+               window->window());
         xcb_free_pixmap(connection, pixmap);
         return;
     }
     const QRectF bufferGeometry = window->bufferGeometry();
     if (windowGeometry.size() != bufferGeometry.size()) {
-        qCDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x: window size (%dx%d) != buffer size (%fx%f)", window->window(),
-                windowGeometry.size().width(), windowGeometry.size().height(), bufferGeometry.width(), bufferGeometry.height());
+        qDebug(KWIN_CORE, "Failed to create window pixmap for window 0x%x: window size (%dx%d) != buffer size (%fx%f)", window->window(),
+               windowGeometry.size().width(), windowGeometry.size().height(), bufferGeometry.width(), bufferGeometry.height());
         xcb_free_pixmap(connection, pixmap);
         return;
     }
@@ -254,6 +279,7 @@ void SurfacePixmapX11::create()
     // this class is only used on X11 where the logical size and
     // device pixel size is guaranteed to be the same and we can convert safely
     m_size = bufferGeometry.size().toSize();
+    qWarning() << "SurfacePixmapX11::create() - SUCCESS, pixmap:" << m_pixmap << "size:" << m_size;
 }
 
 } // namespace KWin

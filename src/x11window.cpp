@@ -32,8 +32,6 @@
 #include "shadow.h"
 #include "tiles/tilemanager.h"
 #include "virtualdesktops.h"
-#include "wayland/surface.h"
-#include "wayland_server.h"
 #include "workspace.h"
 #include <KDecoration3/DecoratedWindow>
 #include <KDecoration3/Decoration>
@@ -51,6 +49,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QProcess>
+#include <cmath>
 // xcb
 #include <xcb/xcb_icccm.h>
 // system
@@ -67,68 +66,49 @@ namespace KWin
 
 static uint32_t frameEventMask()
 {
-    if (waylandServer()) {
-        return XCB_EVENT_MASK_FOCUS_CHANGE
-            | XCB_EVENT_MASK_STRUCTURE_NOTIFY
-            | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
-            | XCB_EVENT_MASK_PROPERTY_CHANGE;
-    } else {
-        return XCB_EVENT_MASK_FOCUS_CHANGE
-            | XCB_EVENT_MASK_STRUCTURE_NOTIFY
-            | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
-            | XCB_EVENT_MASK_PROPERTY_CHANGE
-            | XCB_EVENT_MASK_KEY_PRESS
-            | XCB_EVENT_MASK_KEY_RELEASE
-            | XCB_EVENT_MASK_ENTER_WINDOW
-            | XCB_EVENT_MASK_LEAVE_WINDOW
-            | XCB_EVENT_MASK_BUTTON_PRESS
-            | XCB_EVENT_MASK_BUTTON_RELEASE
-            | XCB_EVENT_MASK_BUTTON_MOTION
-            | XCB_EVENT_MASK_POINTER_MOTION
-            | XCB_EVENT_MASK_KEYMAP_STATE
-            | XCB_EVENT_MASK_EXPOSURE
-            | XCB_EVENT_MASK_VISIBILITY_CHANGE;
-    }
+    return XCB_EVENT_MASK_FOCUS_CHANGE
+        | XCB_EVENT_MASK_STRUCTURE_NOTIFY
+        | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
+        | XCB_EVENT_MASK_PROPERTY_CHANGE
+        | XCB_EVENT_MASK_KEY_PRESS
+        | XCB_EVENT_MASK_KEY_RELEASE
+        | XCB_EVENT_MASK_ENTER_WINDOW
+        | XCB_EVENT_MASK_LEAVE_WINDOW
+        | XCB_EVENT_MASK_BUTTON_PRESS
+        | XCB_EVENT_MASK_BUTTON_RELEASE
+        | XCB_EVENT_MASK_BUTTON_MOTION
+        | XCB_EVENT_MASK_POINTER_MOTION
+        | XCB_EVENT_MASK_KEYMAP_STATE
+        | XCB_EVENT_MASK_EXPOSURE
+        | XCB_EVENT_MASK_VISIBILITY_CHANGE;
 }
 
 static uint32_t wrapperEventMask()
 {
-    if (waylandServer()) {
-        return XCB_EVENT_MASK_FOCUS_CHANGE
-            | XCB_EVENT_MASK_STRUCTURE_NOTIFY
-            | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
-            | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
-    } else {
-        return XCB_EVENT_MASK_FOCUS_CHANGE
-            | XCB_EVENT_MASK_STRUCTURE_NOTIFY
-            | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
-            | XCB_EVENT_MASK_KEY_PRESS
-            | XCB_EVENT_MASK_KEY_RELEASE
-            | XCB_EVENT_MASK_ENTER_WINDOW
-            | XCB_EVENT_MASK_LEAVE_WINDOW
-            | XCB_EVENT_MASK_BUTTON_PRESS
-            | XCB_EVENT_MASK_BUTTON_RELEASE
-            | XCB_EVENT_MASK_BUTTON_MOTION
-            | XCB_EVENT_MASK_POINTER_MOTION
-            | XCB_EVENT_MASK_KEYMAP_STATE
-            | XCB_EVENT_MASK_EXPOSURE
-            | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
-    }
+    return XCB_EVENT_MASK_FOCUS_CHANGE
+        | XCB_EVENT_MASK_STRUCTURE_NOTIFY
+        | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
+        | XCB_EVENT_MASK_KEY_PRESS
+        | XCB_EVENT_MASK_KEY_RELEASE
+        | XCB_EVENT_MASK_ENTER_WINDOW
+        | XCB_EVENT_MASK_LEAVE_WINDOW
+        | XCB_EVENT_MASK_BUTTON_PRESS
+        | XCB_EVENT_MASK_BUTTON_RELEASE
+        | XCB_EVENT_MASK_BUTTON_MOTION
+        | XCB_EVENT_MASK_POINTER_MOTION
+        | XCB_EVENT_MASK_KEYMAP_STATE
+        | XCB_EVENT_MASK_EXPOSURE
+        | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
 }
 
 static uint32_t clientEventMask()
 {
-    if (waylandServer()) {
-        return XCB_EVENT_MASK_FOCUS_CHANGE
-            | XCB_EVENT_MASK_PROPERTY_CHANGE;
-    } else {
-        return XCB_EVENT_MASK_FOCUS_CHANGE
-            | XCB_EVENT_MASK_PROPERTY_CHANGE
-            | XCB_EVENT_MASK_ENTER_WINDOW
-            | XCB_EVENT_MASK_LEAVE_WINDOW
-            | XCB_EVENT_MASK_KEY_PRESS
-            | XCB_EVENT_MASK_KEY_RELEASE;
-    }
+    return XCB_EVENT_MASK_FOCUS_CHANGE
+        | XCB_EVENT_MASK_PROPERTY_CHANGE
+        | XCB_EVENT_MASK_ENTER_WINDOW
+        | XCB_EVENT_MASK_LEAVE_WINDOW
+        | XCB_EVENT_MASK_KEY_PRESS
+        | XCB_EVENT_MASK_KEY_RELEASE;
 }
 
 // window types that are supported as normal windows (i.e. KWin actually manages them)
@@ -585,21 +565,9 @@ bool X11Window::track(xcb_window_t w)
         effects->checkInputWindowStacking();
     }
 
-    switch (kwinApp()->operationMode()) {
-    case Application::OperationModeWayland:
-        // The wayland surface is associated with the override-redirect window asynchronously.
-        if (surface()) {
-            associate();
-        } else {
-            connect(this, &Window::surfaceChanged, this, &X11Window::associate);
-        }
-        break;
-    case Application::OperationModeX11:
-        // We have no way knowing whether the override-redirect window can be painted. Mark it
-        // as ready for painting after synthetic 50ms delay.
-        QTimer::singleShot(50, this, &X11Window::setReadyForPainting);
-        break;
-    }
+    // X11 only - we have no way knowing whether the override-redirect window can be painted.
+    // Mark it as ready for painting after synthetic 50ms delay.
+    QTimer::singleShot(50, this, &X11Window::setReadyForPainting);
 
     return true;
 }
@@ -1204,19 +1172,7 @@ bool X11Window::manage(xcb_window_t w, bool isMapped)
         info.setOpacityF(opacity());
     });
 
-    switch (kwinApp()->operationMode()) {
-    case Application::OperationModeWayland:
-        // The wayland surface is associated with the window asynchronously.
-        if (surface()) {
-            associate();
-        } else {
-            connect(this, &Window::surfaceChanged, this, &X11Window::associate);
-        }
-        connect(kwinApp(), &Application::xwaylandScaleChanged, this, &X11Window::handleXwaylandScaleChanged);
-        break;
-    case Application::OperationModeX11:
-        break;
-    }
+    // X11 only - no Wayland surface association needed
 
     return true;
 }
@@ -1471,10 +1427,10 @@ void X11Window::detectNoBorder()
 void X11Window::updateFrameExtents()
 {
     NETStrut strut;
-    strut.left = Xcb::toXNative(borderLeft());
-    strut.right = Xcb::toXNative(borderRight());
-    strut.top = Xcb::toXNative(borderTop());
-    strut.bottom = Xcb::toXNative(borderBottom());
+    strut.left = Xcb::toXNative(Xcb::nativeRound(borderLeft()));
+    strut.right = Xcb::toXNative(Xcb::nativeRound(borderRight()));
+    strut.top = Xcb::toXNative(Xcb::nativeRound(borderTop()));
+    strut.bottom = Xcb::toXNative(Xcb::nativeRound(borderBottom()));
     info->setFrameExtents(strut);
 }
 
@@ -1607,9 +1563,7 @@ void X11Window::updateInputShape()
     }
     if (Xcb::Extensions::self()->isShapeInputAvailable()) {
         xcb_connection_t *c = kwinApp()->x11Connection();
-        if (waylandServer()) {
-            xcb_shape_combine(c, XCB_SHAPE_SO_SET, XCB_SHAPE_SK_INPUT, XCB_SHAPE_SK_INPUT, frameId(), 0, 0, window());
-        } else {
+        {
             // There appears to be no way to find out if a window has input
             // shape set or not, so always propagate the input shape
             // (it's the same like the bounding shape by default).
@@ -1841,9 +1795,6 @@ void X11Window::updateVisibility()
         return;
     }
     if (isHiddenByShowDesktop()) {
-        if (waylandServer()) {
-            return;
-        }
         if (Compositor::compositing() && options->hiddenPreviews() != HiddenPreviewsNever) {
             internalKeep();
         } else {
@@ -2081,7 +2032,7 @@ void X11Window::closeWindow()
  */
 void X11Window::killWindow()
 {
-    qCDebug(KWIN_CORE) << "X11Window::killWindow():" << window();
+    qDebug() << "X11Window::killWindow():" << window();
     if (isUnmanaged()) {
         xcb_kill_client(kwinApp()->x11Connection(), window());
     } else {
@@ -2109,14 +2060,14 @@ void X11Window::pingWindow()
     ping_timer = new QTimer(this);
     connect(ping_timer, &QTimer::timeout, this, [this]() {
         if (unresponsive()) {
-            qCDebug(KWIN_CORE) << "Final ping timeout, asking to kill:" << caption();
+            qDebug() << "Final ping timeout, asking to kill:" << caption();
             ping_timer->deleteLater();
             ping_timer = nullptr;
             killProcess(true, m_pingTimestamp);
             return;
         }
 
-        qCDebug(KWIN_CORE) << "First ping timeout:" << caption();
+        qDebug() << "First ping timeout:" << caption();
 
         setUnresponsive(true);
         ping_timer->start();
@@ -2155,7 +2106,7 @@ void X11Window::killProcess(bool ask, xcb_timestamp_t timestamp)
     if (pid <= 0 || clientMachine()->hostName().isEmpty()) { // Needed properties missing
         return;
     }
-    qCDebug(KWIN_CORE) << "Kill process:" << pid << "(" << clientMachine()->hostName() << ")";
+    qDebug() << "Kill process:" << pid << "(" << clientMachine()->hostName() << ")";
     if (!ask) {
         if (!clientMachine()->isLocal()) {
             QStringList lst;
@@ -2304,7 +2255,7 @@ bool X11Window::takeFocus()
                                                                window(), XCB_TIME_CURRENT_TIME);
         UniqueCPtr<xcb_generic_error_t> error(xcb_request_check(kwinApp()->x11Connection(), cookie));
         if (error) {
-            qCWarning(KWIN_CORE, "Failed to focus 0x%x (error %d)", window(), error->error_code);
+            qWarning(KWIN_CORE, "Failed to focus 0x%x (error %d)", window(), error->error_code);
             return false;
         }
     } else {
@@ -2929,7 +2880,7 @@ QSizeF X11Window::nextClientSizeToFrameSize(const QSizeF &size) const
 
 QRectF X11Window::nextFrameRectToBufferRect(const QRectF &rect) const
 {
-    if (!waylandServer() && isDecorated()) {
+    if (isDecorated()) {
         return rect;
     }
     return nextFrameRectToClientRect(rect);
@@ -3077,10 +3028,7 @@ void X11Window::ackSync()
         m_syncRequest.timeout->stop();
     }
 
-    // With Xwayland, the sync request will be completed after the wl_surface is committed.
-    if (!waylandServer()) {
-        finishSync();
-    }
+    finishSync();
     setAllowCommits(true);
 }
 
@@ -3407,7 +3355,7 @@ xcb_window_t X11Window::verifyTransientFor(xcb_window_t new_transient_for, bool 
     }
     if (new_transient_for == window()) { // pointing to self
         // also fix the property itself
-        qCWarning(KWIN_CORE) << "Client " << this << " has WM_TRANSIENT_FOR poiting to itself.";
+        qWarning() << "Client " << this << " has WM_TRANSIENT_FOR poiting to itself.";
         new_property_value = new_transient_for = kwinApp()->x11RootWindow();
     }
     //  The transient_for window may be embedded in another application,
@@ -3425,8 +3373,8 @@ xcb_window_t X11Window::verifyTransientFor(xcb_window_t new_transient_for, bool 
     }
     if (X11Window *new_transient_for_client = workspace()->findClient(Predicate::WindowMatch, new_transient_for)) {
         if (new_transient_for != before_search) {
-            qCDebug(KWIN_CORE) << "Client " << this << " has WM_TRANSIENT_FOR poiting to non-toplevel window "
-                               << before_search << ", child of " << new_transient_for_client << ", adjusting.";
+            qDebug() << "Client " << this << " has WM_TRANSIENT_FOR poiting to non-toplevel window "
+                     << before_search << ", child of " << new_transient_for_client << ", adjusting.";
             new_property_value = new_transient_for; // also fix the property
         }
     } else {
@@ -3444,7 +3392,7 @@ xcb_window_t X11Window::verifyTransientFor(xcb_window_t new_transient_for, bool 
         }
         loop_pos = pos->m_transientForId;
         if (--count == 0 || pos == this) {
-            qCWarning(KWIN_CORE) << "Client " << this << " caused WM_TRANSIENT_FOR loop.";
+            qWarning() << "Client " << this << " caused WM_TRANSIENT_FOR loop.";
             new_transient_for = kwinApp()->x11RootWindow();
         }
     }
@@ -3982,31 +3930,11 @@ void X11Window::handleXwaylandScaleChanged()
 
 void X11Window::handleCommitted()
 {
-    if (surface()->isMapped()) {
-        if (m_syncRequest.acked) {
-            finishSync();
-        }
-
-        if (!m_syncRequest.enabled) {
-            setReadyForPainting();
-        }
-    }
+    // X11 only - no Wayland surface commits to handle
 }
 
 void X11Window::setAllowCommits(bool allow)
 {
-    if (!waylandServer()) {
-        return;
-    }
-
-    static bool disabled = qEnvironmentVariableIntValue("KWIN_NO_XWAYLAND_ALLOW_COMMITS") == 1;
-    if (disabled) {
-        return;
-    }
-
-    uint32_t value = allow;
-    xcb_change_property(kwinApp()->x11Connection(), XCB_PROP_MODE_REPLACE, frameId(),
-                        atoms->xwayland_allow_commits, XCB_ATOM_CARDINAL, 32, 1, &value);
 }
 
 QPointF X11Window::gravityAdjustment(xcb_gravity_t gravity) const
@@ -4039,8 +3967,8 @@ QPointF X11Window::gravityAdjustment(xcb_gravity_t gravity) const
         dy = 0;
         break;
     case XCB_GRAVITY_CENTER:
-        dx = Xcb::fromXNative((int(Xcb::toXNative(borderLeft())) - int(Xcb::toXNative(borderRight()))) / 2);
-        dy = Xcb::fromXNative((int(Xcb::toXNative(borderTop())) - int(Xcb::toXNative(borderBottom()))) / 2);
+        dx = Xcb::fromXNative((int(Xcb::toXNative(Xcb::nativeRound(borderLeft()))) - int(Xcb::toXNative(Xcb::nativeRound(borderRight())))) / 2);
+        dy = Xcb::fromXNative((int(Xcb::toXNative(Xcb::nativeRound(borderTop()))) - int(Xcb::toXNative(Xcb::nativeRound(borderBottom())))) / 2);
         break;
     case XCB_GRAVITY_STATIC: // don't move
         dx = 0;
@@ -4091,7 +4019,7 @@ void X11Window::configureRequest(int value_mask, qreal rx, qreal ry, qreal rw, q
 
     // "maximized" is a user setting -> we do not allow the client to resize itself
     // away from this & against the users explicit wish
-    qCDebug(KWIN_CORE) << this << bool(value_mask & configureGeometryMask) << bool(requestedMaximizeMode() & MaximizeVertical) << bool(requestedMaximizeMode() & MaximizeHorizontal);
+    qDebug() << this << bool(value_mask & configureGeometryMask) << bool(requestedMaximizeMode() & MaximizeVertical) << bool(requestedMaximizeMode() & MaximizeHorizontal);
 
     // we want to (partially) ignore the request when the window is somehow maximized or quicktiled
     bool ignore = !app_noborder && (requestedQuickTileMode() != QuickTileMode(QuickTileFlag::None) || requestedMaximizeMode() != MaximizeRestore);
@@ -4121,11 +4049,11 @@ void X11Window::configureRequest(int value_mask, qreal rx, qreal ry, qreal rw, q
     }
 
     if (ignore) {
-        qCDebug(KWIN_CORE) << "DENIED";
+        qDebug() << "DENIED";
         return; // nothing to (left) to do for use - bugs #158974, #252314, #321491
     }
 
-    qCDebug(KWIN_CORE) << "PERMITTED" << this << bool(value_mask & configureGeometryMask);
+    qDebug() << "PERMITTED" << this << bool(value_mask & configureGeometryMask);
 
     if (gravity == 0) { // default (nonsense) value for the argument
         gravity = m_geometryHints.windowGravity();
@@ -4216,7 +4144,7 @@ QRectF X11Window::resizeWithChecks(const QRectF &geometry, qreal w, qreal h, xcb
     Q_ASSERT(!shade_geometry_change);
     if (isShade()) {
         if (h == borderTop() + borderBottom()) {
-            qCWarning(KWIN_CORE) << "Shaded geometry passed for size:";
+            qWarning() << "Shaded geometry passed for size:";
         }
     }
     qreal newx = geometry.x();
@@ -4420,7 +4348,7 @@ void X11Window::moveResizeInternal(const QRectF &rect, MoveResizeMode mode)
     // for example using X11Window::clientSize()
 
     if (isUnmanaged()) {
-        qCWarning(KWIN_CORE) << "Cannot move or resize unmanaged window" << this;
+        qWarning() << "Cannot move or resize unmanaged window" << this;
         return;
     }
 
@@ -4430,7 +4358,7 @@ void X11Window::moveResizeInternal(const QRectF &rect, MoveResizeMode mode)
         ; // nothing
     } else if (isShade()) {
         if (frameGeometry.height() == borderTop() + borderBottom()) {
-            qCDebug(KWIN_CORE) << "Shaded geometry passed for size:";
+            qDebug() << "Shaded geometry passed for size:";
         } else {
             clientGeometry = nextFrameRectToClientRect(frameGeometry);
             frameGeometry.setHeight(borderTop() + borderBottom());
@@ -4439,7 +4367,7 @@ void X11Window::moveResizeInternal(const QRectF &rect, MoveResizeMode mode)
         clientGeometry = nextFrameRectToClientRect(frameGeometry);
     }
     const QRectF bufferGeometry = nextFrameRectToBufferRect(frameGeometry);
-    const qreal bufferScale = kwinApp()->xwaylandScale();
+    const qreal bufferScale = kwinApp()->xScale();
 
     if (m_bufferGeometry == bufferGeometry && m_clientGeometry == clientGeometry && m_frameGeometry == frameGeometry && m_bufferScale == bufferScale) {
         return;
@@ -4532,7 +4460,7 @@ static bool changeMaximizeRecursion = false;
 void X11Window::maximize(MaximizeMode mode, const QRectF &restore)
 {
     if (isUnmanaged()) {
-        qCWarning(KWIN_CORE) << "Cannot change maximized state of unmanaged window" << this;
+        qWarning() << "Cannot change maximized state of unmanaged window" << this;
         return;
     }
 
@@ -4800,7 +4728,7 @@ void X11Window::updateFullscreenMonitors(NETFullscreenMonitors topology)
     //                   << ", we have: " << nscreens << " screens.";
 
     if (topology.top >= outputCount || topology.bottom >= outputCount || topology.left >= outputCount || topology.right >= outputCount) {
-        qCWarning(KWIN_CORE) << "fullscreenMonitors update failed. request higher than number of screens.";
+        qWarning() << "fullscreenMonitors update failed. request higher than number of screens.";
         return;
     }
 
@@ -4840,8 +4768,8 @@ bool X11Window::doStartInteractiveMoveResize()
         bool has_grab = false;
         kwinApp()->updateXTime();
         const xcb_grab_pointer_cookie_t cookie = xcb_grab_pointer(kwinApp()->x11Connection(), false, frameId(),
-                                                                            XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW,
-                                                                            XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, Cursors::self()->mouse()->x11Cursor(cursor()), xTime());
+                                                                  XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW,
+                                                                  XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, Cursors::self()->mouse()->x11Cursor(cursor()), xTime());
         UniqueCPtr<xcb_grab_pointer_reply_t> pointerGrab(xcb_grab_pointer_reply(kwinApp()->x11Connection(), cookie, nullptr));
         if (pointerGrab && pointerGrab->status == XCB_GRAB_STATUS_SUCCESS) {
             has_grab = true;
@@ -5039,17 +4967,7 @@ void X11Window::updateWindowPixmap()
 
 void X11Window::associate()
 {
-    if (surface()->isMapped()) {
-        if (m_syncRequest.acked) {
-            finishSync();
-        }
-
-        if (!m_syncRequest.enabled) {
-            setReadyForPainting();
-        }
-    }
-
-    connect(surface(), &SurfaceInterface::committed, this, &X11Window::handleCommitted);
+    // X11 only - no Wayland surface association needed
 }
 
 QWindow *X11Window::findInternalWindow() const
@@ -5248,7 +5166,7 @@ xcb_timestamp_t X11Window::readUserTimeMapTimestamp(const KStartupInfoId *asn_id
             time = asn_id->timestamp();
         }
     }
-    qCDebug(KWIN_CORE) << "User timestamp, ASN:" << time;
+    qDebug() << "User timestamp, ASN:" << time;
     if (time == -1U) {
         // The window doesn't have any timestamp.
         // If it's the first window for its application
@@ -5286,15 +5204,13 @@ xcb_timestamp_t X11Window::readUserTimeMapTimestamp(const KStartupInfoId *asn_id
                     first_window = false;
                 }
             } else {
-#if KWIN_BUILD_X11
                 if (workspace()->findClient(sameApplicationActiveHackPredicate)) {
                     first_window = false;
                 }
-#endif
             }
             // don't refuse if focus stealing prevention is turned off
             if (!first_window && rules()->checkFSP(options->focusStealingPreventionLevel()) > 0) {
-                qCDebug(KWIN_CORE) << "User timestamp, already exists:" << 0;
+                qDebug() << "User timestamp, already exists:" << 0;
                 return 0; // refuse activation
             }
         }
@@ -5312,7 +5228,7 @@ xcb_timestamp_t X11Window::readUserTimeMapTimestamp(const KStartupInfoId *asn_id
         }
         time = readUserCreationTime();
     }
-    qCDebug(KWIN_CORE) << "User timestamp, final:" << this << ":" << time;
+    qDebug() << "User timestamp, final:" << this << ":" << time;
     return time;
 }
 
@@ -5445,7 +5361,7 @@ bool X11Window::allowWindowActivation(xcb_timestamp_t time, bool focus_in)
     // No active window, it's ok to pass focus
     // NOTICE that extreme protection needs to be handled before to allow protection on unmanged windows
     if (ac == nullptr || ac->isDesktop()) {
-        qCDebug(KWIN_CORE) << "Activation: No window active, allowing";
+        qDebug() << "Activation: No window active, allowing";
         return true; // no active window -> always allow
     }
 
@@ -5454,7 +5370,7 @@ bool X11Window::allowWindowActivation(xcb_timestamp_t time, bool focus_in)
     // Unconditionally allow intra-window passing around for lower stealing protections
     // unless the active window has High interest
     if (Window::belongToSameApplication(window, ac, Window::SameApplicationCheck::RelaxedForActive) && protection < FSP::High) {
-        qCDebug(KWIN_CORE) << "Activation: Belongs to active application";
+        qDebug() << "Activation: Belongs to active application";
         return true;
     }
 
@@ -5464,7 +5380,7 @@ bool X11Window::allowWindowActivation(xcb_timestamp_t time, bool focus_in)
     }
 
     if (time == -1U) { // no time known
-        qCDebug(KWIN_CORE) << "Activation: No timestamp at all";
+        qDebug() << "Activation: No timestamp at all";
         // Only allow for Low protection unless active window has High interest in focus
         if (level < FSP::Medium && protection < FSP::High) {
             return true;
@@ -5477,8 +5393,8 @@ bool X11Window::allowWindowActivation(xcb_timestamp_t time, bool focus_in)
 
     // Low or medium FSP, usertime comparism is possible
     const xcb_timestamp_t user_time = ac->userTime();
-    qCDebug(KWIN_CORE) << "Activation, compared:" << window << ":" << time << ":" << user_time
-                       << ":" << (NET::timestampCompare(time, user_time) >= 0);
+    qDebug() << "Activation, compared:" << window << ":" << time << ":" << user_time
+             << ":" << (NET::timestampCompare(time, user_time) >= 0);
     return NET::timestampCompare(time, user_time) >= 0; // time >= user_time
 }
 

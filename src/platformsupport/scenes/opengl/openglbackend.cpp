@@ -36,7 +36,7 @@ CompositingType OpenGLBackend::compositingType() const
 
 void OpenGLBackend::setFailed(const QString &reason)
 {
-    qCWarning(KWIN_OPENGL) << "Creating the OpenGL rendering failed: " << reason;
+    qWarning(KWIN_OPENGL) << "Creating the OpenGL rendering failed: " << reason;
     m_failed = true;
 }
 
@@ -68,13 +68,13 @@ bool OpenGLBackend::checkGraphicsReset()
 
     switch (status) {
     case GL_GUILTY_CONTEXT_RESET:
-        qCWarning(KWIN_OPENGL) << "A graphics reset attributable to the current GL context occurred.";
+        qWarning(KWIN_OPENGL) << "A graphics reset attributable to the current GL context occurred.";
         break;
     case GL_INNOCENT_CONTEXT_RESET:
-        qCWarning(KWIN_OPENGL) << "A graphics reset not attributable to the current GL context occurred.";
+        qWarning(KWIN_OPENGL) << "A graphics reset not attributable to the current GL context occurred.";
         break;
     case GL_UNKNOWN_CONTEXT_RESET:
-        qCWarning(KWIN_OPENGL) << "A graphics reset of an unknown cause occurred.";
+        qWarning(KWIN_OPENGL) << "A graphics reset of an unknown cause occurred.";
         break;
     default:
         break;
@@ -88,7 +88,7 @@ bool OpenGLBackend::checkGraphicsReset()
         usleep(50);
     }
     if (timer.elapsed() >= 10000) {
-        qCWarning(KWIN_OPENGL) << "Waiting for glGetGraphicsResetStatus to return GL_NO_ERROR timed out!";
+        qWarning(KWIN_OPENGL) << "Waiting for glGetGraphicsResetStatus to return GL_NO_ERROR timed out!";
     }
 
     return true;

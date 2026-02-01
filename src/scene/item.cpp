@@ -347,11 +347,11 @@ QRegion Item::paintedArea(SceneDelegate *delegate, const QRegion &region) const
 void Item::stackBefore(Item *sibling)
 {
     if (Q_UNLIKELY(!sibling)) {
-        qCDebug(KWIN_CORE) << Q_FUNC_INFO << "requires a valid sibling";
+        qDebug() << Q_FUNC_INFO << "requires a valid sibling";
         return;
     }
     if (Q_UNLIKELY(!sibling->parentItem() || sibling->parentItem() != parentItem())) {
-        qCDebug(KWIN_CORE) << Q_FUNC_INFO << "requires items to be siblings";
+        qDebug() << Q_FUNC_INFO << "requires items to be siblings";
         return;
     }
     if (Q_UNLIKELY(sibling == this)) {
@@ -375,11 +375,11 @@ void Item::stackBefore(Item *sibling)
 void Item::stackAfter(Item *sibling)
 {
     if (Q_UNLIKELY(!sibling)) {
-        qCDebug(KWIN_CORE) << Q_FUNC_INFO << "requires a valid sibling";
+        qDebug() << Q_FUNC_INFO << "requires a valid sibling";
         return;
     }
     if (Q_UNLIKELY(!sibling->parentItem() || sibling->parentItem() != parentItem())) {
-        qCDebug(KWIN_CORE) << Q_FUNC_INFO << "requires items to be siblings";
+        qDebug() << Q_FUNC_INFO << "requires items to be siblings";
         return;
     }
     if (Q_UNLIKELY(sibling == this)) {

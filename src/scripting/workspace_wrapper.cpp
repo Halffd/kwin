@@ -22,9 +22,7 @@
 #if KWIN_BUILD_ACTIVITIES
 #include "activities.h"
 #endif
-#if KWIN_BUILD_X11
 #include "x11window.h"
-#endif
 
 #include <QJSEngine>
 
@@ -253,7 +251,7 @@ QRectF WorkspaceWrapper::clientArea(ClientAreaOption option, KWin::Window *c) co
 QRectF WorkspaceWrapper::clientArea(ClientAreaOption option, Output *output, VirtualDesktop *desktop) const
 {
     if (!output || !desktop) {
-        qCWarning(KWIN_SCRIPTING) << "clientArea needs valid output:" << output << "and desktop:" << desktop << "arguments";
+        qWarning(KWIN_SCRIPTING) << "clientArea needs valid output:" << output << "and desktop:" << desktop << "arguments";
         return QRect();
     }
     return workspace()->clientArea(static_cast<clientAreaOption>(option), output, desktop);
@@ -301,14 +299,12 @@ void WorkspaceWrapper::raiseWindow(KWin::Window *window)
     }
 }
 
-#if KWIN_BUILD_X11
 Window *WorkspaceWrapper::getClient(qulonglong windowId)
 {
     auto window = Workspace::self()->findClient(Predicate::WindowMatch, windowId);
     QJSEngine::setObjectOwnership(window, QJSEngine::CppOwnership);
     return window;
 }
-#endif
 
 QList<KWin::Window *> WorkspaceWrapper::windowAt(const QPointF &pos, int count) const
 {

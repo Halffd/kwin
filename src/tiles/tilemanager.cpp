@@ -244,15 +244,15 @@ void TileManager::readSettings()
     QJsonParseError error;
     const auto tiles = cg.readEntry("tiles", QByteArray());
     if (tiles.isEmpty()) {
-        qCDebug(KWIN_CORE) << "Empty tiles configuration for monitor" << m_output->uuid().toString(QUuid::WithoutBraces) << ":"
-                           << "Creating default setup";
+        qDebug() << "Empty tiles configuration for monitor" << m_output->uuid().toString(QUuid::WithoutBraces) << ":"
+                 << "Creating default setup";
         createDefaultSetup();
         return;
     }
     QJsonDocument doc = QJsonDocument::fromJson(tiles, &error);
 
     if (error.error != QJsonParseError::NoError) {
-        qCWarning(KWIN_CORE) << "Parse error in tiles configuration for monitor" << m_output->uuid().toString(QUuid::WithoutBraces) << ":" << error.errorString() << "Creating default setup";
+        qWarning() << "Parse error in tiles configuration for monitor" << m_output->uuid().toString(QUuid::WithoutBraces) << ":" << error.errorString() << "Creating default setup";
         createDefaultSetup();
         return;
     }

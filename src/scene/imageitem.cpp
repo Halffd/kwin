@@ -6,7 +6,13 @@
 
 #include "scene/imageitem.h"
 
+#include "config-kwin.h"
 #include "opengl/gltexture.h"
+#if HAVE_VULKAN
+#include "compositor.h"
+#include "scene/workspacescene_vulkan.h"
+#include "vulkan/vulkantexture.h"
+#endif
 
 namespace KWin
 {
@@ -63,6 +69,78 @@ void ImageItemOpenGL::preprocess()
 }
 
 WindowQuadList ImageItemOpenGL::buildQuads() const
+{
+    const QRectF geometry = boundingRect();
+    if (geometry.isEmpty()) {
+        return WindowQuadList{};
+    }
+
+    const QRectF imageRect = m_image.rect();
+
+    WindowQuad quad;
+    quad[0] = WindowVertex(geometry.topLeft(), imageRect.topLeft());
+    quad[1] = WindowVertex(geometry.topRight(), imageRect.topRight());
+    quad[2] = WindowVertex(geometry.bottomRight(), imageRect.bottomRight());
+    quad[3] = WindowVertex(geometry.bottomLeft(), imageRect.bottomLeft());
+
+    WindowQuadList ret;
+    ret.append(quad);
+    return ret;
+}
+
+ImageItemVulkan::ImageItemVulkan(Item *parent)
+    : ImageItem(parent)
+{
+}
+
+ImageItemVulkan::~ImageItemVulkan()
+{
+#if HAVE_VULKAN
+    m_texture.reset();
+#endif
+}
+
+VulkanTexture *ImageItemVulkan::texture() const
+{
+#if HAVE_VULKAN
+    return m_texture.get();
+#else
+    return nullptr;
+#endif
+}
+
+void ImageItemVulkan::preprocess()
+{
+#if HAVE_VULKAN
+    if (m_image.isNull()) {
+        m_texture.reset();
+        m_textureKey = 0;
+    } else if (m_textureKey != m_image.cacheKey()) {
+        m_textureKey = m_image.cacheKey();
+
+        auto *scene = dynamic_cast<WorkspaceSceneVulkan *>(Compositor::self()->scene());
+        if (!scene) {
+            return;
+        }
+        auto *context = scene->backend()->vulkanContext();
+        if (!context) {
+            return;
+        }
+
+        if (!m_texture || m_texture->size() != m_image.size()) {
+            m_texture = VulkanTexture::upload(context, m_image);
+            if (m_texture) {
+                m_texture->setFilter(VK_FILTER_LINEAR);
+                m_texture->setWrapMode(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+            }
+        } else {
+            m_texture->update(m_image, m_image.rect());
+        }
+    }
+#endif
+}
+
+WindowQuadList ImageItemVulkan::buildQuads() const
 {
     const QRectF geometry = boundingRect();
     if (geometry.isEmpty()) {

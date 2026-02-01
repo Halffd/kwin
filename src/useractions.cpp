@@ -34,9 +34,7 @@
 #include "virtualdesktops.h"
 #include "window.h"
 #include "workspace.h"
-#if KWIN_BUILD_X11
 #include "x11window.h"
-#endif
 
 #if KWIN_BUILD_ACTIVITIES
 #include "activities.h"
@@ -387,7 +385,7 @@ void UserActionsMenu::showHideActivityMenu()
         return;
     }
     const QStringList &openActivities_ = Workspace::self()->activities()->all();
-    qCDebug(KWIN_CORE) << "activities:" << openActivities_.size();
+    qDebug() << "activities:" << openActivities_.size();
     if (openActivities_.size() < 2) {
         delete m_activityMenu;
         m_activityMenu = nullptr;
@@ -399,34 +397,18 @@ void UserActionsMenu::showHideActivityMenu()
 
 void UserActionsMenu::initDesktopPopup()
 {
-    if (kwinApp()->operationMode() == Application::OperationModeWayland) {
-        if (m_multipleDesktopsMenu) {
-            return;
-        }
-
-        m_multipleDesktopsMenu = new QMenu(m_menu);
-        connect(m_multipleDesktopsMenu, &QMenu::aboutToShow, this, &UserActionsMenu::multipleDesktopsPopupAboutToShow);
-
-        QAction *action = m_multipleDesktopsMenu->menuAction();
-        // set it as the first item
-        m_menu->insertAction(m_maximizeOperation, action);
-        action->setText(i18n("&Desktops"));
-        action->setIcon(QIcon::fromTheme(QStringLiteral("virtual-desktops")));
-
-    } else {
-        if (m_desktopMenu) {
-            return;
-        }
-
-        m_desktopMenu = new QMenu(m_menu);
-        connect(m_desktopMenu, &QMenu::aboutToShow, this, &UserActionsMenu::desktopPopupAboutToShow);
-
-        QAction *action = m_desktopMenu->menuAction();
-        // set it as the first item
-        m_menu->insertAction(m_maximizeOperation, action);
-        action->setText(i18n("Move to &Desktop"));
-        action->setIcon(QIcon::fromTheme(QStringLiteral("virtual-desktops")));
+    if (m_desktopMenu) {
+        return;
     }
+
+    m_desktopMenu = new QMenu(m_menu);
+    connect(m_desktopMenu, &QMenu::aboutToShow, this, &UserActionsMenu::desktopPopupAboutToShow);
+
+    QAction *action = m_desktopMenu->menuAction();
+    // set it as the first item
+    m_menu->insertAction(m_maximizeOperation, action);
+    action->setText(i18n("Move to &Desktop"));
+    action->setIcon(QIcon::fromTheme(QStringLiteral("virtual-desktops")));
 }
 
 void UserActionsMenu::initScreenPopup()
@@ -753,9 +735,8 @@ void UserActionsMenu::slotWindowOperation(QAction *action)
     // user actions menu closed before we destroy the decoration. Otherwise Qt crashes
     QMetaObject::invokeMethod(
         workspace(), [c, op]() {
-            workspace()->performWindowOperation(c, op);
-        },
-        Qt::QueuedConnection);
+        workspace()->performWindowOperation(c, op);
+    }, Qt::QueuedConnection);
 }
 
 //****************************************

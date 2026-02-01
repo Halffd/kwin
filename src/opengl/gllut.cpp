@@ -24,7 +24,7 @@ GlLookUpTable::GlLookUpTable(GLuint handle, size_t size)
 GlLookUpTable::~GlLookUpTable()
 {
     if (!OpenGlContext::currentContext()) {
-        qCWarning(KWIN_OPENGL, "Could not delete 1D LUT because no context is current");
+        qWarning(KWIN_OPENGL, "Could not delete 1D LUT because no context is current");
         return;
     }
     glDeleteTextures(1, &m_handle);

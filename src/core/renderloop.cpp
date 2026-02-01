@@ -178,10 +178,10 @@ void RenderLoopPrivate::notifyVblank(std::chrono::nanoseconds timestamp)
     if (lastPresentationTimestamp <= timestamp) {
         lastPresentationTimestamp = timestamp;
     } else {
-        qCDebug(KWIN_CORE,
-                "Got invalid presentation timestamp: %lld (current %lld)",
-                static_cast<long long>(timestamp.count()),
-                static_cast<long long>(lastPresentationTimestamp.count()));
+        qDebug(KWIN_CORE,
+               "Got invalid presentation timestamp: %lld (current %lld)",
+               static_cast<long long>(timestamp.count()),
+               static_cast<long long>(lastPresentationTimestamp.count()));
         lastPresentationTimestamp = std::chrono::steady_clock::now().time_since_epoch();
     }
 }
@@ -292,7 +292,7 @@ std::chrono::nanoseconds RenderLoop::nextPresentationTimestamp() const
 void RenderLoop::setPresentationMode(PresentationMode mode)
 {
     if (mode != d->presentationMode) {
-        qCDebug(KWIN_CORE) << "Changed presentation mode to" << mode;
+        qDebug() << "Changed presentation mode to" << mode;
     }
     d->presentationMode = mode;
 }

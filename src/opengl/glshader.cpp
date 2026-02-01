@@ -38,7 +38,7 @@ GLShader::GLShader(const QString &vertexfile, const QString &fragmentfile, unsig
 GLShader::~GLShader()
 {
     if (!OpenGlContext::currentContext()) {
-        qCWarning(KWIN_OPENGL, "Could not delete shader because no context is current");
+        qWarning(KWIN_OPENGL, "Could not delete shader because no context is current");
         return;
     }
     if (m_program) {
@@ -89,7 +89,7 @@ bool GLShader::link()
                                 << log;
         m_valid = false;
     } else if (length > 0) {
-        qCDebug(KWIN_OPENGL) << "Shader link log:" << log;
+        qDebug(KWIN_OPENGL) << "Shader link log:" << log;
     }
 
     return m_valid;
@@ -144,7 +144,7 @@ bool GLShader::compile(GLuint program, GLenum shaderType, const QByteArray &sour
             qCCritical(KWIN_OPENGL).nospace() << "line " << line++ << ":" << l;
         }
     } else if (length > 0) {
-        qCDebug(KWIN_OPENGL) << "Shader compile log:" << log;
+        qDebug(KWIN_OPENGL) << "Shader compile log:" << log;
     }
 
     if (status != 0) {

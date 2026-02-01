@@ -114,19 +114,19 @@ std::unique_ptr<LogindSession> LogindSession::create()
 
     const QString sessionPath = findProcessSessionPath();
     if (sessionPath.isEmpty()) {
-        qCWarning(KWIN_CORE) << "Could not determine the active graphical session";
+        qWarning() << "Could not determine the active graphical session";
         return nullptr;
     }
 
     if (!activate(sessionPath)) {
-        qCWarning(KWIN_CORE, "Failed to activate %s session. Maybe another compositor is running?",
-                  qPrintable(sessionPath));
+        qWarning(KWIN_CORE, "Failed to activate %s session. Maybe another compositor is running?",
+                 qPrintable(sessionPath));
         return nullptr;
     }
 
     if (!takeControl(sessionPath)) {
-        qCWarning(KWIN_CORE, "Failed to take control of %s session. Maybe another compositor is running?",
-                  qPrintable(sessionPath));
+        qWarning(KWIN_CORE, "Failed to take control of %s session. Maybe another compositor is running?",
+                 qPrintable(sessionPath));
         return nullptr;
     }
 
@@ -173,14 +173,14 @@ int LogindSession::openRestricted(const QString &fileName)
 
     const QDBusMessage reply = QDBusConnection::systemBus().call(message);
     if (reply.type() == QDBusMessage::ErrorMessage) {
-        qCWarning(KWIN_CORE, "Failed to open %s device (%s)",
-                  qPrintable(fileName), qPrintable(reply.errorMessage()));
+        qWarning(KWIN_CORE, "Failed to open %s device (%s)",
+                 qPrintable(fileName), qPrintable(reply.errorMessage()));
         return -1;
     }
 
     const QDBusUnixFileDescriptor descriptor = reply.arguments().constFirst().value<QDBusUnixFileDescriptor>();
     if (!descriptor.isValid()) {
-        qCWarning(KWIN_CORE, "File descriptor for %s from logind is invalid", qPrintable(fileName));
+        qWarning(KWIN_CORE, "File descriptor for %s from logind is invalid", qPrintable(fileName));
         return -1;
     }
 
@@ -225,7 +225,7 @@ FileDescriptor LogindSession::delaySleep(const QString &reason)
 
     const QDBusMessage reply = QDBusConnection::systemBus().call(message);
     if (reply.type() == QDBusMessage::ErrorMessage) {
-        qCWarning(KWIN_CORE, "Failed to delay sleep: %s", qPrintable(reply.errorMessage()));
+        qWarning(KWIN_CORE, "Failed to delay sleep: %s", qPrintable(reply.errorMessage()));
         return FileDescriptor{};
     }
     const QDBusUnixFileDescriptor descriptor = reply.arguments().constFirst().value<QDBusUnixFileDescriptor>();
@@ -274,15 +274,15 @@ bool LogindSession::initialize()
     seatReply.waitForFinished();
 
     if (activeReply.isError()) {
-        qCWarning(KWIN_CORE) << "Failed to query Active session property:" << activeReply.error();
+        qWarning() << "Failed to query Active session property:" << activeReply.error();
         return false;
     }
     if (terminalReply.isError()) {
-        qCWarning(KWIN_CORE) << "Failed to query VTNr session property:" << terminalReply.error();
+        qWarning() << "Failed to query VTNr session property:" << terminalReply.error();
         return false;
     }
     if (seatReply.isError()) {
-        qCWarning(KWIN_CORE) << "Failed to query Seat session property:" << seatReply.error();
+        qWarning() << "Failed to query Seat session property:" << seatReply.error();
         return false;
     }
 

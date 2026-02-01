@@ -113,7 +113,7 @@ GLFramebuffer::GLFramebuffer(GLuint handle, const QSize &size)
 GLFramebuffer::~GLFramebuffer()
 {
     if (!OpenGlContext::currentContext()) {
-        qCWarning(KWIN_OPENGL, "Could not delete framebuffer because no context is current");
+        qWarning(KWIN_OPENGL, "Could not delete framebuffer because no context is current");
         return;
     }
     if (!m_foreign && m_valid) {
@@ -200,7 +200,7 @@ void GLFramebuffer::initDepthStencilAttachment()
     glGenRenderbuffers(1, &buffer);
     glBindRenderbuffer(GL_RENDERBUFFER, buffer);
     glRenderbufferStorage(GL_RENDERBUFFER, stencilFormat, m_size.width(), m_size.height());
-    glFramebufferRenderbuffer(GL_RENDERBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, buffer);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, buffer);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         glDeleteRenderbuffers(1, &buffer);
     } else {

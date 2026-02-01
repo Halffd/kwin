@@ -21,13 +21,13 @@ ColorTransformation::ColorTransformation(std::vector<std::unique_ptr<ColorPipeli
     , m_stages(std::move(stages))
 {
     if (!m_pipeline) {
-        qCWarning(KWIN_CORE) << "Failed to allocate cmsPipeline!";
+        qWarning() << "Failed to allocate cmsPipeline!";
         m_valid = false;
         return;
     }
     for (auto &stage : m_stages) {
         if (!cmsPipelineInsertStage(m_pipeline, cmsAT_END, stage->stage())) {
-            qCWarning(KWIN_CORE) << "Failed to insert cmsPipeline stage!";
+            qWarning() << "Failed to insert cmsPipeline stage!";
             m_valid = false;
             return;
         }
@@ -50,7 +50,7 @@ void ColorTransformation::append(ColorTransformation *transformation)
     for (auto &stage : transformation->m_stages) {
         auto dup = stage->dup();
         if (!cmsPipelineInsertStage(m_pipeline, cmsAT_END, dup->stage())) {
-            qCWarning(KWIN_CORE) << "Failed to insert cmsPipeline stage!";
+            qWarning() << "Failed to insert cmsPipeline stage!";
             m_valid = false;
             return;
         }
@@ -87,13 +87,13 @@ std::unique_ptr<ColorTransformation> ColorTransformation::createScalingTransform
     curveParams = {1.0, scale.z(), 0.0};
     auto b = cmsBuildParametricToneCurve(nullptr, 2, curveParams.data());
     if (!r || !g || !b) {
-        qCWarning(KWIN_CORE) << "Failed to build tone curves";
+        qWarning() << "Failed to build tone curves";
         return nullptr;
     }
     const std::array curves = {r, g, b};
     const auto stage = cmsStageAllocToneCurves(nullptr, 3, curves.data());
     if (!stage) {
-        qCWarning(KWIN_CORE) << "Failed to allocate tone curves";
+        qWarning() << "Failed to allocate tone curves";
         return nullptr;
     }
     std::vector<std::unique_ptr<ColorPipelineStage>> stages;

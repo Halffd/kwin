@@ -26,11 +26,11 @@ void ShortcutHandler::classBegin()
 void ShortcutHandler::componentComplete()
 {
     if (m_name.isEmpty()) {
-        qCWarning(KWIN_CORE) << "ShortcutHandler.name is required";
+        qWarning() << "ShortcutHandler.name is required";
         return;
     }
     if (m_text.isEmpty()) {
-        qCWarning(KWIN_CORE) << "ShortcutHandler.text is required";
+        qWarning() << "ShortcutHandler.text is required";
         return;
     }
 
@@ -49,7 +49,7 @@ QString ShortcutHandler::name() const
 void ShortcutHandler::setName(const QString &name)
 {
     if (m_action) {
-        qCWarning(KWIN_CORE) << "ShortcutHandler.name cannot be changed";
+        qWarning() << "ShortcutHandler.name cannot be changed";
         return;
     }
     if (m_name != name) {
@@ -82,7 +82,7 @@ QVariant ShortcutHandler::sequence() const
 void ShortcutHandler::setSequence(const QVariant &sequence)
 {
     if (m_action) {
-        qCWarning(KWIN_CORE) << "ShortcutHandler.sequence cannot be changed";
+        qWarning() << "ShortcutHandler.sequence cannot be changed";
         return;
     }
     if (m_userSequence != sequence) {

@@ -9,16 +9,11 @@
 */
 #include "shadow.h"
 // kwin
+#include "atoms.h"
 #include "core/graphicsbufferview.h"
 #include "internalwindow.h"
-#include "wayland/shadow.h"
-#include "wayland/surface.h"
-#include "wayland_server.h"
 #include "window.h"
-#if KWIN_BUILD_X11
-#include "atoms.h"
 #include "x11window.h"
-#endif
 
 #include <KDecoration3/Decoration>
 #include <KDecoration3/DecorationShadow>
@@ -45,21 +40,15 @@ Shadow::~Shadow()
 std::unique_ptr<Shadow> Shadow::createShadow(Window *window)
 {
     auto shadow = createShadowFromDecoration(window);
-    if (!shadow && waylandServer()) {
-        shadow = createShadowFromWayland(window);
-    }
-#if KWIN_BUILD_X11
     if (!shadow && kwinApp()->x11Connection()) {
         shadow = createShadowFromX11(window);
     }
-#endif
     if (!shadow) {
         shadow = createShadowFromInternalWindow(window);
     }
     return shadow;
 }
 
-#if KWIN_BUILD_X11
 std::unique_ptr<Shadow> Shadow::createShadowFromX11(Window *window)
 {
     X11Window *x11Window = qobject_cast<X11Window *>(window);
@@ -77,7 +66,6 @@ std::unique_ptr<Shadow> Shadow::createShadowFromX11(Window *window)
         return nullptr;
     }
 }
-#endif
 
 std::unique_ptr<Shadow> Shadow::createShadowFromDecoration(Window *window)
 {
@@ -93,19 +81,7 @@ std::unique_ptr<Shadow> Shadow::createShadowFromDecoration(Window *window)
 
 std::unique_ptr<Shadow> Shadow::createShadowFromWayland(Window *window)
 {
-    auto surface = window->surface();
-    if (!surface) {
-        return nullptr;
-    }
-    const auto s = surface->shadow();
-    if (!s) {
-        return nullptr;
-    }
-    auto shadow = std::make_unique<Shadow>(window);
-    if (!shadow->init(s)) {
-        return nullptr;
-    }
-    return shadow;
+    return nullptr;
 }
 
 std::unique_ptr<Shadow> Shadow::createShadowFromInternalWindow(Window *window)
@@ -125,7 +101,6 @@ std::unique_ptr<Shadow> Shadow::createShadowFromInternalWindow(Window *window)
     return shadow;
 }
 
-#if KWIN_BUILD_X11
 QList<uint32_t> Shadow::readX11ShadowProperty(xcb_window_t id)
 {
     QList<uint32_t> ret;
@@ -141,11 +116,9 @@ QList<uint32_t> Shadow::readX11ShadowProperty(xcb_window_t id)
     }
     return ret;
 }
-#endif
 
 bool Shadow::init(const QList<uint32_t> &data)
 {
-#if KWIN_BUILD_X11
     QList<Xcb::WindowGeometry> pixmapGeometries(ShadowElementsCount);
     QList<xcb_get_image_cookie_t> getImageCookies(ShadowElementsCount);
     auto *c = kwinApp()->x11Connection();
@@ -177,7 +150,6 @@ bool Shadow::init(const QList<uint32_t> &data)
         m_shadowElements[i] = image.copy();
         free(reply);
     }
-#endif
     m_offset = QMargins(data[ShadowElementsCount + 3],
                         data[ShadowElementsCount],
                         data[ShadowElementsCount + 1],
@@ -205,38 +177,6 @@ bool Shadow::init(KDecoration3::Decoration *decoration)
     connect(m_decorationShadow.get(), &KDecoration3::DecorationShadow::paddingChanged, m_window, &Window::updateShadow);
 
     m_offset = m_decorationShadow->padding();
-    Q_EMIT offsetChanged();
-    Q_EMIT textureChanged();
-    return true;
-}
-
-static QImage shadowTileForBuffer(GraphicsBuffer *buffer)
-{
-    if (buffer) {
-        const GraphicsBufferView view(buffer);
-        if (!view.isNull()) {
-            return view.image()->copy();
-        }
-    }
-    return QImage();
-}
-
-bool Shadow::init(const QPointer<ShadowInterface> &shadow)
-{
-    if (!shadow) {
-        return false;
-    }
-
-    m_shadowElements[ShadowElementTop] = shadowTileForBuffer(shadow->top());
-    m_shadowElements[ShadowElementTopRight] = shadowTileForBuffer(shadow->topRight());
-    m_shadowElements[ShadowElementRight] = shadowTileForBuffer(shadow->right());
-    m_shadowElements[ShadowElementBottomRight] = shadowTileForBuffer(shadow->bottomRight());
-    m_shadowElements[ShadowElementBottom] = shadowTileForBuffer(shadow->bottom());
-    m_shadowElements[ShadowElementBottomLeft] = shadowTileForBuffer(shadow->bottomLeft());
-    m_shadowElements[ShadowElementLeft] = shadowTileForBuffer(shadow->left());
-    m_shadowElements[ShadowElementTopLeft] = shadowTileForBuffer(shadow->topLeft());
-
-    m_offset = shadow->offset().toMargins();
     Q_EMIT offsetChanged();
     Q_EMIT textureChanged();
     return true;
@@ -290,23 +230,12 @@ bool Shadow::updateShadow()
         return false;
     }
 
-    if (waylandServer()) {
-        if (m_window && m_window->surface()) {
-            if (const auto &s = m_window->surface()->shadow()) {
-                if (init(s)) {
-                    return true;
-                }
-            }
-        }
-    }
-
     if (InternalWindow *window = qobject_cast<InternalWindow *>(m_window)) {
         if (init(window->handle())) {
             return true;
         }
     }
 
-#if KWIN_BUILD_X11
     if (X11Window *window = qobject_cast<X11Window *>(m_window)) {
         auto data = Shadow::readX11ShadowProperty(window->window());
         if (!data.isEmpty()) {
@@ -314,7 +243,6 @@ bool Shadow::updateShadow()
             return true;
         }
     }
-#endif
 
     return false;
 }

@@ -118,7 +118,7 @@ static std::optional<std::tuple<size_t, size_t, size_t>> parseBToACLUTSize(std::
     } else {
         const uint32_t clutOffset = read<uint32_t>(data, 24);
         if (data.size() < clutOffset + 19) {
-            qCWarning(KWIN_CORE, "CLut offset points to invalid position %u", clutOffset);
+            qWarning(KWIN_CORE, "CLut offset points to invalid position %u", clutOffset);
             return std::nullopt;
         }
         return std::make_tuple(data[clutOffset + 0], data[clutOffset + 1], data[clutOffset + 2]);
@@ -167,18 +167,18 @@ static std::optional<ColorPipeline> parseBToATag(cmsHPROFILE profile, cmsTagSign
     case cmsSigLut8Type:
     case cmsSigLut16Type:
         if (data.size() < 48) {
-            qCWarning(KWIN_CORE) << "ICC profile tag is too small" << data.size();
+            qWarning() << "ICC profile tag is too small" << data.size();
             return std::nullopt;
         }
         break;
     case cmsSigLutBtoAType:
         if (data.size() < 32) {
-            qCWarning(KWIN_CORE) << "ICC profile tag is too small" << data.size();
+            qWarning() << "ICC profile tag is too small" << data.size();
             return std::nullopt;
         }
         break;
     default:
-        qCWarning(KWIN_CORE).nospace() << "unknown lut type " << (char)data[0] << (char)data[1] << (char)data[2] << (char)data[3];
+        qWarning().nospace() << "unknown lut type " << (char)data[0] << (char)data[1] << (char)data[2] << (char)data[3];
         return std::nullopt;
     }
     for (auto stage = cmsPipelineGetPtrToFirstStage(bToAPipeline); stage != nullptr; stage = cmsStageNext(stage)) {
@@ -200,7 +200,7 @@ static std::optional<ColorPipeline> parseBToATag(cmsHPROFILE profile, cmsTagSign
             const uint32_t matrixOffset = isLutTag ? 12 : read<uint32_t>(data, 16);
             const uint32_t matrixSize = isLutTag ? 9 : 12;
             if (data.size() < matrixOffset + matrixSize * 4) {
-                qCWarning(KWIN_CORE, "matrix offset points to invalid position %u", matrixOffset);
+                qWarning(KWIN_CORE, "matrix offset points to invalid position %u", matrixOffset);
                 return std::nullopt;
             }
             const auto mat = parseMatrix(std::span(data).subspan(matrixOffset), !isLutTag);
@@ -228,7 +228,7 @@ static std::optional<ColorPipeline> parseBToATag(cmsHPROFILE profile, cmsTagSign
             });
         } break;
         default:
-            qCWarning(KWIN_CORE, "unknown stage type %u", stageType);
+            qWarning(KWIN_CORE, "unknown stage type %u", stageType);
             return std::nullopt;
         }
     }

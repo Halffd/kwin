@@ -153,17 +153,17 @@ void EglBackend::init()
     }
 
     if (m_havePostSubBuffer) {
-        qCDebug(KWIN_CORE) << "EGL implementation and surface support eglPostSubBufferNV, let's use it";
+        qDebug() << "EGL implementation and surface support eglPostSubBufferNV, let's use it";
 
         // check if swap interval 1 is supported
         EGLint val;
         eglGetConfigAttrib(eglDisplayObject()->handle(), m_context->config(), EGL_MAX_SWAP_INTERVAL, &val);
         if (val >= 1) {
             if (eglSwapInterval(eglDisplayObject()->handle(), 1)) {
-                qCDebug(KWIN_CORE) << "Enabled v-sync";
+                qDebug() << "Enabled v-sync";
             }
         } else {
-            qCWarning(KWIN_CORE) << "Cannot enable v-sync as max. swap interval is" << val;
+            qWarning() << "Cannot enable v-sync as max. swap interval is" << val;
         }
     } else {
         /* In the GLX backend, we fall back to using glCopyPixels if we have no extension providing support for partial screen updates.
@@ -171,7 +171,7 @@ void EglBackend::init()
          * Hence we need EGL to preserve the backbuffer for us, so that we can draw the partial updates on it and call
          * eglSwapBuffers() for each frame. eglSwapBuffers() then does the copy (no page flip possible in this mode),
          * which means it is slow and not synced to the v-blank. */
-        qCWarning(KWIN_CORE) << "eglPostSubBufferNV not supported, have to enable buffer preservation - which breaks v-sync and performance";
+        qWarning() << "eglPostSubBufferNV not supported, have to enable buffer preservation - which breaks v-sync and performance";
         eglSurfaceAttrib(eglDisplayObject()->handle(), m_surface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED);
     }
 
@@ -219,8 +219,8 @@ bool EglBackend::initRenderingContext()
         if (m_havePlatformBase) {
             // Make sure that the X11 platform is supported
             if (!hasClientExtension(QByteArrayLiteral("EGL_EXT_platform_x11")) && !hasClientExtension(QByteArrayLiteral("EGL_KHR_platform_x11"))) {
-                qCWarning(KWIN_CORE) << "EGL_EXT_platform_base is supported, but neither EGL_EXT_platform_x11 nor EGL_KHR_platform_x11 is supported."
-                                     << "Cannot create EGLDisplay on X11";
+                qWarning() << "EGL_EXT_platform_base is supported, but neither EGL_EXT_platform_x11 nor EGL_KHR_platform_x11 is supported."
+                           << "Cannot create EGLDisplay on X11";
                 return false;
             }
 
@@ -230,7 +230,7 @@ bool EglBackend::initRenderingContext()
         }
         display = m_backend->sceneEglDisplayObject();
         if (!display) {
-            qCWarning(KWIN_CORE) << "Failed to get the EGLDisplay";
+            qWarning() << "Failed to get the EGLDisplay";
             return false;
         }
     }
@@ -264,7 +264,7 @@ bool EglBackend::initRenderingContext()
 
     EGLint error = eglGetError();
     if (error != EGL_SUCCESS) {
-        qCWarning(KWIN_CORE) << "Error occurred while creating context " << error;
+        qWarning() << "Error occurred while creating context " << error;
         return false;
     }
 
@@ -516,7 +516,7 @@ bool EglPixmapTexture::create(SurfacePixmapX11 *pixmap)
                                 attribs);
 
     if (EGL_NO_IMAGE_KHR == m_image) {
-        qCDebug(KWIN_X11STANDALONE) << "failed to create egl image";
+        qDebug(KWIN_X11STANDALONE) << "failed to create egl image";
         unbind();
         return false;
     }

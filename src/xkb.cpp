@@ -8,12 +8,8 @@
 */
 #include "xkb.h"
 #include "dbusproperties_interface.h"
-#include "inputmethod.h"
 #include "utils/c_ptr.h"
 #include "utils/common.h"
-#include "wayland/inputmethod_v1.h"
-#include "wayland/keyboard.h"
-#include "wayland/seat.h"
 // frameworks
 #include <KConfigGroup>
 // Qt
@@ -420,13 +416,13 @@ static void xkbLogHandler(xkb_context *context, xkb_log_level priority, const ch
     }
     switch (priority) {
     case XKB_LOG_LEVEL_DEBUG:
-        qCDebug(KWIN_XKB, "XKB: %.*s", length, buf);
+        qDebug(KWIN_XKB, "XKB: %.*s", length, buf);
         break;
     case XKB_LOG_LEVEL_INFO:
-        qCInfo(KWIN_XKB, "XKB: %.*s", length, buf);
+        qInfo(KWIN_XKB, "XKB: %.*s", length, buf);
         break;
     case XKB_LOG_LEVEL_WARNING:
-        qCWarning(KWIN_XKB, "XKB: %.*s", length, buf);
+        qWarning(KWIN_XKB, "XKB: %.*s", length, buf);
         break;
     case XKB_LOG_LEVEL_ERROR:
     case XKB_LOG_LEVEL_CRITICAL:
@@ -465,7 +461,7 @@ Xkb::Xkb(bool followLocale1)
 {
     qRegisterMetaType<KWin::LEDs>();
     if (!m_context) {
-        qCDebug(KWIN_XKB) << "Could not create xkb context";
+        qDebug(KWIN_XKB) << "Could not create xkb context";
     } else {
         xkb_context_set_log_level(m_context, XKB_LOG_LEVEL_DEBUG);
         xkb_context_set_log_fn(m_context, &xkbLogHandler);
@@ -495,7 +491,7 @@ Xkb::Xkb(bool followLocale1)
                                                               this,
                                                               SLOT(reconfigure()));
         if (!connected) {
-            qCWarning(KWIN_XKB) << "Could not connect to org.freedesktop.locale1";
+            qWarning(KWIN_XKB) << "Could not connect to org.freedesktop.locale1";
         }
     }
 }
@@ -534,13 +530,13 @@ void Xkb::reconfigure()
         }
     }
     if (!keymap) {
-        qCDebug(KWIN_XKB) << "Could not create xkb keymap from configuration";
+        qDebug(KWIN_XKB) << "Could not create xkb keymap from configuration";
         keymap = loadDefaultKeymap();
     }
     if (keymap) {
         updateKeymap(keymap);
     } else {
-        qCDebug(KWIN_XKB) << "Could not create default xkb keymap";
+        qDebug(KWIN_XKB) << "Could not create default xkb keymap";
     }
 }
 
@@ -642,7 +638,7 @@ void Xkb::updateKeymap(xkb_keymap *keymap)
     Q_ASSERT(keymap);
     xkb_state *state = xkb_state_new(keymap);
     if (!state) {
-        qCDebug(KWIN_XKB) << "Could not create XKB state";
+        qDebug(KWIN_XKB) << "Could not create XKB state";
         xkb_keymap_unref(keymap);
         return;
     }
@@ -711,34 +707,16 @@ void Xkb::updateKeymap(xkb_keymap *keymap)
 
     createKeymapFile();
     forwardModifiers();
-    if (auto *inputmethod = kwinApp()->inputMethod()) {
-        inputmethod->forwardModifiers(InputMethod::Force);
-    }
     updateModifiers();
 }
 
 void Xkb::createKeymapFile()
 {
-    const auto currentKeymap = keymapContents();
-    if (currentKeymap.isEmpty()) {
-        return;
-    }
-    m_seat->keyboard()->setKeymap(currentKeymap);
-    auto *inputmethod = kwinApp()->inputMethod();
-    if (!inputmethod) {
-        return;
-    }
-    if (auto *keyboardGrab = inputmethod->keyboardGrab()) {
-        keyboardGrab->sendKeymap(currentKeymap);
-    }
+    // X11 only - Wayland seat keymap not needed
 }
 
 QByteArray Xkb::keymapContents() const
 {
-    if (!m_seat || !m_seat->keyboard()) {
-        return {};
-    }
-    // TODO: uninstall keymap on server?
     if (!m_keymap) {
         return {};
     }
@@ -851,13 +829,7 @@ void Xkb::updateModifiers()
 
 void Xkb::forwardModifiers()
 {
-    if (!m_seat || !m_seat->keyboard()) {
-        return;
-    }
-    m_seat->notifyKeyboardModifiers(m_modifierState.depressed,
-                                    m_modifierState.latched,
-                                    m_modifierState.locked,
-                                    m_currentLayout);
+    // X11 only - Wayland seat modifier forwarding not needed
 }
 
 QString Xkb::layoutName(xkb_layout_index_t index) const
@@ -1195,11 +1167,6 @@ quint32 Xkb::numberOfLayouts() const
         return 0;
     }
     return xkb_keymap_num_layouts(m_keymap);
-}
-
-void Xkb::setSeat(SeatInterface *seat)
-{
-    m_seat = QPointer<SeatInterface>(seat);
 }
 
 std::optional<std::pair<int, int>> Xkb::keycodeFromKeysym(xkb_keysym_t keysym)

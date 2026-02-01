@@ -42,16 +42,16 @@ bool checkGLError(const char *txt)
 {
     GLenum err = glGetError();
     if (err == GL_CONTEXT_LOST) {
-        qCWarning(KWIN_OPENGL) << "GL error: context lost";
+        qWarning(KWIN_OPENGL) << "GL error: context lost";
         return true;
     }
     bool hasError = false;
     while (err != GL_NO_ERROR) {
-        qCWarning(KWIN_OPENGL) << "GL error (" << txt << "): " << formatGLError(err);
+        qWarning(KWIN_OPENGL) << "GL error (" << txt << "): " << formatGLError(err);
         hasError = true;
         err = glGetError();
         if (err == GL_CONTEXT_LOST) {
-            qCWarning(KWIN_OPENGL) << "GL error: context lost";
+            qWarning(KWIN_OPENGL) << "GL error: context lost";
             break;
         }
     }

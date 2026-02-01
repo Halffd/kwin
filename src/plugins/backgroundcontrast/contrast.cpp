@@ -15,13 +15,8 @@
 #include "effect/effecthandler.h"
 #include "scene/surfaceitem.h"
 #include "scene/windowitem.h"
-#include "wayland/contrast.h"
-#include "wayland/display.h"
-#include "wayland/surface.h"
 
-#if KWIN_BUILD_X11
 #include "utils/xcbutils.h"
-#endif
 
 #include <QCoreApplication>
 #include <QMatrix4x4>
@@ -45,24 +40,8 @@ ContrastEffect::ContrastEffect()
     // ### Hackish way to announce support.
     //     Should be included in _NET_SUPPORTED instead.
     if (m_shader && m_shader->isValid()) {
-#if KWIN_BUILD_X11
         if (effects->xcbConnection()) {
             m_net_wm_contrast_region = effects->announceSupportProperty(s_contrastAtomName, this);
-        }
-#endif
-        if (effects->waylandDisplay()) {
-            if (!s_contrastManagerRemoveTimer) {
-                s_contrastManagerRemoveTimer = new QTimer(QCoreApplication::instance());
-                s_contrastManagerRemoveTimer->setSingleShot(true);
-                s_contrastManagerRemoveTimer->callOnTimeout([]() {
-                    s_contrastManager->remove();
-                    s_contrastManager = nullptr;
-                });
-            }
-            s_contrastManagerRemoveTimer->stop();
-            if (!s_contrastManager) {
-                s_contrastManager = new ContrastManagerInterface(effects->waylandDisplay(), s_contrastManagerRemoveTimer);
-            }
         }
     }
 
@@ -70,14 +49,12 @@ ContrastEffect::ContrastEffect()
     connect(effects, &EffectsHandler::windowDeleted, this, &ContrastEffect::slotWindowDeleted);
     connect(effects, &EffectsHandler::virtualScreenGeometryChanged, this, &ContrastEffect::slotScreenGeometryChanged);
 
-#if KWIN_BUILD_X11
     connect(effects, &EffectsHandler::propertyNotify, this, &ContrastEffect::slotPropertyNotify);
     connect(effects, &EffectsHandler::xcbConnectionChanged, this, [this]() {
         if (m_shader && m_shader->isValid()) {
             m_net_wm_contrast_region = effects->announceSupportProperty(s_contrastAtomName, this);
         }
     });
-#endif
 
     // Fetch the contrast regions for all windows
     const QList<EffectWindow *> windowList = effects->stackingOrder();
@@ -88,10 +65,6 @@ ContrastEffect::ContrastEffect()
 
 ContrastEffect::~ContrastEffect()
 {
-    // When compositing is restarted, avoid removing the manager immediately.
-    if (s_contrastManager) {
-        s_contrastManagerRemoveTimer->start(1000);
-    }
 }
 
 void ContrastEffect::slotScreenGeometryChanged()
@@ -114,7 +87,6 @@ void ContrastEffect::updateContrastRegion(EffectWindow *w)
     QMatrix4x4 matrix;
     bool valid = false;
 
-#if KWIN_BUILD_X11
     if (m_net_wm_contrast_region != XCB_ATOM_NONE) {
         float colorTransform[16];
         const QByteArray value = w->readProperty(m_net_wm_contrast_region, m_net_wm_contrast_region, 32);
@@ -139,15 +111,6 @@ void ContrastEffect::updateContrastRegion(EffectWindow *w)
         }
 
         valid = !value.isNull();
-    }
-#endif
-
-    SurfaceInterface *surf = w->surface();
-
-    if (surf && surf->contrast()) {
-        region = surf->contrast()->region();
-        matrix = colorMatrix(surf->contrast()->contrast(), surf->contrast()->intensity(), surf->contrast()->saturation());
-        valid = true;
     }
 
     if (auto internal = w->internalWindow()) {
@@ -187,15 +150,6 @@ void ContrastEffect::updateContrastRegion(EffectWindow *w)
 
 void ContrastEffect::slotWindowAdded(EffectWindow *w)
 {
-    SurfaceInterface *surf = w->surface();
-
-    if (surf) {
-        m_contrastChangedConnections[w] = connect(surf, &SurfaceInterface::contrastChanged, this, [this, w]() {
-            if (w) {
-                updateContrastRegion(w);
-            }
-        });
-    }
 
     if (auto internal = w->internalWindow()) {
         internal->installEventFilter(this);
@@ -220,24 +174,18 @@ bool ContrastEffect::eventFilter(QObject *watched, QEvent *event)
 
 void ContrastEffect::slotWindowDeleted(EffectWindow *w)
 {
-    if (m_contrastChangedConnections.contains(w)) {
-        disconnect(m_contrastChangedConnections[w]);
-        m_contrastChangedConnections.remove(w);
-    }
     if (auto it = m_windowData.find(w); it != m_windowData.end()) {
         effects->makeOpenGLContextCurrent();
         m_windowData.erase(it);
     }
 }
 
-#if KWIN_BUILD_X11
 void ContrastEffect::slotPropertyNotify(EffectWindow *w, long atom)
 {
     if (w && atom == m_net_wm_contrast_region && m_net_wm_contrast_region != XCB_ATOM_NONE) {
         updateContrastRegion(w);
     }
 }
-#endif
 
 QMatrix4x4 ContrastEffect::colorMatrix(qreal contrast, qreal intensity, qreal saturation)
 {
@@ -299,7 +247,13 @@ bool ContrastEffect::enabledByDefault()
 
 bool ContrastEffect::supported()
 {
-    return effects->openglContext() && (effects->openglContext()->supportsBlits() || effects->waylandDisplay());
+    // Contrast effect requires OpenGL - it uses GLTexture and GLFramebuffer which don't work in Vulkan
+    // Return false for Vulkan backend to prevent 1/4 scale rendering issue
+    if (!effects->isOpenGLCompositing()) {
+        return false;
+    }
+    // X11 only - requires blits support
+    return effects->openglContext() && effects->openglContext()->supportsBlits();
 }
 
 QRegion ContrastEffect::contrastRegion(const EffectWindow *w) const

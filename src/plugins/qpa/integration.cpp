@@ -10,14 +10,11 @@
 
 #include "integration.h"
 #include "backingstore.h"
-#include "clipboard.h"
 #include "eglplatformcontext.h"
-#include "inputmethod.h"
 #include "internalinputmethodcontext.h"
 #include "logging.h"
 #include "offscreensurface.h"
 #include "screen.h"
-#include "wayland_server.h"
 #include "window.h"
 
 #include "core/output.h"
@@ -63,7 +60,6 @@ Integration::Integration()
 #else
     , m_services(new QGenericUnixServices())
 #endif
-    , m_clipboard(new Clipboard())
 {
     QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
     QWindowSystemInterfacePrivate::TabletEvent::setPlatformSynthesizesMouse(false);
@@ -166,7 +162,7 @@ QPlatformOpenGLContext *Integration::createPlatformOpenGLContext(QOpenGLContext 
         return nullptr;
     }
     if (kwinApp()->outputBackend()->sceneEglGlobalShareContext() == EGL_NO_CONTEXT) {
-        qCWarning(KWIN_QPA) << "Attempting to create a QOpenGLContext before the scene is initialized";
+        qWarning(KWIN_QPA) << "Attempting to create a QOpenGLContext before the scene is initialized";
         return nullptr;
     }
     const auto eglDisplay = kwinApp()->outputBackend()->sceneEglDisplayObject();
@@ -198,8 +194,6 @@ void Integration::handleWorkspaceCreated()
     for (Output *output : outputs) {
         handleOutputEnabled(output);
     }
-
-    m_clipboard->initialize();
 }
 
 void Integration::handleOutputEnabled(Output *output)
@@ -218,7 +212,7 @@ void Integration::handleOutputDisabled(Output *output)
 {
     Screen *platformScreen = m_screens.take(output);
     if (!platformScreen) {
-        qCWarning(KWIN_QPA) << "Unknown output" << output;
+        qWarning(KWIN_QPA) << "Unknown output" << output;
         return;
     }
 
@@ -237,22 +231,13 @@ QPlatformNativeInterface *Integration::nativeInterface() const
 
 QPlatformInputContext *Integration::inputContext() const
 {
-    if (!kwinApp()->inputMethod()) { // for some unit tests
-        return nullptr;
-    }
-    return kwinApp()->inputMethod()->internalContext();
+    return nullptr;
 }
 
 QPlatformServices *Integration::services() const
 {
     return m_services.get();
 }
-
-QPlatformClipboard *Integration::clipboard() const
-{
-    return m_clipboard.get();
-}
-
 }
 }
 

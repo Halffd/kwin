@@ -14,6 +14,7 @@
 #include "scene/workspacescene.h"
 #include "utils/xcbutils.h"
 #include "x11_standalone_backend.h"
+#include "x11_standalone_logging.h"
 
 #include <QList>
 
@@ -94,11 +95,14 @@ void OverlayWindowX11::show()
 {
     Q_ASSERT(m_window != XCB_WINDOW_NONE);
     if (m_shown) {
+        qDebug(KWIN_X11STANDALONE) << "Overlay window already shown, skipping";
         return;
     }
+    qDebug(KWIN_X11STANDALONE) << "Mapping overlay window and subwindows";
     xcb_map_subwindows(connection(), m_window);
     xcb_map_window(connection(), m_window);
     m_shown = true;
+    qDebug(KWIN_X11STANDALONE) << "Overlay window shown successfully";
 }
 
 void OverlayWindowX11::hide()
@@ -115,8 +119,10 @@ void OverlayWindowX11::setShape(const QRegion &reg)
     // Avoid setting the same shape again, it causes flicker (apparently it is not a no-op
     // and triggers something).
     if (reg == m_shape) {
+        qDebug() << "OVERLAY: setShape - same shape, skipping";
         return;
     }
+    qWarning() << "OVERLAY: setShape - CHANGING shape from" << m_shape.boundingRect() << "to" << reg.boundingRect();
     const QList<xcb_rectangle_t> xrects = Xcb::regionToRects(reg);
     xcb_shape_rectangles(connection(), XCB_SHAPE_SO_SET, XCB_SHAPE_SK_BOUNDING, XCB_CLIP_ORDERING_UNSORTED,
                          m_window, 0, 0, xrects.count(), xrects.data());

@@ -36,7 +36,7 @@ RootInfo *RootInfo::create()
     UniqueCPtr<xcb_generic_error_t> error(xcb_request_check(kwinApp()->x11Connection(),
                                                             xcb_configure_window_checked(kwinApp()->x11Connection(), supportWindow, XCB_CONFIG_WINDOW_STACK_MODE, lowerValues)));
     if (error) {
-        qCDebug(KWIN_CORE) << "Error occurred while lowering support window: " << error->error_code;
+        qDebug() << "Error occurred while lowering support window: " << error->error_code;
     }
 
     const NET::Properties properties = NET::Supported

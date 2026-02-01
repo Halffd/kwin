@@ -69,15 +69,9 @@
 #include "scene/surfaceitem.h"
 #include "scene/windowitem.h"
 #include "shadow.h"
-#include "wayland/seat.h"
-#include "wayland/surface.h"
-#include "wayland_server.h"
-#include "waylandwindow.h"
 #include "window.h"
 #include "workspace.h"
-#if KWIN_BUILD_X11
 #include "x11window.h"
-#endif
 
 #include <QtMath>
 
@@ -97,11 +91,6 @@ WorkspaceScene::WorkspaceScene(std::unique_ptr<ItemRenderer> renderer)
     connect(workspace(), &Workspace::geometryChanged, this, [this]() {
         setGeometry(workspace()->geometry());
     });
-
-    if (waylandServer()) {
-        connect(waylandServer()->seat(), &SeatInterface::dragStarted, this, &WorkspaceScene::createDndIconItem);
-        connect(waylandServer()->seat(), &SeatInterface::dragEnded, this, &WorkspaceScene::destroyDndIconItem);
-    }
 }
 
 WorkspaceScene::~WorkspaceScene()
@@ -110,36 +99,10 @@ WorkspaceScene::~WorkspaceScene()
 
 void WorkspaceScene::createDndIconItem()
 {
-    DragAndDropIcon *dragIcon = waylandServer()->seat()->dragIcon();
-    if (!dragIcon) {
-        return;
-    }
-    m_dndIcon = std::make_unique<DragAndDropIconItem>(dragIcon, m_overlayItem.get());
-    if (waylandServer()->seat()->isDragPointer()) {
-        auto updatePosition = [this]() {
-            const auto pointerPos = waylandServer()->seat()->pointerPos();
-            m_dndIcon->setPosition(pointerPos);
-            m_dndIcon->setOutput(workspace()->outputAt(pointerPos));
-        };
-
-        updatePosition();
-        connect(waylandServer()->seat(), &SeatInterface::pointerPosChanged, m_dndIcon.get(), updatePosition);
-    } else if (waylandServer()->seat()->isDragTouch()) {
-        auto updatePosition = [this]() {
-            auto seat = waylandServer()->seat();
-            const auto touchPos = seat->firstTouchPointPosition(seat->dragSurface());
-            m_dndIcon->setPosition(touchPos);
-            m_dndIcon->setOutput(workspace()->outputAt(touchPos));
-        };
-
-        updatePosition();
-        connect(waylandServer()->seat(), &SeatInterface::touchMoved, m_dndIcon.get(), updatePosition);
-    }
 }
 
 void WorkspaceScene::destroyDndIconItem()
 {
-    m_dndIcon.reset();
 }
 
 Item *WorkspaceScene::containerItem() const
@@ -219,9 +182,7 @@ static bool addCandidates(SurfaceItem *item, QList<SurfaceItem *> &candidates, s
 
 QList<SurfaceItem *> WorkspaceScene::scanoutCandidates(ssize_t maxCount) const
 {
-    if (!waylandServer()) {
-        return {};
-    }
+    return {};
     QList<SurfaceItem *> ret;
     if (!effects->blocksDirectScanout()) {
         QRegion occlusion;
@@ -283,41 +244,6 @@ double WorkspaceScene::desiredHdrHeadroom() const
 
 void WorkspaceScene::frame(SceneDelegate *delegate, OutputFrame *frame)
 {
-    if (waylandServer()) {
-        Output *output = delegate->output();
-        const std::chrono::milliseconds frameTime =
-            std::chrono::duration_cast<std::chrono::milliseconds>(output->renderLoop()->lastPresentationTimestamp());
-
-        const QList<Item *> items = m_containerItem->sortedChildItems();
-        for (Item *item : items) {
-            if (!item->isVisible()) {
-                continue;
-            }
-            Window *window = static_cast<WindowItem *>(item)->window();
-            if (!window->isOnOutput(output)) {
-                continue;
-            }
-            if (auto surface = window->surface()) {
-                surface->traverseTree([&frameTime, &frame, &output](SurfaceInterface *surface) {
-                    surface->frameRendered(frameTime.count());
-                    if (auto feedback = surface->takePresentationFeedback(output)) {
-                        frame->addFeedback(std::move(feedback));
-                    }
-                });
-            }
-        }
-
-        if (m_dndIcon) {
-            if (auto surface = m_dndIcon->surface()) {
-                surface->traverseTree([&frameTime, &frame, &output](SurfaceInterface *surface) {
-                    surface->frameRendered(frameTime.count());
-                    if (auto feedback = surface->takePresentationFeedback(output)) {
-                        frame->addFeedback(std::move(feedback));
-                    }
-                });
-            }
-        }
-    }
 }
 
 QRegion WorkspaceScene::prePaint(SceneDelegate *delegate)

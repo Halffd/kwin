@@ -26,10 +26,7 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QThread>
-#include <QWaylandClientExtensionTemplate>
 #include <QWindow>
-
-#include <qpa/qplatformwindow_p.h>
 
 #include <private/qtx11extras_p.h>
 #include <xcb/xcb.h>
@@ -39,7 +36,6 @@
 #include <memory>
 
 #include "debug.h"
-#include "qwayland-xdg-foreign-unstable-v2.h"
 
 using namespace std::chrono_literals;
 
@@ -51,7 +47,7 @@ std::optional<QString> exeOf(pid_t pid)
     const QFileInfo info(QStringLiteral("/proc/%1/exe").arg(QString::number(pid)));
     auto baseName = QFileInfo(info.canonicalFilePath()).baseName(); // not const to allow move return
     if (baseName.isEmpty()) {
-        qCWarning(KWIN_KILLER) << "Failed to resolve exe of pid" << pid;
+        qWarning(KWIN_KILLER) << "Failed to resolve exe of pid" << pid;
         return std::nullopt;
     }
     return baseName;
@@ -61,7 +57,7 @@ std::optional<QString> bootId()
 {
     QFile file(QStringLiteral("/proc/sys/kernel/random/boot_id"));
     if (!file.open(QFile::ReadOnly)) {
-        qCWarning(KWIN_KILLER) << "Failed to read /proc/sys/kernel/random/boot_id" << file.errorString();
+        qWarning(KWIN_KILLER) << "Failed to read /proc/sys/kernel/random/boot_id" << file.errorString();
         return std::nullopt;
     }
     return QString::fromUtf8(file.readAll().simplified().replace('-', QByteArrayView()));
@@ -73,7 +69,7 @@ void writeApplicationNotResponding(pid_t pid)
     QDir dir(dirPath);
     if (!dir.exists()) {
         if (!dir.mkpath(dirPath)) {
-            qCWarning(KWIN_KILLER) << "Failed to create ApplicationNotResponding path" << dirPath;
+            qWarning(KWIN_KILLER) << "Failed to create ApplicationNotResponding path" << dirPath;
             return;
         }
     }
@@ -89,7 +85,7 @@ void writeApplicationNotResponding(pid_t pid)
     const QString anrPath = dirPath + QStringLiteral("/%1.%2.%3.%4.json").arg(optionalExe.value(), optionalBootId.value(), QString::number(pid), QString::number(QDateTime::currentMSecsSinceEpoch()));
     QFile file(anrPath);
     if (!file.open(QFile::NewOnly)) {
-        qCWarning(KWIN_KILLER) << "Failed to create ApplicationNotResponding file" << anrPath << file.error() << file.errorString();
+        qWarning(KWIN_KILLER) << "Failed to create ApplicationNotResponding file" << anrPath << file.error() << file.errorString();
         return;
     }
     // No content for now, simply close it once created
@@ -115,39 +111,6 @@ bool hasPidAborted(pid_t pid)
 }
 
 } // namespace
-
-class XdgImported : public QtWayland::zxdg_imported_v2
-{
-public:
-    XdgImported(::zxdg_imported_v2 *object)
-        : QtWayland::zxdg_imported_v2(object)
-    {
-    }
-    ~XdgImported() override
-    {
-        destroy();
-    }
-};
-
-class XdgImporter : public QWaylandClientExtensionTemplate<XdgImporter>, public QtWayland::zxdg_importer_v2
-{
-public:
-    XdgImporter()
-        : QWaylandClientExtensionTemplate(1)
-    {
-        initialize();
-    }
-    ~XdgImporter() override
-    {
-        if (isActive()) {
-            destroy();
-        }
-    }
-    XdgImported *import(const QString &handle)
-    {
-        return new XdgImported(import_toplevel(handle));
-    }
-};
 
 int main(int argc, char *argv[])
 {
@@ -186,28 +149,19 @@ int main(int argc, char *argv[])
 
     parser.process(app);
 
-    const bool isX11 = app.platformName() == QLatin1String("xcb");
-
     QString hostname = parser.value(hostNameOption);
     bool pid_ok = false;
     pid_t pid = parser.value(pidOption).toULong(&pid_ok);
     QString caption = parser.value(windowNameOption);
     QString appname = parser.value(applicationNameOption);
     bool id_ok = false;
-    xcb_window_t wid = XCB_WINDOW_NONE;
-    QString windowHandle;
-    if (isX11) {
-        wid = parser.value(widOption).toULong(&id_ok);
-    } else {
-        windowHandle = parser.value(widOption);
-    }
+    xcb_window_t wid = parser.value(widOption).toULong(&id_ok);
 
-    // on Wayland XDG_ACTIVATION_TOKEN is set in the environment.
     bool time_ok = false;
     xcb_timestamp_t timestamp = parser.value(timestampOption).toULong(&time_ok);
 
-    if (!pid_ok || pid == 0 || ((!id_ok || wid == XCB_WINDOW_NONE) && windowHandle.isEmpty())
-        || (isX11 && (!time_ok || timestamp == XCB_CURRENT_TIME))
+    if (!pid_ok || pid == 0 || !id_ok || wid == XCB_WINDOW_NONE
+        || !time_ok || timestamp == XCB_CURRENT_TIME
         || hostname.isEmpty() || caption.isEmpty() || appname.isEmpty()) {
         fprintf(stdout, "%s\n", qPrintable(i18n("This helper utility is not supposed to be called directly.")));
         parser.showHelp(1);
@@ -241,9 +195,7 @@ int main(int argc, char *argv[])
     KGuiItem continueButton = KGuiItem(i18nc("@action:button Terminate app", "&Terminate %1", appname), QStringLiteral("application-exit"));
     KGuiItem cancelButton = KGuiItem(i18nc("@action:button Wait for frozen app to maybe respond again", "&Wait Longer"), QStringLiteral("chronometer"));
 
-    if (isX11) {
-        QX11Info::setAppUserTime(timestamp);
-    }
+    QX11Info::setAppUserTime(timestamp);
 
     auto *dialog = new KMessageDialog(KMessageDialog::WarningContinueCancel, question);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -270,15 +222,8 @@ int main(int argc, char *argv[])
     dialog->setDetails(details.join(QLatin1Char('\n')));
     dialog->winId();
 
-    std::unique_ptr<XdgImporter> xdgImporter;
-    std::unique_ptr<XdgImported> importedParent;
-
-    if (isX11) {
-        if (QWindow *foreignParent = QWindow::fromWinId(wid)) {
-            dialog->windowHandle()->setTransientParent(foreignParent);
-        }
-    } else {
-        xdgImporter = std::make_unique<XdgImporter>();
+    if (QWindow *foreignParent = QWindow::fromWinId(wid)) {
+        dialog->windowHandle()->setTransientParent(foreignParent);
     }
 
     QObject::connect(dialog, &QDialog::finished, &app, [pid, hostname, isLocal](int result) {
@@ -319,16 +264,6 @@ int main(int argc, char *argv[])
     });
 
     dialog->show();
-
-    if (xdgImporter) {
-        if (auto *waylandWindow = dialog->windowHandle()->nativeInterface<QNativeInterface::Private::QWaylandWindow>()) {
-            importedParent.reset(xdgImporter->import(windowHandle));
-            if (auto *surface = waylandWindow->surface()) {
-                importedParent->set_parent_of(surface);
-            }
-        }
-    }
-
     dialog->windowHandle()->requestActivate();
 
     return app.exec();

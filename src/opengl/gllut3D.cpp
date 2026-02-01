@@ -26,7 +26,7 @@ GlLookUpTable3D::GlLookUpTable3D(GLuint handle, size_t xSize, size_t ySize, size
 GlLookUpTable3D::~GlLookUpTable3D()
 {
     if (!OpenGlContext::currentContext()) {
-        qCWarning(KWIN_OPENGL, "Could not delete 3D LUT because no context is current");
+        qWarning(KWIN_OPENGL, "Could not delete 3D LUT because no context is current");
         return;
     }
     glDeleteTextures(1, &m_handle);

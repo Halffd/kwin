@@ -243,7 +243,7 @@ std::optional<QByteArray> ShaderManager::preprocess(const QByteArray &src, int r
 {
     recursionDepth++;
     if (recursionDepth > 10) {
-        qCWarning(KWIN_OPENGL, "shader has too many recursive includes!");
+        qWarning(KWIN_OPENGL, "shader has too many recursive includes!");
         return std::nullopt;
     }
     QByteArray ret;
@@ -256,7 +256,7 @@ std::optional<QByteArray> ShaderManager::preprocess(const QByteArray &src, int r
             const QByteArray path = ":/opengl/" + line.mid(includeLength, line.size() - includeLength - 1);
             QFile file(path);
             if (!file.open(QIODevice::ReadOnly)) {
-                qCWarning(KWIN_OPENGL, "failed to read include line %s", qPrintable(line));
+                qWarning(KWIN_OPENGL, "failed to read include line %s", qPrintable(line));
                 return std::nullopt;
             }
             const auto processed = preprocess(file.readAll(), recursionDepth);
@@ -307,7 +307,7 @@ static QString resolveShaderFilePath(const QString &filePath)
     } else if (filePath.endsWith(QStringLiteral(".vert"))) {
         extension = QStringLiteral(".vert");
     } else {
-        qCWarning(KWIN_OPENGL) << filePath << "must end either with .vert or .frag";
+        qWarning(KWIN_OPENGL) << filePath << "must end either with .vert or .frag";
         return QString();
     }
 

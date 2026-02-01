@@ -37,13 +37,13 @@ static QStringList fetchProcessServiceField(const QString &executablePath, const
     });
 
     if (servicesFound.isEmpty()) {
-        qCDebug(KWIN_UTILS) << "Could not find the desktop file for" << executablePath;
+        qDebug(KWIN_UTILS) << "Could not find the desktop file for" << executablePath;
         return {};
     }
 
     const auto fieldValues = servicesFound.first()->property<QStringList>(fieldName);
     if (KWIN_UTILS().isDebugEnabled()) {
-        qCDebug(KWIN_UTILS) << "Interfaces found for" << executablePath << fieldName << ":" << fieldValues;
+        qDebug(KWIN_UTILS) << "Interfaces found for" << executablePath << fieldName << ":" << fieldValues;
     }
     return fieldValues;
 }

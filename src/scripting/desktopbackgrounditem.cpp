@@ -89,7 +89,7 @@ void DesktopBackgroundItem::updateWindow()
     }
 
     if (Q_UNLIKELY(!m_output)) {
-        qCWarning(KWIN_SCRIPTING) << "DesktopBackgroundItem.output is required";
+        qWarning(KWIN_SCRIPTING) << "DesktopBackgroundItem.output is required";
         return;
     }
 

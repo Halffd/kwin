@@ -42,9 +42,9 @@
 #include <QPushButton>
 #include <QSurfaceFormat>
 #include <QVBoxLayout>
-#include <qplatformdefs.h>
-#include <private/qtx11extras_p.h>
 #include <QtDBus>
+#include <private/qtx11extras_p.h>
+#include <qplatformdefs.h>
 
 // system
 #include <iostream>
@@ -340,10 +340,10 @@ void ApplicationX11::crashChecking()
             ::exit(1);
         }
         if (cmd.length() > 500) {
-            qCDebug(KWIN_CORE) << "Command is too long, truncating";
+            qDebug() << "Command is too long, truncating";
             cmd = cmd.left(500);
         }
-        qCDebug(KWIN_CORE) << "Starting" << cmd << "and exiting";
+        qDebug() << "Starting" << cmd << "and exiting";
         char buf[1024];
         sprintf(buf, "%s &", cmd.toLatin1().data());
         system(buf);

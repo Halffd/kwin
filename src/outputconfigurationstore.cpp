@@ -392,6 +392,7 @@ std::pair<OutputConfiguration, QList<Output *>> OutputConfigurationStore::setupT
             .brightness = state.brightness,
             .allowSdrSoftwareBrightness = state.allowSdrSoftwareBrightness,
             .colorPowerTradeoff = state.colorPowerTradeoff,
+            .dimming = std::nullopt,
         };
         if (setupState.enabled) {
             priorities.push_back(std::make_pair(output, setupState.priority));
@@ -514,10 +515,17 @@ std::pair<OutputConfiguration, QList<Output *>> OutputConfigurationStore::genera
             .referenceLuminance = existingData.referenceLuminance.value_or(std::clamp(output->maxAverageBrightness().value_or(200), 200.0, 500.0)),
             .wideColorGamut = existingData.wideColorGamut.value_or(false),
             .autoRotationPolicy = existingData.autoRotation.value_or(Output::AutoRotationPolicy::InTabletMode),
+            .iccProfilePath = existingData.iccProfilePath,
+            .iccProfile = existingData.iccProfilePath ? IccProfile::load(*existingData.iccProfilePath).value_or(nullptr) : nullptr,
+            .maxPeakBrightnessOverride = existingData.maxPeakBrightnessOverride,
+            .maxAverageBrightnessOverride = existingData.maxAverageBrightnessOverride,
+            .minBrightnessOverride = existingData.minBrightnessOverride,
+            .sdrGamutWideness = existingData.sdrGamutWideness,
             .colorProfileSource = existingData.colorProfileSource.value_or(Output::ColorProfileSource::sRGB),
             .brightness = existingData.brightness.value_or(1.0),
             .allowSdrSoftwareBrightness = existingData.allowSdrSoftwareBrightness.value_or(output->brightnessDevice() == nullptr),
             .colorPowerTradeoff = existingData.colorPowerTradeoff.value_or(Output::ColorPowerTradeoff::PreferEfficiency),
+            .dimming = std::nullopt,
         };
         if (enable) {
             const auto modeSize = changeset->transform->map(mode->size());
@@ -664,13 +672,13 @@ void OutputConfigurationStore::load()
 
     QFile f(jsonPath);
     if (!f.open(QIODevice::ReadOnly)) {
-        qCWarning(KWIN_CORE) << "Could not open file" << jsonPath;
+        qWarning() << "Could not open file" << jsonPath;
         return;
     }
     QJsonParseError error;
     const auto doc = QJsonDocument::fromJson(f.readAll(), &error);
     if (error.error != QJsonParseError::NoError) {
-        qCWarning(KWIN_CORE) << "Failed to parse" << jsonPath << error.errorString();
+        qWarning() << "Failed to parse" << jsonPath << error.errorString();
         return;
     }
     const auto array = doc.array();
@@ -722,7 +730,7 @@ void OutputConfigurationStore::load()
             // without an identifier the settings are useless
             // we still have to push something into the list so that the indices stay correct
             outputDatas.push_back(std::nullopt);
-            qCWarning(KWIN_CORE, "Output in config is missing identifiers");
+            qWarning(KWIN_CORE, "Output in config is missing identifiers");
             continue;
         }
         const bool hasDuplicate = std::any_of(outputDatas.begin(), outputDatas.end(), [&state](const auto &data) {
@@ -733,7 +741,7 @@ void OutputConfigurationStore::load()
                 && data->connectorName == state.connectorName;
         });
         if (hasDuplicate) {
-            qCWarning(KWIN_CORE) << "Duplicate output found in config for edidIdentifier:" << state.edidIdentifier << "; connectorName:" << state.connectorName << "; mstPath:" << state.mstPath;
+            qWarning() << "Duplicate output found in config for edidIdentifier:" << state.edidIdentifier << "; connectorName:" << state.connectorName << "; mstPath:" << state.mstPath;
             outputDatas.push_back(std::nullopt);
             continue;
         }
@@ -1146,7 +1154,7 @@ void OutputConfigurationStore::save()
     const QString path = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + "/kwinoutputconfig.json";
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly)) {
-        qCWarning(KWIN_CORE, "Couldn't open output config file %s", qPrintable(path));
+        qWarning(KWIN_CORE, "Couldn't open output config file %s", qPrintable(path));
         return;
     }
     document.setArray(array);

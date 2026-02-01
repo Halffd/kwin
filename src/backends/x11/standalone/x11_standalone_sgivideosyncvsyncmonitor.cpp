@@ -34,7 +34,7 @@ SGIVideoSyncVsyncMonitorHelper::SGIVideoSyncVsyncMonitorHelper()
     // Establish a new X11 connection to avoid locking up the main X11 connection.
     m_display = XOpenDisplay(DisplayString(QX11Info::display()));
     if (!m_display) {
-        qCDebug(KWIN_X11STANDALONE) << "Failed to establish vsync monitor X11 connection";
+        qDebug(KWIN_X11STANDALONE) << "Failed to establish vsync monitor X11 connection";
         return;
     }
 
@@ -47,7 +47,7 @@ SGIVideoSyncVsyncMonitorHelper::SGIVideoSyncVsyncMonitorHelper()
 
     GLXFBConfig config = chooseGlxFbConfig(m_display, attribs);
     if (!config) {
-        qCDebug(KWIN_X11STANDALONE) << "Couldn't find any suitable FBConfig for vsync monitor";
+        qDebug(KWIN_X11STANDALONE) << "Couldn't find any suitable FBConfig for vsync monitor";
         return;
     }
 
@@ -68,19 +68,19 @@ SGIVideoSyncVsyncMonitorHelper::SGIVideoSyncVsyncMonitorHelper()
                                   InputOutput, visual, CWColormap, &attributes);
     XFreeColormap(m_display, colormap);
     if (!m_dummyWindow) {
-        qCDebug(KWIN_X11STANDALONE) << "Failed to create a dummy window for vsync monitor";
+        qDebug(KWIN_X11STANDALONE) << "Failed to create a dummy window for vsync monitor";
         return;
     }
 
     m_drawable = glXCreateWindow(m_display, config, m_dummyWindow, nullptr);
     if (!m_drawable) {
-        qCDebug(KWIN_X11STANDALONE) << "Failed to create GLXWindow for dummy window";
+        qDebug(KWIN_X11STANDALONE) << "Failed to create GLXWindow for dummy window";
         return;
     }
 
     m_localContext = glXCreateNewContext(m_display, config, GLX_RGBA_TYPE, 0, true);
     if (!m_localContext) {
-        qCDebug(KWIN_X11STANDALONE) << "Failed to create opengl context for vsync monitor";
+        qDebug(KWIN_X11STANDALONE) << "Failed to create opengl context for vsync monitor";
         return;
     }
 }
@@ -109,7 +109,7 @@ bool SGIVideoSyncVsyncMonitorHelper::isValid() const
 void SGIVideoSyncVsyncMonitorHelper::poll()
 {
     if (!glXMakeCurrent(m_display, m_drawable, m_localContext)) {
-        qCDebug(KWIN_X11STANDALONE) << "Failed to make vsync monitor OpenGL context current";
+        qDebug(KWIN_X11STANDALONE) << "Failed to make vsync monitor OpenGL context current";
         Q_EMIT errorOccurred();
         return;
     }
