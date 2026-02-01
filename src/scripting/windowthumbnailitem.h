@@ -51,6 +51,7 @@ private:
     std::unique_ptr<GLFramebuffer> m_offscreenTarget;
     GLsync m_acquireFence = 0;
     bool m_dirty = true;
+    bool m_updating = false; // For re-entrancy protection - Issue #3
 };
 
 class WindowThumbnailItem : public QQuickItem

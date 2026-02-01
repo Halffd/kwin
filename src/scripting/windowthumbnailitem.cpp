@@ -114,6 +114,26 @@ WindowThumbnailSource::Frame WindowThumbnailSource::acquire()
 
 void WindowThumbnailSource::update()
 {
+    // RE-ENTRANCY PROTECTION - Issue #3
+    if (m_updating) {
+        return;
+    }
+    m_updating = true;
+
+    // RAII-style guard to ensure m_updating is reset
+    struct ScopedGuard
+    {
+        bool &updating_ref;
+        ScopedGuard(bool &ref)
+            : updating_ref(ref)
+        {
+        }
+        ~ScopedGuard()
+        {
+            updating_ref = false;
+        }
+    } guard(m_updating);
+
     // ========== CONSERVATIVE APPROACH: Reduce system pressure ==========
     // Add throttling to prevent overwhelming the system
 
@@ -146,9 +166,15 @@ void WindowThumbnailSource::update()
     // REDUCE THUMBNAIL SIZE to reduce GPU pressure
     const QSize textureSize = (geometry.toAlignedRect().size() * devicePixelRatio) / 8; // Even smaller
 
+    // PREVENT ZERO-SIZED TEXTURE CRASHES - Issue #1
+    if (textureSize.isEmpty()) {
+        return;
+    }
+
     if (!m_offscreenTexture || m_offscreenTexture->size() != textureSize) {
-        // Use RGB565 instead of RGBA8 to save VRAM
-        m_offscreenTexture = GLTexture::allocate(GL_RGB565, textureSize);
+        // RESTORE RGBA FORMAT TO PREVENT ABI MISMATCH - Issue #2
+        // Use GL_RGBA4 instead of GL_RGB565 to maintain alpha channel compatibility
+        m_offscreenTexture = GLTexture::allocate(GL_RGBA4, textureSize);
 
         if (!m_offscreenTexture) {
             return;
@@ -174,8 +200,13 @@ void WindowThumbnailSource::update()
 
     m_dirty = false;
     lastUpdate.restart(); // Reset timer after successful update
-    // Don't use fence - just emit immediately for non-blocking behavior
-    // m_acquireFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+
+    // RESTORE FENCE FOR PROPER SYNCHRONIZATION - Issue #4
+    // Keep fence for ordering but don't block immediately
+    if (m_acquireFence) {
+        glDeleteSync(m_acquireFence);
+    }
+    m_acquireFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 
     Q_EMIT changed();
 }
@@ -329,8 +360,8 @@ QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::Upda
 
         auto [originalTexture, acquireFence] = m_source->acquire();
         if (!originalTexture) {
-            // Schedule update with longer interval to reduce pressure
-            int retryInterval = m_isSelected ? 16 : 64; // Slower retries to reduce pressure
+            // Schedule update with longer interval to reduce pressure and prevent hammering - Issue #5
+            int retryInterval = m_isSelected ? 32 : 128; // More conservative retry intervals
             QTimer::singleShot(retryInterval, this, &WindowThumbnailItem::update);
             return oldNode;
         }
