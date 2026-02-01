@@ -13,11 +13,11 @@
 #include "scene/surfaceitem_x11.h"
 #include "utils/common.h"
 #include "utils/filedescriptor.h"
+#include "vulkan/vulkanbuffer.h"
+#include "vulkan/vulkancontext.h"
+#include "vulkan/vulkanperformancetimer.h"
+#include "vulkan/vulkantexture.h"
 #include "vulkanbackend.h"
-#include "vulkanbuffer.h"
-#include "vulkancontext.h"
-#include "vulkanperformancetimer.h"
-#include "vulkantexture.h"
 
 #include <QImage>
 #include <cstring>

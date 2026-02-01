@@ -14,10 +14,10 @@
 #include "compositor.h"
 #include "core/rendertarget.h"
 #include "decorations/decoratedwindow.h"
-#include "platformsupport/scenes/vulkan/vulkancontext.h"
 #include "scene/itemrenderer_vulkan.h"
 #include "shadow.h"
 #include "utils/common.h"
+#include "vulkan/vulkancontext.h"
 #include "window.h"
 #include "workspacescene_vulkan.h"
 

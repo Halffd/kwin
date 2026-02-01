@@ -10,13 +10,13 @@
 
 #include "core/colorspace.h"
 #include "core/syncobjtimeline.h"
-#include "platformsupport/scenes/vulkan/vulkanpipeline.h"
 #include "platformsupport/scenes/vulkan/vulkanrendertarget.h"
 #include "scene/borderradius.h"
 #include "scene/itemgeometry.h"
 #include "scene/itemrenderer.h"
 #include "scene/surfaceitem.h"
 #include "scene/windowitem.h"
+#include "vulkan/vulkanpipeline.h"
 
 #include <QMatrix4x4>
 #include <QStack>

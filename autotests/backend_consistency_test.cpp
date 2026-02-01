@@ -20,9 +20,9 @@
 
 #if HAVE_VULKAN
 // Vulkan headers
-#include "platformsupport/scenes/vulkan/vulkancontext.h"
-#include "platformsupport/scenes/vulkan/vulkanframebuffer.h"
-#include "platformsupport/scenes/vulkan/vulkantexture.h"
+#include "vulkan/vulkancontext.h"
+#include "vulkan/vulkanframebuffer.h"
+#include "vulkan/vulkantexture.h"
 #endif
 
 using namespace KWin;

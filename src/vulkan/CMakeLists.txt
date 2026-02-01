@@ -1,0 +1,94 @@
+# Vulkan support for KWin - files matching OpenGL functionality
+# Only build Vulkan support if Vulkan is available
+find_package(Vulkan QUIET)
+
+message(STATUS "Vulkan_FOUND: ${Vulkan_FOUND}")
+if(Vulkan_FOUND)
+    message(STATUS "Vulkan_VERSION: ${Vulkan_VERSION}")
+    message(STATUS "Vulkan_INCLUDE_DIRS: ${Vulkan_INCLUDE_DIRS}")
+    message(STATUS "Vulkan_LIBRARIES: ${Vulkan_LIBRARIES}")
+endif()
+
+if(NOT Vulkan_FOUND)
+    message(STATUS "Vulkan not found, skipping Vulkan support")
+    return()
+endif()
+
+message(STATUS "Building Vulkan support")
+
+# Check for Vulkan shader compiler
+find_program(GLSLC_EXECUTABLE glslc HINTS $ENV{VULKAN_SDK}/bin)
+if(NOT GLSLC_EXECUTABLE)
+    message(WARNING "glslc not found - Vulkan shaders will need to be pre-compiled")
+endif()
+
+# Compile shaders if glslc is available
+if(GLSLC_EXECUTABLE)
+    set(SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    set(SHADER_BINARY_DIR "${CMAKE_BINARY_DIR}/shaders/vulkan")
+    file(MAKE_DIRECTORY ${SHADER_BINARY_DIR})
+
+    set(SHADER_SOURCES
+        ${SHADER_SOURCE_DIR}/basic.vert
+        ${SHADER_SOURCE_DIR}/main.frag
+    )
+
+    foreach(SHADER ${SHADER_SOURCES})
+        get_filename_component(SHADER_NAME ${SHADER} NAME)
+        set(SPIRV "${SHADER_BINARY_DIR}/${SHADER_NAME}.spv")
+
+        add_custom_command(
+            OUTPUT ${SPIRV}
+            COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.2 ${SHADER} -o ${SPIRV}
+            DEPENDS ${SHADER}
+            COMMENT "Compiling ${SHADER_NAME} to SPIR-V"
+        )
+
+        list(APPEND SPIRV_BINARY_FILES ${SPIRV})
+    endforeach()
+
+    add_custom_target(vulkan_shaders DEPENDS ${SPIRV_BINARY_FILES})
+    add_dependencies(kwin vulkan_shaders)
+
+    # Install compiled shaders
+    install(FILES ${SPIRV_BINARY_FILES} DESTINATION ${KDE_INSTALL_DATADIR}/kwin/shaders/vulkan)
+endif()
+
+message(STATUS "Adding Vulkan sources to kwin target")
+target_sources(kwin PRIVATE
+    # Context - matches openglcontext.cpp/h
+    vulkancontext.cpp
+
+    # Framebuffer - matches glframebuffer.cpp/h
+    vulkanframebuffer.cpp
+
+    # Pipeline - matches glshader.cpp/h
+    vulkanpipeline.cpp
+
+    # Pipeline manager - matches glshadermanager.cpp/h
+    vulkanpipelinemanager.cpp
+
+    # Texture - matches gltexture.cpp/h
+    vulkantexture.cpp
+
+    # Swapchain - matches eglswapchain.cpp/h
+    vulkanswapchain.cpp
+
+    # Performance timer - matches glrendertimequery.cpp/h
+    vulkanperformancetimer.h
+
+    # Surface texture - matches eglnativefence.cpp/h
+    vulkansurfacetexture.cpp
+
+    # Buffer - matches glvertexbuffer.cpp/h
+    vulkanbuffer.cpp
+)
+
+target_link_libraries(kwin PRIVATE
+    Vulkan::Vulkan
+    XCB::DRI3
+    Libdrm::Libdrm
+)
+
+# Include path for vulkanbackend.h which remains in platformsupport/scenes/vulkan
+target_include_directories(kwin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../platformsupport/scenes/vulkan)

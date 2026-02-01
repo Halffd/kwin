@@ -9,9 +9,9 @@
 
 #include "vulkanbackend.h"
 #include "utils/common.h"
-#include "vulkancontext.h"
-#include "vulkanframebuffer.h"
-#include "vulkantexture.h"
+#include "vulkan/vulkancontext.h"
+#include "vulkan/vulkanframebuffer.h"
+#include "vulkan/vulkantexture.h"
 
 #include <QDebug>
 #include <vector>

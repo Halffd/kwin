@@ -13,10 +13,10 @@
 #if HAVE_VULKAN
 
 #include "platformsupport/scenes/vulkan/vulkanbackend.h"
-#include "platformsupport/scenes/vulkan/vulkantexture.h"
 #include "scene/decorationitem.h"
 #include "scene/shadowitem.h"
 #include "scene/workspacescene.h"
+#include "vulkan/vulkantexture.h"
 
 #include <memory>
 

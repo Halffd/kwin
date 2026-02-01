@@ -10,10 +10,10 @@
 
 #include "core/outputlayer.h"
 #include "platformsupport/scenes/vulkan/vulkanbackend.h"
-#include "platformsupport/scenes/vulkan/vulkancontext.h"
 #include "platformsupport/scenes/vulkan/vulkansurfacetexture_x11.h"
-#include "platformsupport/scenes/vulkan/vulkanswapchain.h"
-#include "platformsupport/scenes/vulkan/vulkantexture.h"
+#include "vulkan/vulkancontext.h"
+#include "vulkan/vulkanswapchain.h"
+#include "vulkan/vulkantexture.h"
 #include "x11eventfilter.h"
 
 #include <vulkan/vulkan.h>

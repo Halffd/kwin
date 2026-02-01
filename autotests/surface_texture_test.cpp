@@ -24,8 +24,8 @@
 #ifdef HAVE_VULKAN
 #include "backends/x11/standalone/x11_standalone_vulkan_backend.h"
 #include "platformsupport/scenes/vulkan/vulkanbackend.h"
-#include "platformsupport/scenes/vulkan/vulkansurfacetexture.h"
-#include "platformsupport/scenes/vulkan/vulkantexture.h"
+#include "vulkan/vulkansurfacetexture.h"
+#include "vulkan/vulkantexture.h"
 #endif
 
 #include <QtTest>

@@ -8,8 +8,8 @@
 */
 #pragma once
 
-#include "vulkansurfacetexture.h"
-#include "vulkantexture.h"
+#include "vulkan/vulkansurfacetexture.h"
+#include "vulkan/vulkantexture.h"
 
 #include <QSize>
 #include <memory>

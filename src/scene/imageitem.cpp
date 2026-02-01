@@ -10,8 +10,8 @@
 #include "opengl/gltexture.h"
 #if HAVE_VULKAN
 #include "compositor.h"
-#include "platformsupport/scenes/vulkan/vulkantexture.h"
 #include "scene/workspacescene_vulkan.h"
+#include "vulkan/vulkantexture.h"
 #endif
 
 namespace KWin

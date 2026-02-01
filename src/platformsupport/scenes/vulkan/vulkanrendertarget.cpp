@@ -8,9 +8,9 @@
 */
 
 #include "vulkanrendertarget.h"
-#include "platformsupport/scenes/vulkan/vulkanframebuffer.h"
-#include "platformsupport/scenes/vulkan/vulkantexture.h"
 #include "utils/common.h"
+#include "vulkan/vulkanframebuffer.h"
+#include "vulkan/vulkantexture.h"
 
 namespace KWin
 {

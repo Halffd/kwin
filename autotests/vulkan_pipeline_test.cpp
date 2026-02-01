@@ -14,10 +14,10 @@
 #include "config-kwin.h"
 
 #if HAVE_VULKAN
-#include "platformsupport/scenes/vulkan/vulkanpipeline.h"
-#include "platformsupport/scenes/vulkan/vulkanpipelinemanager.h"
 #include "platformsupport/scenes/vulkan/vulkanrenderpass.h"
-#include "platformsupport/scenes/vulkan/vulkanswapchain.h"
+#include "vulkan/vulkanpipeline.h"
+#include "vulkan/vulkanpipelinemanager.h"
+#include "vulkan/vulkanswapchain.h"
 #include <vulkan/vulkan.h>
 #endif
 

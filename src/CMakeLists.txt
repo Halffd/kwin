@@ -23,6 +23,7 @@ if (KWIN_BUILD_KCMS)
 endif()
 
 add_library(kwin SHARED)
+add_subdirectory(vulkan)
 target_include_directories(kwin INTERFACE "$<INSTALL_INTERFACE:${KDE_INSTALL_INCLUDEDIR}/kwin-x11>")
 set_target_properties(kwin PROPERTIES
    VERSION ${PROJECT_VERSION}

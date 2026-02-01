@@ -14,9 +14,9 @@
 #include "config-kwin.h"
 
 #if HAVE_VULKAN
-#include "platformsupport/scenes/vulkan/vulkancontext.h"
-#include "platformsupport/scenes/vulkan/vulkansurfacetexture.h"
-#include "platformsupport/scenes/vulkan/vulkantexture.h"
+#include "vulkan/vulkancontext.h"
+#include "vulkan/vulkansurfacetexture.h"
+#include "vulkan/vulkantexture.h"
 #include <vulkan/vulkan.h>
 #endif
 
