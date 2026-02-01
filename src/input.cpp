@@ -33,6 +33,7 @@
 #include "x11window.h"
 #endif
 #if KWIN_BUILD_TABBOX
+#include "tabbox/direct_switcher_input_filter.h"
 #include "tabbox/tabbox.h"
 #endif
 #include "core/output.h"
@@ -2834,6 +2835,10 @@ void InputRedirection::setupInputFilters()
 #if KWIN_BUILD_TABBOX
     m_tabboxFilter = std::make_unique<TabBoxInputFilter>();
     installInputEventFilter(m_tabboxFilter.get());
+
+    // Install the new direct switcher filter as an alternative to the traditional tabbox
+    auto directSwitcherFilter = std::make_unique<KWin::DirectSwitcherInputFilter>();
+    installInputEventFilter(directSwitcherFilter.release()); // Transfer ownership to the filter list
 #endif
 
     m_effectsFilter = std::make_unique<EffectsFilter>();
