@@ -21,7 +21,9 @@ namespace KWin
 
 class Window;
 class Output;
-class SurfaceItem;
+class Item;
+class ImageItem;
+class Workspace;
 
 /**
  * A fast, direct switcher implementation that bypasses Qt Model/View and QML.
@@ -41,6 +43,12 @@ public:
 
     explicit DirectSwitcher(QObject *parent = nullptr);
     ~DirectSwitcher() override;
+
+    /**
+     * Set the parent item for the switcher's scene graph node.
+     * This should be called with the WorkspaceScene's overlayItem().
+     */
+    void setParentItem(Item *parentItem);
 
     /**
      * Shows the switcher with the current window list.
@@ -95,6 +103,26 @@ public:
     int thumbnailWidth() const;
     int padding() const;
     double switcherScreenCoverage() const;
+
+    /**
+     * Handle Alt+Tab and Alt+Shift+Tab raw key events (Phase 2)
+     */
+    void keyPress(int key);
+    void keyRelease(int key);
+
+    /**
+     * Phase 8: Configuration for activation behavior
+     */
+    void setAutoActivateOnSelection(bool enabled);
+    bool autoActivateOnSelection() const;
+
+    /**
+     * Phase 9: Configuration for animations
+     */
+    void setAnimationEnabled(bool enabled);
+    bool animationEnabled() const;
+    void setAnimationDuration(int durationMs);
+    int animationDuration() const;
 
 Q_SIGNALS:
     void visibilityChanged(bool visible);
