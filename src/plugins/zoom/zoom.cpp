@@ -259,15 +259,25 @@ void ZoomEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseco
 
     for (auto &[screen, state] : m_states) {
         if (state.zoom != state.targetZoom) {
-            const float zoomDist = std::abs(state.targetZoom - state.sourceZoom);
+            // Calculate animation speed to ensure consistent timing
+            // Use a fixed speed approach to make animation smooth and predictable
+            const float totalAnimTime = animationTime(std::chrono::milliseconds(150)); // Faster animation (150ms instead of 300ms)
+            const float minStep = 0.01f; // Increased minimum step for faster progress
+            const float maxStep = 0.1f; // Increased maximum step for faster transitions
 
-            // Use proportional speed for larger changes
-            const float animSpeed = (zoomDist * time) / animationTime(std::chrono::milliseconds(100));
+            // Calculate the difference to the target
+            const float diff = state.targetZoom - state.zoom;
+            const float absDiff = std::abs(diff);
 
-            if (state.targetZoom > state.zoom) {
-                state.zoom = std::min(state.zoom + animSpeed, state.targetZoom);
+            // Calculate step size based on time and total animation duration
+            const float idealStep = (absDiff / totalAnimTime) * time;
+            const float step = std::clamp(idealStep, minStep, maxStep);
+
+            // Move toward the target
+            if (diff > 0) {
+                state.zoom = std::min(state.zoom + step, state.targetZoom);
             } else {
-                state.zoom = std::max(state.zoom - animSpeed, state.targetZoom);
+                state.zoom = std::max(state.zoom - step, state.targetZoom);
             }
         }
 
@@ -953,6 +963,10 @@ void ZoomEffect::setTargetZoom(Output *output, double value)
         }
     }
 
+    // Only update sourceZoom if we're starting a new animation
+    if (s->targetZoom != value) {
+        s->sourceZoom = s->zoom; // Set source to current zoom level
+    }
     s->targetZoom = value;
 
     // Check if any screen is active now
