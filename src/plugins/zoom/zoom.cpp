@@ -34,6 +34,7 @@
 #include <KGlobalAccel>
 #include <KLocalizedString>
 #include <KStandardActions>
+#include <KWindowSystem>
 
 #include <QDBusConnection>
 #include <QDBusMessage>
@@ -785,7 +786,7 @@ void ZoomEffect::moveMouseToFocus()
     }
     ZoomScreenState *s = stateForScreen(screen);
 
-    if (effects->waylandDisplay() || !ZoomEffect::isActive()) {
+    if (KWindowSystem::isPlatformWayland() || !ZoomEffect::isActive()) {
         const auto window = effects->activeWindow();
         if (!window) {
             return;
