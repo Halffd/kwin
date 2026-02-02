@@ -22,14 +22,11 @@
 
 #include "opengl/gltexture.h"
 
-#include <QDebug>
-#include <QElapsedTimer>
 #include <QOpenGLContext>
 #include <QQuickWindow>
 #include <QRunnable>
 #include <QSGImageNode>
 #include <QSGTextureProvider>
-#include <QTimer>
 
 namespace KWin
 {
@@ -105,7 +102,6 @@ std::shared_ptr<WindowThumbnailSource> WindowThumbnailSource::getOrCreate(QQuick
 
 WindowThumbnailSource::Frame WindowThumbnailSource::acquire()
 {
-    // Return the existing offscreen texture (may be null if not rendered yet)
     return Frame{
         .texture = m_offscreenTexture,
         .fence = std::exchange(m_acquireFence, nullptr),
@@ -114,47 +110,6 @@ WindowThumbnailSource::Frame WindowThumbnailSource::acquire()
 
 void WindowThumbnailSource::update()
 {
-    // RE-ENTRANCY PROTECTION - Issue #3
-    if (m_updating) {
-        return;
-    }
-    m_updating = true;
-
-    // RAII-style guard to ensure m_updating is reset
-    struct ScopedGuard
-    {
-        bool &updating_ref;
-        ScopedGuard(bool &ref)
-            : updating_ref(ref)
-        {
-        }
-        ~ScopedGuard()
-        {
-            updating_ref = false;
-        }
-    } guard(m_updating);
-
-    // ========== CONSERVATIVE APPROACH: Reduce system pressure ==========
-    // Add throttling to prevent overwhelming the system
-
-    static QElapsedTimer lastUpdate;
-    static bool initialized = false;
-    if (!initialized) {
-        lastUpdate.start();
-        initialized = true;
-    }
-
-    // Don't update too frequently - limit to once every 100ms to reduce pressure
-    if (lastUpdate.elapsed() < 100) {
-        // Reschedule for later if too soon
-        QTimer::singleShot(100 - lastUpdate.elapsed(), [this]() {
-            if (m_dirty) { // Only update if still dirty
-                update();
-            }
-        });
-        return;
-    }
-
     if (m_acquireFence || !m_dirty || !m_handle) {
         return;
     }
@@ -162,25 +117,15 @@ void WindowThumbnailSource::update()
 
     const QRectF geometry = m_handle->visibleGeometry();
     const qreal devicePixelRatio = m_view->devicePixelRatio();
-
-    // REDUCE THUMBNAIL SIZE to reduce GPU pressure
-    const QSize textureSize = (geometry.toAlignedRect().size() * devicePixelRatio) / 8; // Even smaller
-
-    // PREVENT ZERO-SIZED TEXTURE CRASHES - Issue #1
-    if (textureSize.isEmpty()) {
-        return;
-    }
+    const QSize textureSize = geometry.toAlignedRect().size() * devicePixelRatio;
 
     if (!m_offscreenTexture || m_offscreenTexture->size() != textureSize) {
-        // RESTORE RGBA FORMAT TO PREVENT ABI MISMATCH - Issue #2
-        // Use GL_RGBA4 instead of GL_RGB565 to maintain alpha channel compatibility
-        m_offscreenTexture = GLTexture::allocate(GL_RGBA4, textureSize);
-
+        m_offscreenTexture = GLTexture::allocate(GL_RGBA8, textureSize);
         if (!m_offscreenTexture) {
             return;
         }
         m_offscreenTexture->setContentTransform(OutputTransform::FlipY);
-        m_offscreenTexture->setFilter(GL_NEAREST); // Use nearest neighbor to reduce processing
+        m_offscreenTexture->setFilter(GL_LINEAR);
         m_offscreenTexture->setWrapMode(GL_CLAMP_TO_EDGE);
         m_offscreenTarget = std::make_unique<GLFramebuffer>(m_offscreenTexture.get());
     }
@@ -198,14 +143,9 @@ void WindowThumbnailSource::update()
     Compositor::self()->scene()->renderer()->renderItem(offscreenRenderTarget, offscreenViewport, m_handle->windowItem(), mask, infiniteRegion(), WindowPaintData{});
     GLFramebuffer::popFramebuffer();
 
+    // The fence is needed to avoid the case where qtquick renderer starts using
+    // the texture while all rendering commands to it haven't completed yet.
     m_dirty = false;
-    lastUpdate.restart(); // Reset timer after successful update
-
-    // RESTORE FENCE FOR PROPER SYNCHRONIZATION - Issue #4
-    // Keep fence for ordering but don't block immediately
-    if (m_acquireFence) {
-        glDeleteSync(m_acquireFence);
-    }
     m_acquireFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 
     Q_EMIT changed();
@@ -355,27 +295,21 @@ QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::Upda
             return oldNode;
         }
 
-        // ========== CONSERVATIVE APPROACH: Reduce system pressure ==========
-        // Only process thumbnails when system is not under stress
-
-        auto [originalTexture, acquireFence] = m_source->acquire();
-        if (!originalTexture) {
-            // Schedule update with longer interval to reduce pressure and prevent hammering - Issue #5
-            int retryInterval = m_isSelected ? 32 : 128; // More conservative retry intervals
-            QTimer::singleShot(retryInterval, this, &WindowThumbnailItem::update);
+        auto [texture, acquireFence] = m_source->acquire();
+        if (!texture) {
             return oldNode;
         }
 
-        // Delete fence immediately - don't wait
+        // Wait for rendering commands to the offscreen texture complete if there are any.
         if (acquireFence) {
+            glWaitSync(acquireFence, 0, GL_TIMEOUT_IGNORED);
             glDeleteSync(acquireFence);
         }
 
         if (!m_provider) {
             m_provider = new ThumbnailTextureProvider(window());
         }
-
-        m_provider->setTexture(originalTexture);
+        m_provider->setTexture(texture);
     } else {
         if (!m_provider) {
             m_provider = new ThumbnailTextureProvider(window());
@@ -389,7 +323,6 @@ QSGNode *WindowThumbnailItem::updatePaintNode(QSGNode *oldNode, QQuickItem::Upda
     if (!node) {
         node = window()->createImageNode();
         node->setFiltering(QSGTexture::Linear);
-        node->setOwnsTexture(false); // Important: don't delete compositor's texture!
     }
     node->setTexture(m_provider->texture());
     node->setTextureCoordinatesTransform(QSGImageNode::NoTransform);

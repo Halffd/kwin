@@ -51,7 +51,6 @@ private:
     std::unique_ptr<GLFramebuffer> m_offscreenTarget;
     GLsync m_acquireFence = 0;
     bool m_dirty = true;
-    bool m_updating = false; // For re-entrancy protection - Issue #3
 };
 
 class WindowThumbnailItem : public QQuickItem
@@ -91,20 +90,9 @@ private:
 
     QUuid m_wId;
     QPointer<Window> m_client;
-    bool m_isSelected = false; // Track if this thumbnail is currently selected
 
     mutable ThumbnailTextureProvider *m_provider = nullptr;
     std::shared_ptr<WindowThumbnailSource> m_source;
-
-public:
-    void setSelected(bool selected)
-    {
-        m_isSelected = selected;
-    }
-    bool isSelected() const
-    {
-        return m_isSelected;
-    }
 };
 
 } // namespace KWin

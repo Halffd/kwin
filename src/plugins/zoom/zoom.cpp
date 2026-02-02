@@ -329,9 +329,8 @@ ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &r
 
 GLShader *ZoomEffect::shaderForZoom(double zoom)
 {
-    if (zoom < m_pixelGridZoom) {
-        return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
-    } else {
+    // When zoom is greater than the pixel grid threshold, use the pixel grid shader
+    if (zoom > m_pixelGridZoom) {
         if (!m_pixelGridShader) {
             // Try to load the pixel grid shader with proper traits
             m_pixelGridShader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), QStringLiteral(":/effects/zoom/shaders/pixelgrid.frag"));
@@ -344,6 +343,9 @@ GLShader *ZoomEffect::shaderForZoom(double zoom)
             }
         }
         return m_pixelGridShader.get();
+    } else {
+        // For lower zoom levels, use the basic shader
+        return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
     }
 }
 
@@ -392,6 +394,21 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             data.texture->setFilter(GL_LINEAR);
             data.texture->setWrapMode(GL_CLAMP_TO_EDGE);
             data.framebuffer = std::make_unique<GLFramebuffer>(data.texture.get());
+
+            // Validate the framebuffer is created successfully
+            if (!data.framebuffer || !data.framebuffer->valid()) {
+                qCritical() << "Failed to create valid framebuffer for zoom effect";
+                continue;
+            }
+        } else {
+            // Ensure existing framebuffer is valid
+            if (!data.framebuffer || !data.framebuffer->valid()) {
+                data.framebuffer = std::make_unique<GLFramebuffer>(data.texture.get());
+                if (!data.framebuffer || !data.framebuffer->valid()) {
+                    qCritical() << "Failed to create valid framebuffer for zoom effect";
+                    continue;
+                }
+            }
         }
 
         data.viewport = QRect(0, 0, geo.width(), geo.height());
@@ -415,8 +432,9 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             }
         }
 
-        // Early exit: Skip offscreen rendering entirely if zoom is disabled
-        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+        // Validate framebuffer before using it
+        if (!data.framebuffer || !data.framebuffer->valid()) {
+            qCritical() << "Invalid framebuffer during rendering phase";
             continue;
         }
 
@@ -519,6 +537,13 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             yTranslation = std::clamp(int(yTranslation), minY, maxY);
         }
 
+        // Validate texture before compositing
+        if (!data.texture || data.texture->texture() == 0) {
+            qCritical() << "Invalid texture during compositing phase";
+            glDisable(GL_SCISSOR_TEST);
+            continue;
+        }
+
         // Clear and composite
         glEnable(GL_SCISSOR_TEST);
         const int scissorY = renderTarget.size().height() - (geo.y() + geo.height());
@@ -528,6 +553,12 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         glClear(GL_COLOR_BUFFER_BIT);
 
         GLShader *shader = shaderForZoom(state->zoom);
+        if (!shader || !shader->isValid()) {
+            qCritical() << "Invalid shader during compositing phase";
+            glDisable(GL_SCISSOR_TEST);
+            continue;
+        }
+
         ShaderManager::instance()->pushShader(shader);
 
         QMatrix4x4 matrix = viewport.projectionMatrix();

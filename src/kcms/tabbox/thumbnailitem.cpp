@@ -13,17 +13,9 @@
 
 // Qt
 #include <QDebug>
-#include <QElapsedTimer>
 #include <QQuickWindow>
 #include <QSGImageNode>
 #include <QStandardPaths>
-
-// Timing helper macro
-#define TRACE_TIMING(label)              \
-    static QElapsedTimer _timer_##label; \
-    if (!_timer_##label.isValid())       \
-        _timer_##label.start();          \
-    qWarning() << "[TABBOX TIMING]" << #label << ":" << _timer_##label.restart() << "ms";
 
 namespace KWin
 {
