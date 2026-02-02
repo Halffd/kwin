@@ -342,8 +342,6 @@ GLShader *ZoomEffect::shaderForZoom(double zoom)
                 m_pixelGridShader.reset();
                 return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
             }
-
-            qDebug() << "Pixel grid shader loaded successfully";
         }
         return m_pixelGridShader.get();
     }
@@ -384,6 +382,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 
         OffscreenData &data = m_offscreenData[out];
 
+        // Optimize texture allocation: only reallocate if size changed significantly
         if (!data.texture || data.texture->size() != outputSize) {
             const GLenum textureFormat = renderTarget.colorDescription() == ColorDescription::sRGB ? GL_RGBA8 : GL_RGBA16F;
             data.texture = GLTexture::allocate(textureFormat, outputSize);
@@ -401,54 +400,36 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 
         // Render to offscreen
         RenderTarget offscreenTarget(data.framebuffer.get(), renderTarget.colorDescription());
-        // The viewport needs to account for the output's position on the desktop!
-        // We're rendering into a local texture, but we want content from the global desktop position
-        // The geo is already in global coordinates, so we can use it directly
         RenderViewport offscreenViewport(geo, scale, offscreenTarget);
 
         QRegion outputRegion = region.intersected(geo);
         outputRegion.translate(-geo.topLeft());
 
-        GLFramebuffer::pushFramebuffer(data.framebuffer.get());
-        glViewport(0, 0, geo.width() * scale, geo.height() * scale);
-        glClearColor(0.0, 0.0, 0.0, 1.0);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        // Only render the screen if there are actually windows that need to be rendered
-        // This reduces unnecessary calls to SurfacePixmapX11::create() for invisible windows
+        // Optimize: Only render if there are visible windows that intersect with this output
         const auto windows = effects->stackingOrder();
         bool hasVisibleWindows = false;
         for (EffectWindow *w : windows) {
-            // Check if the window intersects with this output's geometry
             if (w->isVisible() && w->isOnCurrentDesktop() && w->frameGeometry().intersects(geo)) {
                 hasVisibleWindows = true;
                 break;
             }
         }
 
+        // Early exit: Skip offscreen rendering entirely if zoom is disabled
+        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+            continue;
+        }
+
+        GLFramebuffer::pushFramebuffer(data.framebuffer.get());
+        glViewport(0, 0, geo.width() * scale, geo.height() * scale);
+        glClearColor(0.0, 0.0, 0.0, 1.0);
+        glClear(GL_COLOR_BUFFER_BIT);
+
         if (hasVisibleWindows) {
             effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
-        } else {
-            // If no visible windows, just clear the buffer
-            glClear(GL_COLOR_BUFFER_BIT);
         }
 
         GLFramebuffer::popFramebuffer();
-
-        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
-            // When zoom is disabled, make sure to clear the texture to prevent stale content
-            // Reset the framebuffer and texture for this output to ensure clean state
-            OffscreenData &clearData = m_offscreenData[out];
-            if (clearData.framebuffer && clearData.texture) {
-                GLFramebuffer::pushFramebuffer(clearData.framebuffer.get());
-                glViewport(0, 0, geo.width() * scale, geo.height() * scale);
-                glClearColor(0.0, 0.0, 0.0, 0.0); // Clear with transparent/black
-                glClear(GL_COLOR_BUFFER_BIT);
-                GLFramebuffer::popFramebuffer();
-            }
-            continue;
-            // Texture is now cleared, but don't composite yet - just continue to next output
-        }
 
         // Convert global coordinates to local output coordinates
         QPoint localFocus = state->focusPoint - geo.topLeft();
@@ -537,7 +518,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             xTranslation = std::clamp(int(xTranslation), minX, maxX);
             yTranslation = std::clamp(int(yTranslation), minY, maxY);
         }
-        qDebug() << "xTranslation: " << xTranslation << " yTranslation: " << yTranslation << " for output " << out->name() << " geo: " << geo << " scale: " << scale;
+
         // Clear and composite
         glEnable(GL_SCISSOR_TEST);
         const int scissorY = renderTarget.size().height() - (geo.y() + geo.height());
@@ -570,8 +551,6 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         const float y1 = 0;
         const float x2 = geo.width() * scale;
         const float y2 = geo.height() * scale;
-
-        qDebug() << "Rendering quad: (" << x1 << "," << y1 << ") to (" << x2 << "," << y2 << ") for output " << out->name() << " with scale " << scale;
 
         GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
         vbo->reset();
@@ -640,8 +619,10 @@ void ZoomEffect::postPaintScreen()
         m_lastPresentTime = std::chrono::milliseconds::zero();
     }
 
+    // Only repaint if there's actual animation happening or if zoom is active
+    // The zoom effect inherently requires continuous repainting when active because
+    // the zoomed region follows the mouse/cursor/focus, so we need to keep this
     if (anyZooming || isActive()) {
-        // Either animation is running or the zoom effect is active
         effects->addRepaintFull();
     }
 }
