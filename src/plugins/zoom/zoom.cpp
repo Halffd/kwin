@@ -336,7 +336,7 @@ GLShader *ZoomEffect::shaderForZoom(double zoom)
     } else {
         if (!m_pixelGridShader) {
             // Try to load the pixel grid shader with proper traits
-            m_pixelGridShader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), QStringLiteral(":/effects/zoom/shaders/pixelgrid.frag"));
+            m_pixelGridShader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), QStringLiteral(":/plugins/zoom/shaders/pixelgrid_core.frag"));
 
             // If it's still not valid, there might be issues with the shader itself
             if (!m_pixelGridShader || !m_pixelGridShader->isValid()) {
