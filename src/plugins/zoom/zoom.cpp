@@ -422,16 +422,6 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         QRegion outputRegion = region.intersected(geo);
         outputRegion.translate(-geo.topLeft());
 
-        // Optimize: Only render if there are visible windows that intersect with this output
-        const auto windows = effects->stackingOrder();
-        bool hasVisibleWindows = false;
-        for (EffectWindow *w : windows) {
-            if (w->isVisible() && w->isOnCurrentDesktop() && w->frameGeometry().intersects(geo)) {
-                hasVisibleWindows = true;
-                break;
-            }
-        }
-
         // Validate framebuffer before using it
         if (!data.framebuffer || !data.framebuffer->valid()) {
             qCritical() << "Invalid framebuffer during rendering phase";
@@ -443,9 +433,8 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         glClearColor(0.0, 0.0, 0.0, 1.0);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        if (hasVisibleWindows) {
-            effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
-        }
+        // Always render - KWin handles visibility internally
+        effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
 
         GLFramebuffer::popFramebuffer();
 
