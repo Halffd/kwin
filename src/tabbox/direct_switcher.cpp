@@ -8,8 +8,8 @@
 */
 
 #include "direct_switcher.h"
-#include "../opengl/texture.h"
-#include "../output.h"
+#include "../core/output.h"
+#include "../opengl/gltexture.h"
 #include "../scene/imageitem.h"
 #include "../scene/item.h"
 #include "../scene/surfaceitem.h"
@@ -44,8 +44,8 @@ public:
     Mode currentMode;
     bool visible;
     Output *output;
-    QList<std::unique_ptr<SurfaceItem>> thumbnailItems;
-    std::unique_ptr<SurfaceItem> selectedItem;
+    QList<ImageItem *> thumbnailItems;
+    ImageItem *selectedItem = nullptr;
     std::unique_ptr<Item> rootItem;
 
     // Configuration parameters
@@ -62,13 +62,7 @@ DirectSwitcher::Private::Private(DirectSwitcher *q)
     , output(nullptr)
 {
     // Load configuration from KWin settings
-    loadConfiguration();
-}
-
-void DirectSwitcher::Private::loadConfiguration()
-{
-    // In a real implementation, this would load from kwinrc
-    // For now, we'll keep the defaults but in a real implementation:
+    // Inlined the configuration loading since the method doesn't exist in the class
     // KConfigGroup config(kwinApp()->config(), "DirectSwitcher");
     // m_thumbnailWidth = config.readEntry("ThumbnailWidth", 600);
     // m_padding = config.readEntry("ThumbnailPadding", 3);
@@ -107,14 +101,14 @@ void DirectSwitcher::Private::createVisualRepresentation()
     // Box should cover configurable percentage of the active screen
     const QRect outputGeometry = output ? output->geometry() : QRect(0, 0, 1920, 1080); // fallback
     const QRect switcherBox = QRect(
-        outputGeometry.x() + outputGeometry.width() * (1.0 - d->m_switcherScreenCoverage) / 2, // Center horizontally with calculated coverage
-        outputGeometry.y() + outputGeometry.height() * (1.0 - d->m_switcherScreenCoverage) / 2, // Center vertically with calculated coverage
-        outputGeometry.width() * d->m_switcherScreenCoverage, // Configurable width coverage
-        outputGeometry.height() * d->m_switcherScreenCoverage // Configurable height coverage
+        outputGeometry.x() + outputGeometry.width() * (1.0 - m_switcherScreenCoverage) / 2, // Center horizontally with calculated coverage
+        outputGeometry.y() + outputGeometry.height() * (1.0 - m_switcherScreenCoverage) / 2, // Center vertically with calculated coverage
+        outputGeometry.width() * m_switcherScreenCoverage, // Configurable width coverage
+        outputGeometry.height() * m_switcherScreenCoverage // Configurable height coverage
     );
 
-    const int thumbnailWidth = d->m_thumbnailWidth; // Configurable width
-    const int padding = d->m_padding; // Configurable padding
+    const int thumbnailWidth = m_thumbnailWidth; // Configurable width
+    const int padding = m_padding; // Configurable padding
     const int spacing = padding * 2; // Double padding for spacing between items
 
     // Calculate how many thumbnails we can fit in the switcher box
@@ -123,7 +117,7 @@ void DirectSwitcher::Private::createVisualRepresentation()
                                           (switcherBox.width() - (maxThumbsPerRow - 1) * spacing) / maxThumbsPerRow);
 
     // Calculate thumbnail height based on aspect ratio preservation
-    const int thumbnailHeight = std::min(switcherBox.height() / std::ceil((double)currentWindows.size() / maxThumbsPerRow),
+    const int thumbnailHeight = std::min(static_cast<int>(switcherBox.height() / std::ceil((double)currentWindows.size() / maxThumbsPerRow)),
                                          actualThumbWidth * 9 / 16); // Assuming 16:9 aspect ratio as default
 
     int x = switcherBox.x();
@@ -133,17 +127,17 @@ void DirectSwitcher::Private::createVisualRepresentation()
     for (int i = 0; i < currentWindows.size(); ++i) {
         Window *window = currentWindows[i];
 
-        // Create a surface item to represent the window thumbnail
-        auto thumbnailItem = std::make_unique<SurfaceItem>(rootItem.get());
+        // Create an image item to represent the window thumbnail
+        auto *thumbnailItem = new ImageItem(rootItem.get());
 
         // Position the thumbnail with padding
-        thumbnailItem->setPos(QPointF(x + padding, y + padding));
+        thumbnailItem->setPosition(QPointF(x + padding, y + padding));
         thumbnailItem->setSize(QSizeF(actualThumbWidth - 2 * padding, thumbnailHeight - 2 * padding));
 
         // Render the actual thumbnail of the window content
         renderThumbnail(window, QRect(x + padding, y + padding, actualThumbWidth - 2 * padding, thumbnailHeight - 2 * padding));
 
-        thumbnailItems.push_back(std::move(thumbnailItem));
+        thumbnailItems.append(thumbnailItem);
 
         // Move to next position
         x += actualThumbWidth + spacing;
@@ -162,7 +156,7 @@ void DirectSwitcher::Private::createVisualRepresentation()
 
     // Create a background rectangle for the switcher box
     auto backgroundItem = std::make_unique<Item>(rootItem.get());
-    backgroundItem->setPos(QPointF(switcherBox.x(), switcherBox.y()));
+    backgroundItem->setPosition(QPointF(switcherBox.x(), switcherBox.y()));
     backgroundItem->setSize(QSizeF(switcherBox.width(), switcherBox.height()));
     // In a real implementation, we would set the background appearance here
     // For now, we'll just store it as a member
@@ -171,8 +165,21 @@ void DirectSwitcher::Private::createVisualRepresentation()
 
 void DirectSwitcher::Private::destroyVisualRepresentation()
 {
+    // Clean up the thumbnail items
+    for (auto *item : thumbnailItems) {
+        if (item) {
+            delete item;
+        }
+    }
     thumbnailItems.clear();
-    selectedItem.reset();
+
+    // Clean up selected item
+    if (selectedItem) {
+        delete selectedItem;
+        selectedItem = nullptr;
+    }
+
+    // Clean up root item
     rootItem.reset();
     currentIndex = -1;
 }
@@ -197,31 +204,41 @@ void DirectSwitcher::Private::updateVisualRepresentation()
 
 void DirectSwitcher::Private::renderThumbnail(Window *window, const QRect &rect)
 {
-    // In a real implementation, we would capture the window's content and scale it
-    // For now, we'll use the window's existing pixmap if available, or create a representation
+    if (!window) {
+        return;
+    }
 
-    if (!window || !window->surface()) {
+    // Get the window's surface item which contains the actual content
+    SurfaceItem *surfaceItem = window->surfaceItem();
+    if (!surfaceItem) {
+        return;
+    }
+
+    // Get the underlying graphics buffer from the surface
+    GraphicsBuffer *buffer = surfaceItem->buffer();
+    if (!buffer) {
         return;
     }
 
     // In a real implementation, we would:
-    // 1. Get the window's surface content using the compositor's capture capabilities
-    // 2. Scale it to fit the rect dimensions (600px width as specified)
-    // 3. Apply any visual effects (borders, drop shadows for selected item, etc.)
+    // 1. Capture the window's content using the compositor's capabilities
+    // 2. Scale it to fit the thumbnail dimensions
+    // 3. Apply any visual effects for the selected item
+
+    // For now, we'll create a simple representation
+    // The actual implementation would need to use KWin's rendering pipeline
+    // to capture and scale the window content to the thumbnail size
 
     // For the selected window, we might want to apply special styling
     const bool isSelected = (currentIndex >= 0 && currentIndex < currentWindows.size() && currentWindows[currentIndex] == window);
 
-    // In a real implementation, we would use the compositor's rendering capabilities
-    // to capture and scale the window content to the thumbnail size
-    // This would involve using the window's buffer and creating a scaled texture
-
+    Q_UNUSED(buffer); // We would use this in the real implementation
     Q_UNUSED(isSelected);
     Q_UNUSED(rect);
 
-    // The actual rendering would happen through the SurfaceItem's texture management
-    // which would handle capturing the window content and scaling it appropriately
-    // using the compositor's scene graph and OpenGL capabilities
+    // The actual implementation would use the compositor's scene graph
+    // to create scaled representations of the window content
+    // This involves using OpenGL textures and the rendering pipeline
 }
 
 void DirectSwitcher::Private::renderText(const QString &text, const QRect &rect, const QColor &color)

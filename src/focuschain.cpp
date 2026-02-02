@@ -284,6 +284,11 @@ void FocusChain::makeLastInChain(Window *window, Chain &chain)
     chain.prepend(window);
 }
 
+QList<Window *> FocusChain::allMostRecentlyUsed() const
+{
+    return m_mostRecentlyUsed;
+}
+
 bool FocusChain::contains(Window *window, VirtualDesktop *desktop) const
 {
     auto it = m_desktopFocusChains.constFind(desktop);

@@ -164,6 +164,13 @@ public:
      */
     Window *firstMostRecentlyUsed() const;
 
+    /**
+     * @brief Returns a copy of the most recently used focus chain.
+     *
+     * @return QList<Window *> The most recently used focus chain.
+     */
+    QList<Window *> allMostRecentlyUsed() const;
+
     bool isUsableFocusCandidate(Window *window, Window *prev) const;
 
 public Q_SLOTS:

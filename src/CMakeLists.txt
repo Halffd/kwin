@@ -353,6 +353,10 @@ if (KWIN_BUILD_TABBOX)
         tabbox/tabbox_logging.cpp
         tabbox/tabboxconfig.cpp
         tabbox/tabboxhandler.cpp
+        tabbox/x11_filter.cpp
+        tabbox/direct_window_list.cpp
+        tabbox/direct_switcher.cpp
+        tabbox/direct_switcher_input_filter.cpp
     )
     add_subdirectory(tabbox/switchers)
 endif()

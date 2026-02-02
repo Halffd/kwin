@@ -152,7 +152,7 @@ QList<DirectWindowList::WindowSnapshot> DirectWindowList::createSnapshot(bool in
     for (Window *window : windows) {
         WindowSnapshot snapshot;
         snapshot.window = window;
-        snapshot.geometry = window->frameGeometry();
+        snapshot.geometry = window->frameGeometry().toAlignedRect();
         snapshot.isMinimized = window->isMinimized();
         snapshot.isOnCurrentDesktop = window->isOnCurrentDesktop();
         snapshot.isOnCurrentActivity = window->isOnCurrentActivity();

@@ -6,8 +6,8 @@ set -e  # Exit on error
 # Configuration
 SRC_DIR="/home/all/repos/kwin"
 BUILD_DIR="/home/all/repos/kwin/build"
-INSTALL_PREFIX="/home/all/kde/usr"
-CMAKE_PREFIX_PATH="/home/all/kde/usr;/usr"
+INSTALL_PREFIX="/usr"
+CMAKE_PREFIX_PATH="$HOME/kde/usr;/usr"
 mkdir -p "$BUILD_DIR"
 # Colors for output
 RED='\033[0;31m'
