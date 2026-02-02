@@ -329,8 +329,11 @@ ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &r
 
 GLShader *ZoomEffect::shaderForZoom(double zoom)
 {
-    // When zoom is greater than the pixel grid threshold, use the pixel grid shader
-    if (zoom > m_pixelGridZoom) {
+    // When zoom is less than the pixel grid threshold, use the basic shader
+    // When zoom is greater than or equal to the pixel grid threshold, use the pixel grid shader
+    if (zoom < m_pixelGridZoom) {
+        return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
+    } else {
         if (!m_pixelGridShader) {
             // Try to load the pixel grid shader with proper traits
             m_pixelGridShader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), QStringLiteral(":/effects/zoom/shaders/pixelgrid.frag"));
@@ -343,9 +346,6 @@ GLShader *ZoomEffect::shaderForZoom(double zoom)
             }
         }
         return m_pixelGridShader.get();
-    } else {
-        // For lower zoom levels, use the basic shader
-        return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
     }
 }
 
