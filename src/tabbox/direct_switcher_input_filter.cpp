@@ -36,8 +36,12 @@ DirectSwitcherInputFilter::DirectSwitcherInputFilter(QObject *parent)
     , m_switcherActive(false)
     , m_grabActive(false)
 {
+    qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter constructor called";
+
     // Load configuration to determine which switcher to use
     loadConfiguration();
+
+    qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter configuration loaded. Use new switcher:" << m_useNewSwitcher;
 
     initShortcuts();
 
@@ -79,7 +83,9 @@ bool DirectSwitcherInputFilter::shouldUseNewSwitcher() const
 {
     // Check the configuration to see if we should use the new switcher
     KConfigGroup config(kwinApp()->config(), "TabBox");
-    return config.readEntry("UseNewSwitcher", true); // Default to new switcher
+    bool useNew = config.readEntry("UseNewSwitcher", true); // Default to new switcher
+    qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter::shouldUseNewSwitcher returning:" << useNew;
+    return useNew;
 }
 
 void DirectSwitcherInputFilter::handleOldTabboxEvent(KeyboardKeyEvent *event)
@@ -120,8 +126,11 @@ void DirectSwitcherInputFilter::initShortcuts()
 
 bool DirectSwitcherInputFilter::keyboardKey(KeyboardKeyEvent *event)
 {
+    qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter::keyboardKey called, event state:" << (int)event->state;
+
     // Check current configuration to determine which switcher to use
     if (!shouldUseNewSwitcher()) {
+        qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: not using new switcher, falling back";
         // Use the old tabbox implementation
         // In a real implementation, we would delegate to the old tabbox filter
         // For now, we'll just return false to let other filters handle it
@@ -155,6 +164,8 @@ bool DirectSwitcherInputFilter::keyboardKey(KeyboardKeyEvent *event)
                 m_switcherActive = true;
                 m_grabActive = true;
 
+                qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: Switcher activated with mode:" << static_cast<int>(mode);
+
                 // Consume the event to prevent it from being processed elsewhere
                 return true;
             }
@@ -174,11 +185,13 @@ bool DirectSwitcherInputFilter::keyboardKey(KeyboardKeyEvent *event)
                 m_directSwitcher.hide();
                 m_switcherActive = false;
                 m_grabActive = false;
+                qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: Switcher deactivated (Escape)";
                 return true; // Consume the event
             } else if (event->key == Qt::Key_Return || event->key == Qt::Key_Enter || event->key == Qt::Key_Space) {
                 m_directSwitcher.accept();
                 m_switcherActive = false;
                 m_grabActive = false;
+                qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: Switcher accepted and deactivated";
                 return true; // Consume the event
             }
         } else if (event->state == KeyboardKeyState::Released) {
@@ -190,6 +203,7 @@ bool DirectSwitcherInputFilter::keyboardKey(KeyboardKeyEvent *event)
                     m_directSwitcher.accept(); // Accept current selection
                     m_switcherActive = false;
                     m_grabActive = false;
+                    qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: Switcher closed by releasing modifiers";
                 }
             }
         }
@@ -255,12 +269,15 @@ void DirectSwitcherInputFilter::navigateThroughWindows(bool forward, const QList
         m_directSwitcher.show(mode);
         m_switcherActive = true;
         m_grabActive = true;
+        qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: navigateThroughWindows started switcher with mode:" << static_cast<int>(mode);
     } else {
         // Navigate within the existing switcher
         if (forward) {
             m_directSwitcher.selectNext();
+            qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: navigateThroughWindows selecting next";
         } else {
             m_directSwitcher.selectPrevious();
+            qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: navigateThroughWindows selecting previous";
         }
     }
 }

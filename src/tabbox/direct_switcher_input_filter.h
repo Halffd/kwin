@@ -18,6 +18,7 @@
 
 // Include the input event structures
 #include "../input_event.h"
+#include "../utils/common.h" // For logging
 
 namespace KWin
 {
