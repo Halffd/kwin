@@ -357,6 +357,7 @@ if (KWIN_BUILD_TABBOX)
         tabbox/direct_window_list.cpp
         tabbox/direct_switcher.cpp
         tabbox/direct_switcher_input_filter.cpp
+        tabbox/direct_overview.cpp
     )
     add_subdirectory(tabbox/switchers)
 endif()

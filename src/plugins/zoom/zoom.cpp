@@ -259,25 +259,17 @@ void ZoomEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseco
 
     for (auto &[screen, state] : m_states) {
         if (state.zoom != state.targetZoom) {
-            // Calculate animation speed to ensure consistent timing
-            // Use a fixed speed approach to make animation smooth and predictable
-            const float totalAnimTime = animationTime(std::chrono::milliseconds(50)); // Very fast animation (50ms)
-            const float minStep = 0.03f; // Increased minimum step for faster progress
-            const float maxStep = 0.3f; // Increased maximum step for faster transitions
+            // Use a constant fast step approach for instant responsiveness
+            const float constantStep = 0.1f; // Fast constant step for immediate response
 
             // Calculate the difference to the target
             const float diff = state.targetZoom - state.zoom;
-            const float absDiff = std::abs(diff);
 
-            // Calculate step size based on time and total animation duration
-            const float idealStep = (absDiff / totalAnimTime) * time;
-            const float step = std::clamp(idealStep, minStep, maxStep);
-
-            // Move toward the target
+            // Move toward the target with constant speed
             if (diff > 0) {
-                state.zoom = std::min(state.zoom + step, state.targetZoom);
+                state.zoom = std::min(state.zoom + constantStep, state.targetZoom);
             } else {
-                state.zoom = std::max(state.zoom - step, state.targetZoom);
+                state.zoom = std::max(state.zoom - constantStep, state.targetZoom);
             }
         }
 

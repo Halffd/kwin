@@ -159,6 +159,12 @@ Workspace::Workspace()
     // Create DirectSwitcher for Alt+Tab
     m_directSwitcher = std::make_unique<DirectSwitcher>();
 
+    // BLOCKER FIX: When modifiers are released (Alt key), complete the switcher
+    // This ensures accept() is called at the right time, after Alt is fully released
+    // Connect TabBox's modifiersReleased signal to DirectSwitcher's accept
+    connect(m_tabbox.get(), &TabBox::TabBox::modifiersReleased,
+            m_directSwitcher.get(), &DirectSwitcher::accept);
+
     // When the scene is created, parent DirectSwitcher's item to the overlay
     connect(Compositor::self(), &Compositor::sceneCreated, this, [this]() {
         if (Compositor::self()->scene()) {
