@@ -368,20 +368,16 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     const auto outputs = effects->screens();
     const auto scale = viewport.scale();
 
-    // Render each output individually - zoomed or normal
+    // First pass: Capture zoomed outputs to offscreen textures
     for (Output *out : outputs) {
         ZoomScreenState *state = stateForScreen(out);
-        const QRect geo = out->geometry();
 
-        // If this output doesn't need zoom, render it normally
+        // Skip outputs that don't need zoom
         if (state->zoom == 1.0 && state->targetZoom == 1.0) {
-            RenderViewport normalViewport(geo, scale, renderTarget);
-            QRegion outputRegion = region.intersected(geo);
-            outputRegion.translate(-geo.topLeft());
-            effects->paintScreen(renderTarget, normalViewport, mask, outputRegion, out);
             continue;
         }
 
+        const QRect geo = out->geometry();
         const QSize outputSize(geo.width() * scale, geo.height() * scale);
 
         OffscreenData &data = m_offscreenData[out];
@@ -402,15 +398,6 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
                 qCritical() << "Failed to create valid framebuffer for zoom effect";
                 continue;
             }
-        } else {
-            // Ensure existing framebuffer is valid
-            if (!data.framebuffer || !data.framebuffer->valid()) {
-                data.framebuffer = std::make_unique<GLFramebuffer>(data.texture.get());
-                if (!data.framebuffer || !data.framebuffer->valid()) {
-                    qCritical() << "Failed to create valid framebuffer for zoom effect";
-                    continue;
-                }
-            }
         }
 
         data.viewport = QRect(0, 0, geo.width(), geo.height());
@@ -424,21 +411,29 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         QRegion outputRegion = region.intersected(geo);
         outputRegion.translate(-geo.topLeft());
 
-        // Validate framebuffer before using it
-        if (!data.framebuffer || !data.framebuffer->valid()) {
-            qCritical() << "Invalid framebuffer during rendering phase";
-            continue;
-        }
-
         GLFramebuffer::pushFramebuffer(data.framebuffer.get());
         glViewport(0, 0, geo.width() * scale, geo.height() * scale);
         glClearColor(0.0, 0.0, 0.0, 1.0);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Always render - KWin handles visibility internally
         effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
 
         GLFramebuffer::popFramebuffer();
+    }
+
+    // Second pass: Render the base scene normally
+    effects->paintScreen(renderTarget, viewport, mask, region, screen);
+
+    // Third pass: Overlay zoomed content on top of the rendered scene
+    for (Output *out : outputs) {
+        ZoomScreenState *state = stateForScreen(out);
+
+        // Skip outputs that don't need zoom
+        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+            continue;
+        }
+
+        const QRect geo = out->geometry();
 
         // Convert global coordinates to local output coordinates
         QPoint localFocus = state->focusPoint - geo.topLeft();
@@ -529,19 +524,16 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         }
 
         // Validate texture before compositing
+        OffscreenData &data = m_offscreenData[out];
         if (!data.texture || data.texture->texture() == 0) {
             qCritical() << "Invalid texture during compositing phase";
-            glDisable(GL_SCISSOR_TEST);
             continue;
         }
 
-        // Clear and composite
+        // Composite zoomed content
         glEnable(GL_SCISSOR_TEST);
         const int scissorY = renderTarget.size().height() - (geo.y() + geo.height());
         glScissor(geo.x() * scale, scissorY * scale, geo.width() * scale, geo.height() * scale);
-
-        glClearColor(0.0, 0.0, 0.0, 1.0);
-        glClear(GL_COLOR_BUFFER_BIT);
 
         GLShader *shader = shaderForZoom(state->zoom);
         if (!shader || !shader->isValid()) {
