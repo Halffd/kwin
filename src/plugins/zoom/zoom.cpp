@@ -149,18 +149,6 @@ ZoomEffect::~ZoomEffect()
 {
     // switch off and free resources
     showCursor();
-
-    // Make sure OpenGL context is current before destroying GPU resources
-    if (effects) {
-        effects->makeOpenGLContextCurrent();
-
-        // Clean up all offscreen data
-        for (auto &[screen, data] : m_offscreenData) {
-            data.framebuffer.reset();
-            data.texture.reset();
-        }
-        m_offscreenData.clear();
-    }
 }
 
 bool ZoomEffect::isFocusTrackingEnabled() const
@@ -329,14 +317,12 @@ ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &r
 
 GLShader *ZoomEffect::shaderForZoom(double zoom)
 {
-    // When zoom is less than the pixel grid threshold, use the basic shader
-    // When zoom is greater than or equal to the pixel grid threshold, use the pixel grid shader
     if (zoom < m_pixelGridZoom) {
         return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
     } else {
         if (!m_pixelGridShader) {
             // Try to load the pixel grid shader with proper traits
-            m_pixelGridShader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), QStringLiteral(":/plugins/zoom/shaders/pixelgrid_core.frag"));
+            m_pixelGridShader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), QStringLiteral(":/effects/zoom/shaders/pixelgrid.frag"));
 
             // If it's still not valid, there might be issues with the shader itself
             if (!m_pixelGridShader || !m_pixelGridShader->isValid()) {
@@ -344,6 +330,8 @@ GLShader *ZoomEffect::shaderForZoom(double zoom)
                 m_pixelGridShader.reset();
                 return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
             }
+
+            qDebug() << "Pixel grid shader loaded successfully";
         }
         return m_pixelGridShader.get();
     }
@@ -368,21 +356,25 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     const auto outputs = effects->screens();
     const auto scale = viewport.scale();
 
-    // First pass: Capture zoomed outputs to offscreen textures
+    // First pass: Render scene normally
+    effects->paintScreen(renderTarget, viewport, mask, region, screen);
+
+    // Second pass: For zoomed outputs only
     for (Output *out : outputs) {
         ZoomScreenState *state = stateForScreen(out);
 
-        // Skip outputs that don't need zoom
         if (state->zoom == 1.0 && state->targetZoom == 1.0) {
             continue;
         }
 
         const QRect geo = out->geometry();
         const QSize outputSize(geo.width() * scale, geo.height() * scale);
-
+        // Skip if not zooming at all
+        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+            continue;
+        }
         OffscreenData &data = m_offscreenData[out];
 
-        // Optimize texture allocation: only reallocate if size changed significantly
         if (!data.texture || data.texture->size() != outputSize) {
             const GLenum textureFormat = renderTarget.colorDescription() == ColorDescription::sRGB ? GL_RGBA8 : GL_RGBA16F;
             data.texture = GLTexture::allocate(textureFormat, outputSize);
@@ -392,12 +384,6 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             data.texture->setFilter(GL_LINEAR);
             data.texture->setWrapMode(GL_CLAMP_TO_EDGE);
             data.framebuffer = std::make_unique<GLFramebuffer>(data.texture.get());
-
-            // Validate the framebuffer is created successfully
-            if (!data.framebuffer || !data.framebuffer->valid()) {
-                qCritical() << "Failed to create valid framebuffer for zoom effect";
-                continue;
-            }
         }
 
         data.viewport = QRect(0, 0, geo.width(), geo.height());
@@ -406,35 +392,24 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 
         // Render to offscreen
         RenderTarget offscreenTarget(data.framebuffer.get(), renderTarget.colorDescription());
+        // The viewport needs to account for the output's position on the desktop!
+        // We're rendering into a local texture, but we want content from the global desktop position
+        // The geo is already in global coordinates, so we can use it directly
         RenderViewport offscreenViewport(geo, scale, offscreenTarget);
 
-        QRegion outputRegion = region.intersected(geo);
+        QRegion outputRegion = QRegion(geo);
         outputRegion.translate(-geo.topLeft());
 
         GLFramebuffer::pushFramebuffer(data.framebuffer.get());
         glViewport(0, 0, geo.width() * scale, geo.height() * scale);
         glClearColor(0.0, 0.0, 0.0, 1.0);
         glClear(GL_COLOR_BUFFER_BIT);
-
         effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
-
         GLFramebuffer::popFramebuffer();
-    }
-
-    // Second pass: Render the base scene normally
-    effects->paintScreen(renderTarget, viewport, mask, region, screen);
-
-    // Third pass: Overlay zoomed content on top of the rendered scene
-    for (Output *out : outputs) {
-        ZoomScreenState *state = stateForScreen(out);
-
-        // Skip outputs that don't need zoom
-        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+        if (state->zoom == 1.0) {
             continue;
+            // Texture is now filled, but don't composite yet - just continue to next output
         }
-
-        const QRect geo = out->geometry();
-
         // Convert global coordinates to local output coordinates
         QPoint localFocus = state->focusPoint - geo.topLeft();
         QPoint localPrev = state->prevPoint - geo.topLeft();
@@ -522,26 +497,13 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             xTranslation = std::clamp(int(xTranslation), minX, maxX);
             yTranslation = std::clamp(int(yTranslation), minY, maxY);
         }
-
-        // Validate texture before compositing
-        OffscreenData &data = m_offscreenData[out];
-        if (!data.texture || data.texture->texture() == 0) {
-            qCritical() << "Invalid texture during compositing phase";
-            continue;
-        }
-
+        qDebug() << "xTranslation: " << xTranslation << " yTranslation: " << yTranslation << " for output " << out->name() << " geo: " << geo << " scale: " << scale;
         // Composite zoomed content
         glEnable(GL_SCISSOR_TEST);
         const int scissorY = renderTarget.size().height() - (geo.y() + geo.height());
         glScissor(geo.x() * scale, scissorY * scale, geo.width() * scale, geo.height() * scale);
 
         GLShader *shader = shaderForZoom(state->zoom);
-        if (!shader || !shader->isValid()) {
-            qCritical() << "Invalid shader during compositing phase";
-            glDisable(GL_SCISSOR_TEST);
-            continue;
-        }
-
         ShaderManager::instance()->pushShader(shader);
 
         QMatrix4x4 matrix = viewport.projectionMatrix();
@@ -565,6 +527,8 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         const float y1 = 0;
         const float x2 = geo.width() * scale;
         const float y2 = geo.height() * scale;
+
+        qDebug() << "Rendering quad: (" << x1 << "," << y1 << ") to (" << x2 << "," << y2 << ") for output " << out->name() << " with scale " << scale;
 
         GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
         vbo->reset();
@@ -633,10 +597,8 @@ void ZoomEffect::postPaintScreen()
         m_lastPresentTime = std::chrono::milliseconds::zero();
     }
 
-    // Only repaint if there's actual animation happening or if zoom is active
-    // The zoom effect inherently requires continuous repainting when active because
-    // the zoomed region follows the mouse/cursor/focus, so we need to keep this
     if (anyZooming || isActive()) {
+        // Either animation is running or the zoom effect is active
         effects->addRepaintFull();
     }
 }
@@ -873,9 +835,6 @@ void ZoomEffect::slotScreenRemoved(Output *screen)
 {
     if (auto it = m_offscreenData.find(screen); it != m_offscreenData.end()) {
         effects->makeOpenGLContextCurrent();
-        // Explicitly reset the framebuffer and texture to ensure proper cleanup
-        it->second.framebuffer.reset();
-        it->second.texture.reset();
         m_offscreenData.erase(it);
     }
     m_states.erase(screen);
