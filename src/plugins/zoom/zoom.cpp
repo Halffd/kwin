@@ -368,18 +368,20 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     const auto outputs = effects->screens();
     const auto scale = viewport.scale();
 
-    // First pass: Render scene normally
-    effects->paintScreen(renderTarget, viewport, mask, region, screen);
-
-    // Second pass: For zoomed outputs only
+    // Render each output individually - zoomed or normal
     for (Output *out : outputs) {
         ZoomScreenState *state = stateForScreen(out);
+        const QRect geo = out->geometry();
 
+        // If this output doesn't need zoom, render it normally
         if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+            RenderViewport normalViewport(geo, scale, renderTarget);
+            QRegion outputRegion = region.intersected(geo);
+            outputRegion.translate(-geo.topLeft());
+            effects->paintScreen(renderTarget, normalViewport, mask, outputRegion, out);
             continue;
         }
 
-        const QRect geo = out->geometry();
         const QSize outputSize(geo.width() * scale, geo.height() * scale);
 
         OffscreenData &data = m_offscreenData[out];
