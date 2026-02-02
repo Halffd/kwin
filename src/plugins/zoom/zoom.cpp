@@ -330,8 +330,6 @@ GLShader *ZoomEffect::shaderForZoom(double zoom)
                 m_pixelGridShader.reset();
                 return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
             }
-
-            qDebug() << "Pixel grid shader loaded successfully";
         }
         return m_pixelGridShader.get();
     }
@@ -497,7 +495,6 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             xTranslation = std::clamp(int(xTranslation), minX, maxX);
             yTranslation = std::clamp(int(yTranslation), minY, maxY);
         }
-        qDebug() << "xTranslation: " << xTranslation << " yTranslation: " << yTranslation << " for output " << out->name() << " geo: " << geo << " scale: " << scale;
         // Composite zoomed content
         glEnable(GL_SCISSOR_TEST);
         const int scissorY = renderTarget.size().height() - (geo.y() + geo.height());
@@ -527,8 +524,6 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         const float y1 = 0;
         const float x2 = geo.width() * scale;
         const float y2 = geo.height() * scale;
-
-        qDebug() << "Rendering quad: (" << x1 << "," << y1 << ") to (" << x2 << "," << y2 << ") for output " << out->name() << " with scale " << scale;
 
         GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
         vbo->reset();
