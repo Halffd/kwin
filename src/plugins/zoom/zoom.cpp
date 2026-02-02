@@ -149,6 +149,18 @@ ZoomEffect::~ZoomEffect()
 {
     // switch off and free resources
     showCursor();
+
+    // Make sure OpenGL context is current before destroying GPU resources
+    if (effects) {
+        effects->makeOpenGLContextCurrent();
+
+        // Clean up all offscreen data
+        for (auto &[screen, data] : m_offscreenData) {
+            data.framebuffer.reset();
+            data.texture.reset();
+        }
+        m_offscreenData.clear();
+    }
 }
 
 bool ZoomEffect::isFocusTrackingEnabled() const
@@ -369,10 +381,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 
         const QRect geo = out->geometry();
         const QSize outputSize(geo.width() * scale, geo.height() * scale);
-        // Skip if not zooming at all
-        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
-            continue;
-        }
+
         OffscreenData &data = m_offscreenData[out];
 
         if (!data.texture || data.texture->size() != outputSize) {
@@ -404,12 +413,43 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         glViewport(0, 0, geo.width() * scale, geo.height() * scale);
         glClearColor(0.0, 0.0, 0.0, 1.0);
         glClear(GL_COLOR_BUFFER_BIT);
-        effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
-        GLFramebuffer::popFramebuffer();
-        if (state->zoom == 1.0) {
-            continue;
-            // Texture is now filled, but don't composite yet - just continue to next output
+
+        // Only render the screen if there are actually windows that need to be rendered
+        // This reduces unnecessary calls to SurfacePixmapX11::create() for invisible windows
+        const auto windows = effects->stackingOrder();
+        bool hasVisibleWindows = false;
+        for (EffectWindow *w : windows) {
+            // Check if the window intersects with this output's geometry
+            if (w->isVisible() && w->isOnCurrentDesktop() && w->frameGeometry().intersects(geo)) {
+                hasVisibleWindows = true;
+                break;
+            }
         }
+
+        if (hasVisibleWindows) {
+            effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
+        } else {
+            // If no visible windows, just clear the buffer
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
+
+        GLFramebuffer::popFramebuffer();
+
+        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+            // When zoom is disabled, make sure to clear the texture to prevent stale content
+            // Reset the framebuffer and texture for this output to ensure clean state
+            OffscreenData &clearData = m_offscreenData[out];
+            if (clearData.framebuffer && clearData.texture) {
+                GLFramebuffer::pushFramebuffer(clearData.framebuffer.get());
+                glViewport(0, 0, geo.width() * scale, geo.height() * scale);
+                glClearColor(0.0, 0.0, 0.0, 0.0); // Clear with transparent/black
+                glClear(GL_COLOR_BUFFER_BIT);
+                GLFramebuffer::popFramebuffer();
+            }
+            continue;
+            // Texture is now cleared, but don't composite yet - just continue to next output
+        }
+
         // Convert global coordinates to local output coordinates
         QPoint localFocus = state->focusPoint - geo.topLeft();
         QPoint localPrev = state->prevPoint - geo.topLeft();
@@ -838,6 +878,9 @@ void ZoomEffect::slotScreenRemoved(Output *screen)
 {
     if (auto it = m_offscreenData.find(screen); it != m_offscreenData.end()) {
         effects->makeOpenGLContextCurrent();
+        // Explicitly reset the framebuffer and texture to ensure proper cleanup
+        it->second.framebuffer.reset();
+        it->second.texture.reset();
         m_offscreenData.erase(it);
     }
     m_states.erase(screen);
