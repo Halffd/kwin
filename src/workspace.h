@@ -52,6 +52,7 @@ namespace TabBox
 class TabBox;
 }
 
+class DirectSwitcher;
 class Window;
 class Output;
 class Compositor;
@@ -443,6 +444,7 @@ public:
     Placement *placement() const;
     RuleBook *rulebook() const;
     ScreenEdges *screenEdges() const;
+    DirectSwitcher *directSwitcher() const;
 #if KWIN_BUILD_TABBOX
     TabBox::TabBox *tabbox() const;
 #endif
@@ -461,6 +463,10 @@ public Q_SLOTS:
     // Keybindings
     // void slotSwitchToWindow( int );
     void slotWindowToDesktop(VirtualDesktop *desktop);
+
+    // DirectSwitcher shortcuts (Alt+Tab bindings)
+    void slotDirectSwitcherNext();
+    void slotDirectSwitcherPrevious();
 
     // void slotWindowToListPosition( int );
     void slotSwitchToScreen(Output *output);
@@ -726,6 +732,7 @@ private:
     std::unique_ptr<Placement> m_placement;
     std::unique_ptr<RuleBook> m_rulebook;
     std::unique_ptr<ScreenEdges> m_screenEdges;
+    std::unique_ptr<DirectSwitcher> m_directSwitcher;
 #if KWIN_BUILD_TABBOX
     std::unique_ptr<TabBox::TabBox> m_tabbox;
 #endif

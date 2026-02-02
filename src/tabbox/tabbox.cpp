@@ -824,12 +824,14 @@ void TabBox::navigatingThroughWindows(bool forward, const QList<QKeySequence> &s
 
 void TabBox::slotWalkThroughWindows()
 {
-    navigatingThroughWindows(true, m_cutWalkThroughWindows, TabBoxWindowsMode);
+    // Delegate to DirectSwitcher for Alt+Tab
+    workspace()->slotDirectSwitcherNext();
 }
 
 void TabBox::slotWalkBackThroughWindows()
 {
-    navigatingThroughWindows(false, m_cutWalkThroughWindowsReverse, TabBoxWindowsMode);
+    // Delegate to DirectSwitcher for Alt+Shift+Tab
+    workspace()->slotDirectSwitcherPrevious();
 }
 
 void TabBox::slotWalkThroughWindowsAlternative()

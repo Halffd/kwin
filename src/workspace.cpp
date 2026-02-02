@@ -55,6 +55,7 @@
 #include "placeholderoutput.h"
 #include "placementtracker.h"
 #include "scene/workspacescene.h"
+#include "tabbox/direct_switcher.h"
 #include "tabletmodemanager.h"
 #include "tiles/tilemanager.h"
 #include "useractions.h"
@@ -154,6 +155,16 @@ Workspace::Workspace()
     // need to create the tabbox before compositing scene is setup
     m_tabbox = std::make_unique<TabBox::TabBox>();
 #endif
+
+    // Create DirectSwitcher for Alt+Tab
+    m_directSwitcher = std::make_unique<DirectSwitcher>();
+
+    // When the scene is created, parent DirectSwitcher's item to the overlay
+    connect(Compositor::self(), &Compositor::sceneCreated, this, [this]() {
+        if (Compositor::self()->scene()) {
+            m_directSwitcher->setParentItem(Compositor::self()->scene()->overlayItem());
+        }
+    });
 
     m_decorationBridge = std::make_unique<Decoration::DecorationBridge>();
     m_decorationBridge->init();
@@ -2927,6 +2938,35 @@ TileManager *Workspace::tileManager(Output *output)
         return search->second.get();
     } else {
         return nullptr;
+    }
+}
+
+DirectSwitcher *Workspace::directSwitcher() const
+{
+    return m_directSwitcher.get();
+}
+
+void Workspace::slotDirectSwitcherNext()
+{
+    // Delegate to DirectSwitcher for Alt+Tab handling
+    if (m_directSwitcher) {
+        if (!m_directSwitcher->isVisible()) {
+            m_directSwitcher->show();
+        } else {
+            m_directSwitcher->selectNext();
+        }
+    }
+}
+
+void Workspace::slotDirectSwitcherPrevious()
+{
+    // Delegate to DirectSwitcher for Alt+Shift+Tab handling
+    if (m_directSwitcher) {
+        if (!m_directSwitcher->isVisible()) {
+            m_directSwitcher->show();
+        } else {
+            m_directSwitcher->selectPrevious();
+        }
     }
 }
 
