@@ -124,6 +124,11 @@ public:
     void setAnimationDuration(int durationMs);
     int animationDuration() const;
 
+    /**
+     * Phase 7: Invalidate window cache (called on window destroy/geometry change)
+     */
+    void invalidateWindowCache();
+
 Q_SIGNALS:
     void visibilityChanged(bool visible);
     void selectionChanged(Window *window);

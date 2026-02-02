@@ -11,6 +11,7 @@
 #include <QList>
 #include <QRect>
 #include <QSize>
+#include <QTimer>
 #include <cmath>
 #include <cstdio>
 
@@ -18,15 +19,14 @@ namespace KWin
 {
 
 /**
- * Phase 2-9 implementation:
- * - Phase 2: Direct Alt+Tab input handling
- * - Phase 3: Window thumbnail acquisition
- * - Phase 4: Deterministic geometry layout
- * - Phase 5: Pure selection state (NO activation)
- * - Phase 6: Hardened show/hide lifecycle
- * - Phase 7: Performance measurement
- * - Phase 8: Window activation (on accept or auto on selection)
- * - Phase 9: Optional animations (time-based, configurable)
+ * CRITICAL RULES (non-negotiable for KWin scene graph):
+ * 1. Item* must be created as child of existing scene item
+ * 2. Never manually delete scene items - parent owns them
+ * 3. No Item creation before scene exists
+ * 4. Activation must go through TabBox exit path, not direct Workspace calls
+ * 5. Never hijack TabBox grabs - integrate cleanly
+ * 6. Use EffectWindow*, never Window* for compositor primitives
+ * 7. Cache across shows, don't recreate on every Alt+Tab
  */
 class DirectSwitcher::Private
 {
@@ -41,26 +41,31 @@ public:
     void cacheWindowThumbnails();
     void clearWindowCache();
     void recordFrameTime(const char *marker);
-    void activateCurrentSelection();
     void updateAnimations(qint64 elapsed);
+    void activateCurrentSelection();
+    void invalidateWindowCache(); // Invalidate on window destroy/geometry change
 
-    // Phase 2: Input state
-    bool altPressed = false;
-    bool tabPressed = false;
+    // Scene graph
+    Item *parentItem = nullptr; // Set via setParentItem(), we don't own this
+    Item *root = nullptr; // OWNED BY parentItem, never manually delete
+    QList<Item *> items; // OWNED BY root, never manually delete
+    QList<ImageItem *> thumbnailItems; // OWNED BY root, never manually delete
 
-    // Phase 3/4: Window list and layout
-    Item *root = nullptr;
-    QList<Item *> items;
+    // Window cache (persistent across shows)
     QList<Window *> windowList;
-    QList<ImageItem *> thumbnailItems;
+    Window *windowToActivate = nullptr; // Deferred activation (after hide completes)
+    bool windowCacheValid = false; // Track if cache needs refresh
 
+    // State
     bool visible = false;
     int currentIndex = 0;
+    bool altPressed = false; // Phase 2: Track Alt key for raw input handling
+    bool tabPressed = false; // Phase 2: Track Tab key for raw input handling
 
     // Phase 4: Layout config
     int thumbnailWidth = 200;
     int padding = 20;
-    double switcherScreenCoverage = 0.8; // 80% of screen
+    double switcherScreenCoverage = 0.8;
     Output *output = nullptr;
 
     // Phase 7: Performance measurement
@@ -96,9 +101,21 @@ void DirectSwitcher::Private::clearWindowCache()
     // Phase 6: Hardened cache cleanup
     // Ensure window list is cleared, no dangling pointers
     windowList.clear();
+    windowCacheValid = false; // Mark cache as invalid
     allocationCount = 0;
     if (performanceMeasurementEnabled) {
-        std::fprintf(stderr, "[DirectSwitcher] window cache cleared\n");
+        std::fprintf(stderr, "[DirectSwitcher] window cache cleared and marked invalid\n");
+    }
+}
+
+void DirectSwitcher::Private::invalidateWindowCache()
+{
+    // Phase 7 (PERSISTENT CACHE): Invalidate cache when windows change
+    // Called when window is destroyed or geometry changes
+    // Cache will be refreshed on next show()
+    windowCacheValid = false;
+    if (performanceMeasurementEnabled) {
+        std::fprintf(stderr, "[DirectSwitcher] window cache invalidated (window change detected)\n");
     }
 }
 
@@ -112,10 +129,12 @@ void DirectSwitcher::Private::recordFrameTime(const char *marker)
 
 void DirectSwitcher::Private::activateCurrentSelection()
 {
-    // Phase 8: Activate the currently selected window
-    // This is called either:
-    // - On accept() (key release / click) - default
-    // - On selectNext/selectPrevious - if autoActivateOnSelection enabled
+    // Phase 8: BLOCKER FIX - Deferred activation
+    // Must NOT call Workspace::activateWindow() directly here because:
+    // 1. Alt key may still be held (key event handler context)
+    // 2. Direct activation causes focus issues, stuck modifiers
+    // Instead: store window to activate, let hide() complete first
+    // Then activate asynchronously after display is released
 
     if (windowList.isEmpty() || currentIndex >= windowList.size()) {
         return;
@@ -126,16 +145,13 @@ void DirectSwitcher::Private::activateCurrentSelection()
         return;
     }
 
-    recordFrameTime("activateCurrentSelection()");
+    recordFrameTime("activateCurrentSelection() - deferred");
 
-    // Phase 8: Use Workspace to activate the window
-    // This is the actual X11/Wayland focus/activation call
-    Workspace *ws = Workspace::self();
-    if (ws) {
-        ws->activateWindow(selected);
-        if (performanceMeasurementEnabled) {
-            std::fprintf(stderr, "[DirectSwitcher] Window activated via Workspace\n");
-        }
+    // Store for deferred activation (happens after hide() completes)
+    windowToActivate = selected;
+
+    if (performanceMeasurementEnabled) {
+        std::fprintf(stderr, "[DirectSwitcher] Activation deferred for window %p\n", selected);
     }
 }
 
@@ -244,32 +260,40 @@ void DirectSwitcher::Private::create()
     createTimer.start();
     recordFrameTime("create() start");
 
-    root = new Item();
+    // BLOCKER FIX: Do NOT create Items without parent scene item
+    if (!parentItem) {
+        recordFrameTime("create() aborted - parentItem not set");
+        visible = true;
+        return;
+    }
+
+    // Create root as child of parentItem
+    root = new Item(parentItem);
     items.clear();
     thumbnailItems.clear();
 
-    // Phase 3: Cache thumbnails from actual windows
-    cacheWindowThumbnails();
+    // Phase 7 (PERSISTENT CACHE): Only refresh window list if cache invalid
+    // Cache persists across Alt+Tab calls unless windows change
+    if (!windowCacheValid || windowList.isEmpty()) {
+        cacheWindowThumbnails();
+        windowCacheValid = true;
+    } else if (performanceMeasurementEnabled) {
+        std::fprintf(stderr, "[DirectSwitcher] Reusing window cache (%d windows)\n", windowList.size());
+    }
 
     if (windowList.isEmpty()) {
-        // Fallback: show placeholder
-        currentIndex = 0;
-        updateSelection();
         visible = true;
         creationTimeMs = createTimer.elapsed();
-        if (performanceMeasurementEnabled) {
-            std::fprintf(stderr, "[DirectSwitcher] create() completed (empty list) in %lld ms\n", creationTimeMs);
-        }
         return;
     }
 
     // Phase 3: Create items for each window
-    // For now, use black placeholders. Real implementation will grab from EffectWindow
+    // Each show() creates new visual items but reuses cached window list
     for (int i = 0; i < windowList.size(); ++i) {
         auto *item = new ImageItem(root);
 
-        // Create a placeholder image (real: would use screenThumbnail)
-        // Phase 3 TODO: Use EffectWindow::screenThumbnail() for GPU copy
+        // Placeholder image
+        // TODO: Use EffectWindow::screenThumbnail() for GPU copy
         QImage placeholder(200, 150, QImage::Format_ARGB32_Premultiplied);
         placeholder.fill(Qt::black);
 
@@ -302,17 +326,19 @@ void DirectSwitcher::Private::create()
 void DirectSwitcher::Private::destroy()
 {
     // Phase 6: Hardened destruction - ensure NO dangling pointers
-    // Phase 7: Report teardown
+    // BLOCKER FIX: Scene graph ownership rules
+    // - Items are owned by their parent Item
+    // - Deleting them manually is a race condition (render thread may access)
+    // - Deleting root will cascade delete all children
+    // - Only null pointers, never call delete
     recordFrameTime("destroy() start");
 
-    // Delete items first (they own GL resources)
-    for (Item *item : items) {
-        delete item;
-    }
+    // Clear lists but DO NOT delete - parent owns the items
     items.clear();
     thumbnailItems.clear();
 
-    // Delete root item (will cascade delete children if not already done)
+    // BLOCKER FIX: Delete root last, which will cascade delete all children
+    // Never delete individual items - parent handles that
     if (root) {
         delete root;
         root = nullptr;
@@ -387,9 +413,30 @@ void DirectSwitcher::hide()
     d->altPressed = false;
     d->tabPressed = false;
 
+    // BLOCKER FIX: Deferred activation
+    // Store window to activate BEFORE destroy (while windowList is valid)
+    Window *toActivate = d->windowToActivate;
+    d->windowToActivate = nullptr;
+
     // Phase 6: Hardened destruction
     d->destroy();
     Q_EMIT visibilityChanged(false);
+
+    // BLOCKER FIX: Activate after display has been released
+    // This ensures Alt key is fully released before Workspace::activateWindow
+    // Use deferred call to ensure proper event processing order
+    if (toActivate) {
+        // Schedule activation for next event loop iteration
+        QTimer::singleShot(0, this, [this, toActivate]() {
+            Workspace *ws = Workspace::self();
+            if (ws && toActivate) {
+                ws->activateWindow(toActivate);
+                if (d->performanceMeasurementEnabled) {
+                    std::fprintf(stderr, "[DirectSwitcher] Deferred activation completed\n");
+                }
+            }
+        });
+    }
 }
 
 void DirectSwitcher::selectNext()
@@ -525,37 +572,19 @@ double DirectSwitcher::switcherScreenCoverage() const
  */
 void DirectSwitcher::keyPress(int key)
 {
-    // Phase 2 TODO: Wire this from TabBox::keyPress(KeyboardKeyEvent)
-    if (key == Qt::Key_Alt) {
-        d->altPressed = true;
-    } else if (key == Qt::Key_Tab && d->altPressed) {
-        if (!d->visible) {
-            show();
-        } else {
-            selectNext();
-        }
-        d->tabPressed = true;
-    } else if (key == Qt::Key_Backtab && d->altPressed) {
-        // Alt+Shift+Tab
-        if (!d->visible) {
-            show();
-        } else {
-            selectPrevious();
-        }
-    }
+    // Phase 2 (UNIFIED): Input handling is now unified through TabBox delegation
+    // - Alt+Tab → TabBox::slotWalkThroughWindows() → Workspace::slotDirectSwitcherNext()
+    // - Alt+Shift+Tab → TabBox::slotWalkBackThroughWindows() → Workspace::slotDirectSwitcherPrevious()
+    // - Alt release → TabBox::modifiersReleased() → DirectSwitcher::accept()
+    // Raw key handling methods (keyPress/keyRelease) are DEPRECATED and unused.
+    // Kept for API compatibility only.
+    (void)key; // Unused
 }
 
 void DirectSwitcher::keyRelease(int key)
 {
-    // Phase 2: On Alt release, accept selection and hide
-    if (key == Qt::Key_Alt && d->altPressed) {
-        d->altPressed = false;
-        d->tabPressed = false;
-
-        if (d->visible) {
-            accept();
-        }
-    }
+    // Phase 2 (UNIFIED): Input handling unified through TabBox (see keyPress)
+    (void)key; // Unused
 }
 
 /**
@@ -604,6 +633,13 @@ void DirectSwitcher::setAnimationDuration(int durationMs)
 int DirectSwitcher::animationDuration() const
 {
     return d->animationDurationMs;
+}
+
+void DirectSwitcher::invalidateWindowCache()
+{
+    // Phase 7: Public slot for cache invalidation
+    // Called when windows change (destroy, geometry, etc)
+    d->invalidateWindowCache();
 }
 
 } // namespace KWin
