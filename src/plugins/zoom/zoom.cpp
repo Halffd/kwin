@@ -259,18 +259,8 @@ void ZoomEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseco
 
     for (auto &[screen, state] : m_states) {
         if (state.zoom != state.targetZoom) {
-            // Use a constant fast step approach for instant responsiveness
-            const float constantStep = 0.1f; // Fast constant step for immediate response
-
-            // Calculate the difference to the target
-            const float diff = state.targetZoom - state.zoom;
-
-            // Move toward the target with constant speed
-            if (diff > 0) {
-                state.zoom = std::min(state.zoom + constantStep, state.targetZoom);
-            } else {
-                state.zoom = std::max(state.zoom - constantStep, state.targetZoom);
-            }
+            // Instantly jump to target zoom - no animation
+            state.zoom = state.targetZoom;
         }
 
         if (state.zoom != 1.0) {

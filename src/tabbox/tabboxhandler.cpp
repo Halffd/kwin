@@ -262,62 +262,10 @@ QObject *TabBoxHandlerPrivate::createSwitcherItem()
 
 void TabBoxHandlerPrivate::show()
 {
-#ifndef KWIN_UNIT_TEST
-    if (!m_qmlContext) {
-        qmlRegisterType<SwitcherItem>("org.kde.kwin", 3, 0, "TabBoxSwitcher");
-        m_qmlContext = std::make_unique<QQmlContext>(Scripting::self()->qmlEngine());
-    }
-    if (!m_qmlComponent) {
-        m_qmlComponent = std::make_unique<QQmlComponent>(Scripting::self()->qmlEngine());
-    }
-    auto findMainItem = [this](const QMap<QString, QObject *> &tabBoxes) -> QObject * {
-        auto it = tabBoxes.constFind(config.layoutName());
-        if (it != tabBoxes.constEnd()) {
-            return it.value();
-        }
-        return nullptr;
-    };
-    m_mainItem = nullptr;
-    m_mainItem = findMainItem(m_clientTabBoxes);
-    if (!m_mainItem) {
-        m_mainItem = createSwitcherItem();
-        if (!m_mainItem) {
-            return;
-        }
-    }
-    if (SwitcherItem *item = switcherItem()) {
-        // In case the model isn't yet set (see below), index will be reset and therefore we
-        // need to save the current index row (https://bugs.kde.org/show_bug.cgi?id=333511).
-        int indexRow = index.row();
-        if (!item->model()) {
-            item->setModel(clientModel());
-        }
-        item->setAllDesktops(config.clientDesktopMode() == TabBoxConfig::AllDesktopsClients);
-        item->setCurrentIndex(indexRow);
-        item->setNoModifierGrab(q->noModifierGrab());
-        Q_EMIT item->aboutToShow();
-
-        // When SwitcherItem gets hidden, destroy also the window and main item
-        QObject::connect(item, &SwitcherItem::visibleChanged, q, [this, item]() {
-            if (!item->isVisible()) {
-                if (QQuickWindow *w = window()) {
-                    w->hide();
-                    w->destroy();
-                }
-                m_mainItem = nullptr;
-            }
-        });
-
-        // everything is prepared, so let's make the whole thing visible
-        item->setVisible(true);
-    }
-    if (QWindow *w = window()) {
-        wheelAngleDelta = 0;
-        w->installEventFilter(q);
-        // pretend to activate the window to enable accessibility notifications
-        QWindowSystemInterface::handleFocusWindowChanged(w, Qt::TabFocusReason);
-    }
-#endif
+    // HARD-DISABLED: Legacy TabBox QML/rendering completely disabled
+    // DirectSwitcher handles all Alt+Tab visualization
+    qDebug() << "TabBoxHandlerPrivate::show() - DISABLED (using DirectSwitcher)";
+    // Do NOT create QML context, component, switcher item, or window
 }
 
 /***********************************************
@@ -349,19 +297,11 @@ void TabBoxHandler::setConfig(const TabBoxConfig &config)
 
 void TabBoxHandler::show()
 {
+    // HARD-DISABLED: Legacy TabBox rendering disabled - DirectSwitcher handles Alt+Tab
     d->isShown = true;
     d->lastRaisedClient = nullptr;
     d->lastRaisedClientSucc = nullptr;
-    if (d->config.isShowTabBox()) {
-        d->show();
-    }
-    if (d->isHighlightWindows()) {
-        // TODO this should be
-        // QMetaObject::invokeMethod(this, "initHighlightWindows", Qt::QueuedConnection);
-        // but we somehow need to cross > 1 event cycle (likely because of queued invocation in the effects)
-        // to ensure the EffectWindow is present when updateHighlightWindows, thus elevating the window/tabbox
-        QTimer::singleShot(1, this, &TabBoxHandler::initHighlightWindows);
-    }
+    // DO NOT render TabBox or highlight windows
 }
 
 void TabBoxHandler::initHighlightWindows()
@@ -377,18 +317,9 @@ void TabBoxHandler::initHighlightWindows()
 
 void TabBoxHandler::hide(bool abort)
 {
+    // HARD-DISABLED: Legacy TabBox rendering disabled - DirectSwitcher handles Alt+Tab
     d->isShown = false;
-    if (d->isHighlightWindows()) {
-        d->endHighlightWindows(abort);
-    }
-#ifndef KWIN_UNIT_TEST
-    if (SwitcherItem *item = d->switcherItem()) {
-        Q_EMIT item->aboutToHide();
-        if (item->automaticallyHide()) {
-            item->setVisible(false);
-        }
-    }
-#endif
+    // DO NOT process legacy TabBox UI cleanup
 }
 
 QModelIndex TabBoxHandler::nextPrev(bool forward) const

@@ -148,7 +148,8 @@ public:
      */
     void reference()
     {
-        ++m_displayRefcount;
+        // HARD-DISABLED: Legacy TabBox disabled, DirectSwitcher handles Alt+Tab
+        // ++m_displayRefcount;
     }
 
     /**
@@ -157,7 +158,8 @@ public:
      */
     void unreference()
     {
-        --m_displayRefcount;
+        // HARD-DISABLED: Legacy TabBox disabled, DirectSwitcher handles Alt+Tab
+        // --m_displayRefcount;
     }
 
     /**
