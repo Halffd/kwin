@@ -287,6 +287,7 @@ private:
 #endif
     std::unique_ptr<InputEventFilter> m_screenEdgeFilter;
     std::unique_ptr<InputEventFilter> m_tabboxFilter;
+    std::unique_ptr<InputEventFilter> m_directSwitcherFilter;
     std::unique_ptr<InputEventFilter> m_globalShortcutFilter;
     std::unique_ptr<InputEventFilter> m_effectsFilter;
     std::unique_ptr<InputEventFilter> m_interactiveMoveResizeFilter;

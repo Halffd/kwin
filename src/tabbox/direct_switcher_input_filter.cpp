@@ -379,4 +379,15 @@ bool DirectSwitcherInputFilter::touchFrame()
     return false;
 }
 
+void DirectSwitcherInputFilter::initializeSceneIntegration(Item *parentItem)
+{
+    if (!parentItem) {
+        qCWarning(KWIN_CORE) << "DirectSwitcherInputFilter::initializeSceneIntegration called with null parentItem!";
+        return;
+    }
+
+    qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter::initializeSceneIntegration - setting parentItem";
+    m_directSwitcher.setParentItem(parentItem);
+}
+
 } // namespace KWin

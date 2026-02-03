@@ -1,7 +1,9 @@
 #include "direct_switcher.h"
 
+#include "../compositor.h"
 #include "../scene/imageitem.h"
 #include "../scene/item.h"
+#include "../scene/workspacescene.h"
 
 #include "window.h"
 #include "workspace.h"
@@ -199,8 +201,8 @@ void DirectSwitcher::Private::cacheWindowThumbnails()
     // Phase 7: Report timing if enabled
     qint64 elapsed = timer.elapsed();
     if (performanceMeasurementEnabled) {
-        std::fprintf(stderr, "[DirectSwitcher] cacheWindowThumbnails: %d windows in %lld ms\n",
-                     windowList.size(), elapsed);
+        std::fprintf(stderr, "[DirectSwitcher] cacheWindowThumbnails: %lld windows in %lld ms\n",
+                     (long long)windowList.size(), elapsed);
     }
 
     // If list is empty, show something (prevents crashes)
@@ -234,14 +236,18 @@ void DirectSwitcher::Private::buildLayout()
     const int itemHeight = static_cast<int>(thumbnailWidth * 0.75); // 4:3 aspect ratio
     const int startY = centerY - itemHeight / 2;
 
-    // Position items
+    // Position items horizontally
     for (int i = 0; i < thumbnailItems.size(); ++i) {
         ImageItem *item = thumbnailItems[i];
+        if (!item) {
+            continue;
+        }
+
         const int x = startX + i * itemSpacing;
         const int y = startY;
 
-        item->setPosition(QPoint(x, y));
-        item->setSize(QSize(thumbnailWidth, itemHeight));
+        item->setPosition(QPointF(x, y));
+        item->setSize(QSizeF(thumbnailWidth, itemHeight));
 
         // Z order: selected higher
         if (i == currentIndex) {
@@ -317,7 +323,6 @@ void DirectSwitcher::Private::create()
     currentIndex = 0;
 
     // Phase 4: Apply layout
-    qDebug() << "DirectSwitcher: Applying layout with" << items.size() << "items";
     buildLayout();
     updateSelection();
     visible = true;
@@ -409,12 +414,50 @@ void DirectSwitcher::show(Mode mode)
         return;
     }
 
+    // CRITICAL: Set the output for layout calculations BEFORE creating
+    Output *activeOutput = Workspace::self()->activeOutput();
+    qWarning() << "DirectSwitcher::show() - Setting output:" << activeOutput;
+    setOutput(activeOutput);
+
     // Phase 2: Reset input state on show
     d->altPressed = false;
     d->tabPressed = false;
 
     // Phase 6/7: Create with lifecycle hardening
     d->create();
+
+    // DEBUGGING: Force visibility properties to ensure rendering
+    if (d->root) {
+        QRectF rect = d->root->boundingRect();
+        QRect screenGeom = Workspace::self()->geometry();
+
+        // Force full screen dimensions
+        d->root->setSize(QSizeF(screenGeom.width(), screenGeom.height()));
+        d->root->setPosition(QPointF(screenGeom.x(), screenGeom.y()));
+
+        // Force full opacity
+        d->root->setOpacity(1.0);
+
+        // Force z-index to top
+        d->root->setZ(9999);
+    }
+
+    // Ensure proper scene graph attachment
+    if (Compositor::compositing() && Compositor::self()) {
+        WorkspaceScene *scene = Compositor::self()->scene();
+
+        // Try overlay item first (usually where UI overlays go)
+        if (Item *overlay = scene->overlayItem()) {
+            if (d->root->parentItem() != overlay) {
+                d->root->setParentItem(overlay);
+            }
+        } else if (Item *container = scene->containerItem()) {
+            if (d->root->parentItem() != container) {
+                d->root->setParentItem(container);
+            }
+        }
+    }
+
     Q_EMIT visibilityChanged(true);
 }
 

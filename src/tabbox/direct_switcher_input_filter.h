@@ -57,6 +57,9 @@ public:
     void setUseNewSwitcher(bool useNew);
     bool useNewSwitcher() const;
 
+    // Initialize the DirectSwitcher with a parent Item for scene graph integration
+    void initializeSceneIntegration(Item *parentItem);
+
 private Q_SLOTS:
     void slotWalkThroughWindows();
     void slotWalkBackThroughWindows();

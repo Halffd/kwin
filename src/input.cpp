@@ -31,12 +31,14 @@
 #include "tabbox/direct_switcher_input_filter.h"
 #include "tabbox/tabbox.h"
 #endif
+#include "compositor.h"
 #include "core/output.h"
 #include "core/outputbackend.h"
 #include "cursor.h"
 #include "cursorsource.h"
 #include "internalwindow.h"
 #include "popup_input_filter.h"
+#include "scene/workspacescene.h"
 #include "screenedge.h"
 #include "virtualdesktops.h"
 #include "workspace.h"
@@ -2038,7 +2040,26 @@ void InputRedirection::setupInputFilters()
     // Install the new unified switcher filter which can handle both old and new implementations
     // By default, it uses the new fast switcher, but can fall back to old tabbox based on config
     auto unifiedSwitcherFilter = std::make_unique<KWin::DirectSwitcherInputFilter>();
-    installInputEventFilter(unifiedSwitcherFilter.release()); // Transfer ownership to the filter list
+    auto *directSwitcherRawPtr = unifiedSwitcherFilter.get();
+    m_directSwitcherFilter = std::move(unifiedSwitcherFilter);
+    installInputEventFilter(m_directSwitcherFilter.get());
+
+    // Initialize scene integration - connect DirectSwitcher to the scene graph
+    if (Compositor::compositing()) {
+        Compositor *comp = Compositor::self();
+        if (comp && comp->scene()) {
+            WorkspaceScene *scene = comp->scene();
+            if (scene) {
+                Item *containerItem = scene->containerItem();
+                if (containerItem) {
+                    auto directSwitcherFilter = dynamic_cast<DirectSwitcherInputFilter *>(directSwitcherRawPtr);
+                    if (directSwitcherFilter) {
+                        directSwitcherFilter->initializeSceneIntegration(containerItem);
+                    }
+                }
+            }
+        }
+    }
 #endif
 
     m_effectsFilter = std::make_unique<EffectsFilter>();
