@@ -260,28 +260,37 @@ void DirectSwitcher::Private::create()
     createTimer.start();
     recordFrameTime("create() start");
 
-    // BLOCKER FIX: Do NOT create Items without parent scene item
+    // Create root item without parent initially
+    // It will be parented via setParentItem() call
+    qWarning() << "DirectSwitcher::create() - parentItem:" << parentItem;
+
     if (!parentItem) {
-        recordFrameTime("create() aborted - parentItem not set");
-        visible = true;
-        return;
+        qDebug() << "WARNING: parentItem is null, creating root without parent";
+        // Create root item without parent - will need to be reparented later
+        // For now, just mark as visible and return to avoid crash
+        root = new Item(nullptr);
+    } else {
+        qDebug() << "DirectSwitcher::create() - parentItem valid, creating root item";
+        // Create root as child of parentItem
+        root = new Item(parentItem);
     }
 
-    // Create root as child of parentItem
-    root = new Item(parentItem);
     items.clear();
     thumbnailItems.clear();
 
     // Phase 7 (PERSISTENT CACHE): Only refresh window list if cache invalid
     // Cache persists across Alt+Tab calls unless windows change
     if (!windowCacheValid || windowList.isEmpty()) {
+        qDebug() << "DirectSwitcher: Caching windows";
         cacheWindowThumbnails();
         windowCacheValid = true;
     } else if (performanceMeasurementEnabled) {
-        std::fprintf(stderr, "[DirectSwitcher] Reusing window cache (%d windows)\n", windowList.size());
+        std::fprintf(stderr, "[DirectSwitcher] Reusing window cache (%lld windows)\n", (long long)windowList.size());
     }
 
+    qDebug() << "DirectSwitcher: Window list has" << windowList.size() << "windows";
     if (windowList.isEmpty()) {
+        qDebug() << "WARNING: Window list is empty after caching!";
         visible = true;
         creationTimeMs = createTimer.elapsed();
         return;
@@ -289,6 +298,7 @@ void DirectSwitcher::Private::create()
 
     // Phase 3: Create items for each window
     // Each show() creates new visual items but reuses cached window list
+    qDebug() << "DirectSwitcher: Creating" << windowList.size() << "image items";
     for (int i = 0; i < windowList.size(); ++i) {
         auto *item = new ImageItem(root);
 
@@ -307,6 +317,7 @@ void DirectSwitcher::Private::create()
     currentIndex = 0;
 
     // Phase 4: Apply layout
+    qDebug() << "DirectSwitcher: Applying layout with" << items.size() << "items";
     buildLayout();
     updateSelection();
     visible = true;
@@ -315,12 +326,13 @@ void DirectSwitcher::Private::create()
 
     // Phase 7: Report creation time
     if (performanceMeasurementEnabled) {
-        std::fprintf(stderr, "[DirectSwitcher] create() completed with %d items in %lld ms\n",
-                     items.size(), creationTimeMs);
+        std::fprintf(stderr, "[DirectSwitcher] create() completed with %lld items in %lld ms\n",
+                     (long long)items.size(), creationTimeMs);
         if (creationTimeMs > 2) {
             std::fprintf(stderr, "[DirectSwitcher] WARNING: Creation exceeded 2ms budget!\n");
         }
     }
+    qDebug() << "DirectSwitcher::create() COMPLETED - visible=" << visible << ", items=" << items.size();
 }
 
 void DirectSwitcher::Private::destroy()
@@ -380,16 +392,19 @@ DirectSwitcher::~DirectSwitcher()
 
 void DirectSwitcher::setParentItem(Item *parentItem)
 {
-    if (!parentItem || !d->root) {
-        return;
-    }
+    // Store the parent item for use in create()
+    d->parentItem = parentItem;
 
-    // Reparent the root item to the given parent (typically overlay item from scene)
-    d->root->setParent(parentItem);
+    // If root already exists, reparent it now
+    if (d->root && parentItem) {
+        d->root->setParent(parentItem);
+    }
 }
 
 void DirectSwitcher::show(Mode mode)
 {
+
+    qWarning() << "DirectSwitcher::show() called";
     if (d->visible) {
         return;
     }

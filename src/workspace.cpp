@@ -28,6 +28,7 @@
 #include "input.h"
 #include "internalwindow.h"
 #include "killwindow.h"
+
 #include "moving_client_x11_filter.h"
 #include "outline.h"
 #include "placement.h"
@@ -38,6 +39,7 @@
 #include "syncalarmx11filter.h"
 #include "tiles/tilemanager.h"
 #include "window.h"
+#include <QDebug>
 #if KWIN_BUILD_TABBOX
 #include "tabbox/tabbox.h"
 #endif
@@ -159,18 +161,36 @@ Workspace::Workspace()
     // Create DirectSwitcher for Alt+Tab
     m_directSwitcher = std::make_unique<DirectSwitcher>();
 
-    // BLOCKER FIX: When modifiers are released (Alt key), complete the switcher
-    // This ensures accept() is called at the right time, after Alt is fully released
-    // Connect TabBox's modifiersReleased signal to DirectSwitcher's accept
-    connect(m_tabbox.get(), &TabBox::TabBox::modifiersReleased,
-            m_directSwitcher.get(), &DirectSwitcher::accept);
+    // Note: The connection to TabBox::modifiersReleased was failing because
+    // modifiersReleased() is a method, not a signal. Removing it for now.
+    // Will need to implement proper Alt+Tab handoff mechanism.
 
-    // When the scene is created, parent DirectSwitcher's item to the overlay
-    connect(Compositor::self(), &Compositor::sceneCreated, this, [this]() {
-        if (Compositor::self()->scene()) {
-            m_directSwitcher->setParentItem(Compositor::self()->scene()->overlayItem());
+    // Parent DirectSwitcher's item to the compositor overlay/container
+    auto *compositor = Compositor::self();
+    if (compositor && compositor->scene()) {
+        // Scene already exists - set parent immediately
+        // Try overlayItem first, fall back to containerItem if needed
+        auto *parentItem = compositor->scene()->overlayItem();
+        if (!parentItem) {
+            parentItem = compositor->scene()->containerItem();
         }
-    });
+        qDebug() << "DirectSwitcher: scene already exists, parentItem:" << parentItem;
+        m_directSwitcher->setParentItem(parentItem);
+        qDebug() << "DirectSwitcher: parentItem set immediately";
+    } else {
+        // Scene doesn't exist yet - wait for it to be created
+        connect(compositor, &Compositor::sceneCreated, this, [this]() {
+            if (Compositor::self()->scene()) {
+                auto *parentItem = Compositor::self()->scene()->overlayItem();
+                if (!parentItem) {
+                    parentItem = Compositor::self()->scene()->containerItem();
+                }
+                qDebug() << "DirectSwitcher: scene created, parentItem:" << parentItem;
+                m_directSwitcher->setParentItem(parentItem);
+                qDebug() << "DirectSwitcher: scene created, parentItem set via signal";
+            }
+        });
+    }
 
     m_decorationBridge = std::make_unique<Decoration::DecorationBridge>();
     m_decorationBridge->init();
@@ -2955,12 +2975,17 @@ DirectSwitcher *Workspace::directSwitcher() const
 void Workspace::slotDirectSwitcherNext()
 {
     // Delegate to DirectSwitcher for Alt+Tab handling
+    qDebug() << "Workspace::slotDirectSwitcherNext() CALLED";
     if (m_directSwitcher) {
         if (!m_directSwitcher->isVisible()) {
+            qDebug() << "  -> calling m_directSwitcher->show()";
             m_directSwitcher->show();
         } else {
+            qDebug() << "  -> calling m_directSwitcher->selectNext()";
             m_directSwitcher->selectNext();
         }
+    } else {
+        qDebug() << "  -> ERROR: m_directSwitcher is NULL!";
     }
 }
 

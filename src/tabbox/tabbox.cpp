@@ -481,29 +481,24 @@ bool TabBox::haveActiveClient()
 
 void TabBox::show()
 {
+    // HARD-DISABLED: Legacy TabBox visual rendering completely disabled
+    // DirectSwitcher handles all Alt+Tab UI now
+    qDebug() << "TabBox::show() - DISABLED (using DirectSwitcher instead)";
     Q_EMIT tabBoxAdded(m_tabBoxMode);
-    if (isDisplayed()) {
-        m_isShown = false;
-        return;
-    }
-    workspace()->setShowingDesktop(false);
-    reference();
-    m_isShown = true;
-    m_tabBox->show();
+    m_isShown = false; // Pretend we showed, but don't actually render
+    return;
 }
 
 void TabBox::hide(bool abort)
 {
+    // HARD-DISABLED: Legacy TabBox visual rendering completely disabled
     m_delayedShowTimer.stop();
     if (m_isShown) {
         m_isShown = false;
         unreference();
     }
     Q_EMIT tabBoxClosed();
-    if (isDisplayed()) {
-        qDebug(KWIN_TABBOX) << "Tab box was not properly closed by an effect";
-    }
-    m_tabBox->hide(abort);
+    // Do NOT call m_tabBox->hide(abort) - legacy renderer disabled
 }
 
 void TabBox::reconfigure()
@@ -804,7 +799,9 @@ static bool areModKeysDepressed(const QList<QKeySequence> &seq)
 
 void TabBox::navigatingThroughWindows(bool forward, const QList<QKeySequence> &shortcut, TabBoxMode mode)
 {
+    qDebug() << "TabBox::navigatingThroughWindows()" << (forward ? "FORWARD" : "BACKWARD") << "mode:" << mode;
     if (!m_ready || isGrabbed()) {
+        qDebug() << "  -> not ready or already grabbed, bailing";
         return;
     }
     if (!options->focusPolicyIsReasonable()) {
@@ -825,6 +822,7 @@ void TabBox::navigatingThroughWindows(bool forward, const QList<QKeySequence> &s
 void TabBox::slotWalkThroughWindows()
 {
     // Delegate to DirectSwitcher for Alt+Tab
+    qDebug() << "TabBox::slotWalkThroughWindows() CALLED - delegating to DirectSwitcher";
     workspace()->slotDirectSwitcherNext();
 }
 
