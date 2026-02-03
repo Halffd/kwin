@@ -8,6 +8,7 @@
 */
 
 #include "direct_switcher_input_filter.h"
+#include "../effect/effecthandler.h"
 #include "../focuschain.h"
 #include "../globalshortcuts.h"
 #include "../input.h"
@@ -16,6 +17,8 @@
 #include "../virtualdesktops.h"
 #include "../window.h"
 #include "../workspace.h"
+#include "direct_switcher.h"
+#include "direct_switcher_effect.h"
 
 #include <KConfig>
 #include <KConfigGroup>
@@ -32,6 +35,7 @@ namespace KWin
 DirectSwitcherInputFilter::DirectSwitcherInputFilter(QObject *parent)
     : QObject(parent)
     , InputEventFilter(InputFilterOrder::TabBox) // Using TabBox order
+    , m_effect(nullptr)
     , m_useNewSwitcher(true) // Default to new switcher
     , m_switcherActive(false)
     , m_grabActive(false)
@@ -45,11 +49,31 @@ DirectSwitcherInputFilter::DirectSwitcherInputFilter(QObject *parent)
 
     initShortcuts();
 
-    // Connect to configuration change signals to reload settings
-    // Note: KConfig doesn't have a configChanged signal directly.
-    // This would need to be connected to a KConfigWatcher in a real implementation.
-    // For now, we'll comment this out to avoid compilation error.
-    // connect(kwinApp()->config(), &KConfig::configChanged, this, &DirectSwitcherInputFilter::reloadConfiguration);
+    // Get the DirectSwitcherEffect instance (it should be registered with the effects system)
+    // We'll retrieve it lazily on first use to ensure effects system is initialized
+}
+
+DirectSwitcher *DirectSwitcherInputFilter::switcher()
+{
+    if (!m_effect && effects) {
+        // Query the effects system to find our registered effect
+        Effect *effect = effects->findEffect(QStringLiteral("directswitcher"));
+        if (effect) {
+            m_effect = dynamic_cast<DirectSwitcherEffect *>(effect);
+        }
+
+        if (!m_effect) {
+            qCWarning(KWIN_CORE) << "DirectSwitcherInputFilter: DirectSwitcherEffect not found in effects system. "
+                                    "Effect may not be loaded properly.";
+            return nullptr;
+        }
+    }
+
+    if (m_effect) {
+        return m_effect->switcher();
+    }
+
+    return nullptr;
 }
 
 void DirectSwitcherInputFilter::loadConfiguration()
@@ -64,9 +88,13 @@ void DirectSwitcherInputFilter::loadConfiguration()
     const int padding = dsConfig.readEntry("ThumbnailPadding", 3);
     const double screenCoverage = dsConfig.readEntry("ScreenCoverage", 0.9);
 
-    m_directSwitcher.setThumbnailWidth(thumbnailWidth);
-    m_directSwitcher.setPadding(padding);
-    m_directSwitcher.setSwitcherScreenCoverage(screenCoverage);
+    // Set configuration on the switcher through the effect
+    DirectSwitcher *sw = switcher();
+    if (sw) {
+        sw->setThumbnailWidth(thumbnailWidth);
+        sw->setPadding(padding);
+        sw->setSwitcherScreenCoverage(screenCoverage);
+    }
 }
 
 void DirectSwitcherInputFilter::setUseNewSwitcher(bool useNew)
@@ -99,15 +127,7 @@ void DirectSwitcherInputFilter::handleOldTabboxEvent(KeyboardKeyEvent *event)
 
 void DirectSwitcherInputFilter::reloadConfiguration()
 {
-    // Reload configuration from kwinrc
-    KConfigGroup config(kwinApp()->config(), "DirectSwitcher");
-    const int thumbnailWidth = config.readEntry("ThumbnailWidth", 600);
-    const int padding = config.readEntry("ThumbnailPadding", 3);
-    const double screenCoverage = config.readEntry("ScreenCoverage", 0.9);
-
-    m_directSwitcher.setThumbnailWidth(thumbnailWidth);
-    m_directSwitcher.setPadding(padding);
-    m_directSwitcher.setSwitcherScreenCoverage(screenCoverage);
+    loadConfiguration();
 }
 
 void DirectSwitcherInputFilter::initShortcuts()
@@ -137,6 +157,12 @@ bool DirectSwitcherInputFilter::keyboardKey(KeyboardKeyEvent *event)
         return false;
     }
 
+    DirectSwitcher *sw = switcher();
+    if (!sw) {
+        qCWarning(KWIN_CORE) << "DirectSwitcherInputFilter: switcher not available";
+        return false;
+    }
+
     if (!m_switcherActive) {
         // Check if this is a key press that should start the switcher
         if (event->state == KeyboardKeyState::Pressed) {
@@ -156,11 +182,11 @@ bool DirectSwitcherInputFilter::keyboardKey(KeyboardKeyEvent *event)
 
                 // Set the output for the switcher to appear on the active output
                 if (workspace() && workspace()->activeOutput()) {
-                    m_directSwitcher.setOutput(workspace()->activeOutput());
+                    sw->setOutput(workspace()->activeOutput());
                 }
 
                 // Start the switcher
-                m_directSwitcher.show(mode);
+                sw->show(mode);
                 m_switcherActive = true;
                 m_grabActive = true;
 
@@ -176,19 +202,19 @@ bool DirectSwitcherInputFilter::keyboardKey(KeyboardKeyEvent *event)
             // Check for navigation keys
             if (event->key == Qt::Key_Tab) {
                 if (event->modifiers & Qt::ShiftModifier) {
-                    m_directSwitcher.selectPrevious();
+                    sw->selectPrevious();
                 } else {
-                    m_directSwitcher.selectNext();
+                    sw->selectNext();
                 }
                 return true; // Consume the event
             } else if (event->key == Qt::Key_Escape) {
-                m_directSwitcher.hide();
+                sw->hide();
                 m_switcherActive = false;
                 m_grabActive = false;
                 qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: Switcher deactivated (Escape)";
                 return true; // Consume the event
             } else if (event->key == Qt::Key_Return || event->key == Qt::Key_Enter || event->key == Qt::Key_Space) {
-                m_directSwitcher.accept();
+                sw->accept();
                 m_switcherActive = false;
                 m_grabActive = false;
                 qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: Switcher accepted and deactivated";
@@ -200,7 +226,7 @@ bool DirectSwitcherInputFilter::keyboardKey(KeyboardKeyEvent *event)
 
                 // Only close if we're not consuming other keys (like Tab)
                 if (event->key != Qt::Key_Tab && event->key != Qt::Key_Shift) {
-                    m_directSwitcher.accept(); // Accept current selection
+                    sw->accept(); // Accept current selection
                     m_switcherActive = false;
                     m_grabActive = false;
                     qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: Switcher closed by releasing modifiers";
@@ -264,19 +290,24 @@ void DirectSwitcherInputFilter::navigateThroughWindows(bool forward, const QList
 {
     Q_UNUSED(shortcut); // We handle this differently in our input filter
 
+    DirectSwitcher *sw = switcher();
+    if (!sw) {
+        return;
+    }
+
     if (!m_switcherActive) {
         // Start the switcher
-        m_directSwitcher.show(mode);
+        sw->show(mode);
         m_switcherActive = true;
         m_grabActive = true;
         qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: navigateThroughWindows started switcher with mode:" << static_cast<int>(mode);
     } else {
         // Navigate within the existing switcher
         if (forward) {
-            m_directSwitcher.selectNext();
+            sw->selectNext();
             qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: navigateThroughWindows selecting next";
         } else {
-            m_directSwitcher.selectPrevious();
+            sw->selectPrevious();
             qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter: navigateThroughWindows selecting previous";
         }
     }
@@ -377,17 +408,6 @@ bool DirectSwitcherInputFilter::touchFrame()
 {
     // This filter only handles keyboard events for switcher
     return false;
-}
-
-void DirectSwitcherInputFilter::initializeSceneIntegration(Item *parentItem)
-{
-    if (!parentItem) {
-        qCWarning(KWIN_CORE) << "DirectSwitcherInputFilter::initializeSceneIntegration called with null parentItem!";
-        return;
-    }
-
-    qCDebug(KWIN_CORE) << "DirectSwitcherInputFilter::initializeSceneIntegration - setting parentItem";
-    m_directSwitcher.setParentItem(parentItem);
 }
 
 } // namespace KWin

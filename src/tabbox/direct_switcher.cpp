@@ -1,34 +1,19 @@
 #include "direct_switcher.h"
 
-#include "../compositor.h"
-#include "../scene/imageitem.h"
-#include "../scene/item.h"
-#include "../scene/workspacescene.h"
-
 #include "window.h"
 #include "workspace.h"
 
 #include <QElapsedTimer>
-#include <QImage>
 #include <QList>
 #include <QRect>
-#include <QSize>
-#include <QTimer>
-#include <cmath>
 #include <cstdio>
 
 namespace KWin
 {
 
 /**
- * CRITICAL RULES (non-negotiable for KWin scene graph):
- * 1. Item* must be created as child of existing scene item
- * 2. Never manually delete scene items - parent owns them
- * 3. No Item creation before scene exists
- * 4. Activation must go through TabBox exit path, not direct Workspace calls
- * 5. Never hijack TabBox grabs - integrate cleanly
- * 6. Use EffectWindow*, never Window* for compositor primitives
- * 7. Cache across shows, don't recreate on every Alt+Tab
+ * DirectSwitcher now focuses on state management and window selection.
+ * Rendering is delegated to the DirectSwitcherEffect via OffscreenQuickScene.
  */
 class DirectSwitcher::Private
 {
@@ -39,19 +24,11 @@ public:
     void create();
     void destroy();
     void updateSelection();
-    void buildLayout();
     void cacheWindowThumbnails();
     void clearWindowCache();
     void recordFrameTime(const char *marker);
-    void updateAnimations(qint64 elapsed);
     void activateCurrentSelection();
-    void invalidateWindowCache(); // Invalidate on window destroy/geometry change
-
-    // Scene graph
-    Item *parentItem = nullptr; // Set via setParentItem(), we don't own this
-    Item *root = nullptr; // OWNED BY parentItem, never manually delete
-    QList<Item *> items; // OWNED BY root, never manually delete
-    QList<ImageItem *> thumbnailItems; // OWNED BY root, never manually delete
+    void invalidateWindowCache();
 
     // Window cache (persistent across shows)
     QList<Window *> windowList;
@@ -157,22 +134,6 @@ void DirectSwitcher::Private::activateCurrentSelection()
     }
 }
 
-void DirectSwitcher::Private::updateAnimations(qint64 elapsed)
-{
-    // Phase 9: Time-based animation update
-    // For now, this is a placeholder for future animation logic
-    // Could animate opacity, position, scale based on elapsed time
-    // and animationDurationMs
-
-    if (!animationEnabled || animationDurationMs <= 0) {
-        return;
-    }
-
-    // TODO: Implement opacity/position lerp based on elapsed time
-    // float progress = std::min(1.0f, static_cast<float>(elapsed) / animationDurationMs);
-    // Apply progress to items: position, opacity
-}
-
 void DirectSwitcher::Private::cacheWindowThumbnails()
 {
     // Phase 3: Get window list from Workspace
@@ -211,52 +172,7 @@ void DirectSwitcher::Private::cacheWindowThumbnails()
     }
 }
 
-void DirectSwitcher::Private::buildLayout()
-{
-    // Phase 4: Deterministic geometry solver
-    // Horizontal strip layout, center-selected bias
-
-    if (!output || windowList.isEmpty()) {
-        return;
-    }
-
-    const QRect screen = output->geometry();
-
-    // Calculate available space
-    const int totalItems = windowList.size();
-
-    // For horizontal strip, lay out all items horizontally
-    // Each item: thumbnail + padding
-    const int itemSpacing = thumbnailWidth + padding;
-
-    // Center the whole strip on screen
-    const int totalWidth = (totalItems * itemSpacing) - padding; // no trailing padding
-    const int startX = screen.x() + (screen.width() - totalWidth) / 2;
-    const int centerY = screen.y() + screen.height() / 2;
-    const int itemHeight = static_cast<int>(thumbnailWidth * 0.75); // 4:3 aspect ratio
-    const int startY = centerY - itemHeight / 2;
-
-    // Position items horizontally
-    for (int i = 0; i < thumbnailItems.size(); ++i) {
-        ImageItem *item = thumbnailItems[i];
-        if (!item) {
-            continue;
-        }
-
-        const int x = startX + i * itemSpacing;
-        const int y = startY;
-
-        item->setPosition(QPointF(x, y));
-        item->setSize(QSizeF(thumbnailWidth, itemHeight));
-
-        // Z order: selected higher
-        if (i == currentIndex) {
-            item->setZ(10);
-        } else {
-            item->setZ(0);
-        }
-    }
-}
+// Layout calculations moved to Effect for Quick rendering
 
 void DirectSwitcher::Private::create()
 {
@@ -265,24 +181,6 @@ void DirectSwitcher::Private::create()
     QElapsedTimer createTimer;
     createTimer.start();
     recordFrameTime("create() start");
-
-    // Create root item without parent initially
-    // It will be parented via setParentItem() call
-    qWarning() << "DirectSwitcher::create() - parentItem:" << parentItem;
-
-    if (!parentItem) {
-        qDebug() << "WARNING: parentItem is null, creating root without parent";
-        // Create root item without parent - will need to be reparented later
-        // For now, just mark as visible and return to avoid crash
-        root = new Item(nullptr);
-    } else {
-        qDebug() << "DirectSwitcher::create() - parentItem valid, creating root item";
-        // Create root as child of parentItem
-        root = new Item(parentItem);
-    }
-
-    items.clear();
-    thumbnailItems.clear();
 
     // Phase 7 (PERSISTENT CACHE): Only refresh window list if cache invalid
     // Cache persists across Alt+Tab calls unless windows change
@@ -302,86 +200,28 @@ void DirectSwitcher::Private::create()
         return;
     }
 
-    // Phase 3: Create items for each window
-    // Each show() creates new visual items but reuses cached window list
-    qDebug() << "DirectSwitcher: Creating" << windowList.size() << "image items";
-    for (int i = 0; i < windowList.size(); ++i) {
-        auto *item = new ImageItem(root);
-
-        // Placeholder image
-        // TODO: Use EffectWindow::screenThumbnail() for GPU copy
-        QImage placeholder(200, 150, QImage::Format_ARGB32_Premultiplied);
-        placeholder.fill(Qt::black);
-
-        item->setImage(placeholder);
-        item->setOpacity(0.6);
-
-        thumbnailItems.append(item);
-        items.append(item);
-    }
-
     currentIndex = 0;
-
-    // Phase 4: Apply layout
-    buildLayout();
     updateSelection();
     visible = true;
 
     creationTimeMs = createTimer.elapsed();
-
-    // Phase 7: Report creation time
-    if (performanceMeasurementEnabled) {
-        std::fprintf(stderr, "[DirectSwitcher] create() completed with %lld items in %lld ms\n",
-                     (long long)items.size(), creationTimeMs);
-        if (creationTimeMs > 2) {
-            std::fprintf(stderr, "[DirectSwitcher] WARNING: Creation exceeded 2ms budget!\n");
-        }
-    }
-    qDebug() << "DirectSwitcher::create() COMPLETED - visible=" << visible << ", items=" << items.size();
+    qDebug() << "DirectSwitcher::create() COMPLETED - visible=" << visible;
 }
 
 void DirectSwitcher::Private::destroy()
 {
-    // Phase 6: Hardened destruction - ensure NO dangling pointers
-    // BLOCKER FIX: Scene graph ownership rules
-    // - Items are owned by their parent Item
-    // - Deleting them manually is a race condition (render thread may access)
-    // - Deleting root will cascade delete all children
-    // - Only null pointers, never call delete
+    // Destroy window cache
     recordFrameTime("destroy() start");
-
-    // Clear lists but DO NOT delete - parent owns the items
-    items.clear();
-    thumbnailItems.clear();
-
-    // BLOCKER FIX: Delete root last, which will cascade delete all children
-    // Never delete individual items - parent handles that
-    if (root) {
-        delete root;
-        root = nullptr;
-    }
-
-    // Clear window cache (no dangling window pointers)
     clearWindowCache();
-
     visible = false;
     currentIndex = 0;
-
     recordFrameTime("destroy() complete");
 }
 
 void DirectSwitcher::Private::updateSelection()
 {
-    // Update opacity and Z for selection
-    for (int i = 0; i < thumbnailItems.size(); ++i) {
-        if (i == currentIndex) {
-            thumbnailItems[i]->setOpacity(1.0);
-            thumbnailItems[i]->setZ(10);
-        } else {
-            thumbnailItems[i]->setOpacity(0.6);
-            thumbnailItems[i]->setZ(0);
-        }
-    }
+    // Rendering is now handled by Effect - just track state
+    qDebug() << "DirectSwitcher: Selection updated to index" << currentIndex;
 }
 
 DirectSwitcher::DirectSwitcher(QObject *parent)
@@ -395,16 +235,7 @@ DirectSwitcher::~DirectSwitcher()
     d->destroy();
 }
 
-void DirectSwitcher::setParentItem(Item *parentItem)
-{
-    // Store the parent item for use in create()
-    d->parentItem = parentItem;
-
-    // If root already exists, reparent it now
-    if (d->root && parentItem) {
-        d->root->setParent(parentItem);
-    }
-}
+// setParentItem() removed - rendering now delegated to DirectSwitcherEffect via OffscreenQuickScene
 
 void DirectSwitcher::show(Mode mode)
 {
@@ -425,38 +256,6 @@ void DirectSwitcher::show(Mode mode)
 
     // Phase 6/7: Create with lifecycle hardening
     d->create();
-
-    // DEBUGGING: Force visibility properties to ensure rendering
-    if (d->root) {
-        QRectF rect = d->root->boundingRect();
-        QRect screenGeom = Workspace::self()->geometry();
-
-        // Force full screen dimensions
-        d->root->setSize(QSizeF(screenGeom.width(), screenGeom.height()));
-        d->root->setPosition(QPointF(screenGeom.x(), screenGeom.y()));
-
-        // Force full opacity
-        d->root->setOpacity(1.0);
-
-        // Force z-index to top
-        d->root->setZ(9999);
-    }
-
-    // Ensure proper scene graph attachment
-    if (Compositor::compositing() && Compositor::self()) {
-        WorkspaceScene *scene = Compositor::self()->scene();
-
-        // Try overlay item first (usually where UI overlays go)
-        if (Item *overlay = scene->overlayItem()) {
-            if (d->root->parentItem() != overlay) {
-                d->root->setParentItem(overlay);
-            }
-        } else if (Item *container = scene->containerItem()) {
-            if (d->root->parentItem() != container) {
-                d->root->setParentItem(container);
-            }
-        }
-    }
 
     Q_EMIT visibilityChanged(true);
 }
@@ -572,9 +371,7 @@ bool DirectSwitcher::isVisible() const
 void DirectSwitcher::setOutput(Output *output)
 {
     d->output = output;
-    if (d->visible) {
-        d->buildLayout();
-    }
+    // Layout is now handled by Effect via Quick scene
 }
 
 Window *DirectSwitcher::currentSelection() const
@@ -588,25 +385,19 @@ Window *DirectSwitcher::currentSelection() const
 void DirectSwitcher::setThumbnailWidth(int width)
 {
     d->thumbnailWidth = width;
-    if (d->visible) {
-        d->buildLayout();
-    }
+    // Layout is now handled by Effect via Quick scene
 }
 
 void DirectSwitcher::setPadding(int padding)
 {
     d->padding = padding;
-    if (d->visible) {
-        d->buildLayout();
-    }
+    // Layout is now handled by Effect via Quick scene
 }
 
 void DirectSwitcher::setSwitcherScreenCoverage(double coverage)
 {
     d->switcherScreenCoverage = coverage;
-    if (d->visible) {
-        d->buildLayout();
-    }
+    // Layout is now handled by Effect via Quick scene
 }
 
 int DirectSwitcher::thumbnailWidth() const

@@ -10,7 +10,7 @@
 #pragma once
 
 #include "../input.h" // For InputEventFilter
-#include "direct_switcher.h"
+#include "direct_switcher.h" // For Mode enum in slot methods
 
 #include <QAction>
 #include <QKeySequence>
@@ -22,6 +22,9 @@
 
 namespace KWin
 {
+
+class DirectSwitcher;
+class DirectSwitcherEffect;
 
 class DirectSwitcherInputFilter : public QObject, public InputEventFilter
 {
@@ -57,8 +60,8 @@ public:
     void setUseNewSwitcher(bool useNew);
     bool useNewSwitcher() const;
 
-    // Initialize the DirectSwitcher with a parent Item for scene graph integration
-    void initializeSceneIntegration(Item *parentItem);
+    // Get the switcher from the effect (single source of truth)
+    DirectSwitcher *switcher();
 
 private Q_SLOTS:
     void slotWalkThroughWindows();
@@ -76,7 +79,7 @@ private:
     void loadConfiguration();
     void handleOldTabboxEvent(KeyboardKeyEvent *event);
 
-    DirectSwitcher m_directSwitcher;
+    DirectSwitcherEffect *m_effect = nullptr;
     bool m_useNewSwitcher;
     bool m_switcherActive;
     bool m_grabActive;

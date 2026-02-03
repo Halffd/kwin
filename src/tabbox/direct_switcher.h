@@ -21,9 +21,6 @@ namespace KWin
 
 class Window;
 class Output;
-class Item;
-class ImageItem;
-class Workspace;
 
 /**
  * A fast, direct switcher implementation that bypasses Qt Model/View and QML.
@@ -43,12 +40,6 @@ public:
 
     explicit DirectSwitcher(QObject *parent = nullptr);
     ~DirectSwitcher() override;
-
-    /**
-     * Set the parent item for the switcher's scene graph node.
-     * This should be called with the WorkspaceScene's overlayItem().
-     */
-    void setParentItem(Item *parentItem);
 
     /**
      * Shows the switcher with the current window list.

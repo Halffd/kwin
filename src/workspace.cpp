@@ -168,28 +168,11 @@ Workspace::Workspace()
     // Parent DirectSwitcher's item to the compositor overlay/container
     auto *compositor = Compositor::self();
     if (compositor && compositor->scene()) {
-        // Scene already exists - set parent immediately
-        // Try overlayItem first, fall back to containerItem if needed
-        auto *parentItem = compositor->scene()->overlayItem();
-        if (!parentItem) {
-            parentItem = compositor->scene()->containerItem();
-        }
-        qDebug() << "DirectSwitcher: scene already exists, parentItem:" << parentItem;
-        m_directSwitcher->setParentItem(parentItem);
-        qDebug() << "DirectSwitcher: parentItem set immediately";
+        // Scene rendering is now handled by DirectSwitcherEffect
+        qDebug() << "DirectSwitcher: Effect will handle rendering";
     } else {
-        // Scene doesn't exist yet - wait for it to be created
-        connect(compositor, &Compositor::sceneCreated, this, [this]() {
-            if (Compositor::self()->scene()) {
-                auto *parentItem = Compositor::self()->scene()->overlayItem();
-                if (!parentItem) {
-                    parentItem = Compositor::self()->scene()->containerItem();
-                }
-                qDebug() << "DirectSwitcher: scene created, parentItem:" << parentItem;
-                m_directSwitcher->setParentItem(parentItem);
-                qDebug() << "DirectSwitcher: scene created, parentItem set via signal";
-            }
-        });
+        // Scene will be created - Effect will handle rendering when ready
+        qDebug() << "DirectSwitcher: Waiting for Effect initialization";
     }
 
     m_decorationBridge = std::make_unique<Decoration::DecorationBridge>();

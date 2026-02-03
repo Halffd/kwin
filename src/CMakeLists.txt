@@ -356,6 +356,7 @@ if (KWIN_BUILD_TABBOX)
         tabbox/x11_filter.cpp
         tabbox/direct_window_list.cpp
         tabbox/direct_switcher.cpp
+        tabbox/direct_switcher_effect.cpp
         tabbox/direct_switcher_input_filter.cpp
         tabbox/direct_overview.cpp
     )

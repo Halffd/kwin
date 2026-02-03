@@ -1,0 +1,20 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "developer@kde.org",
+                "Name": "KWin Developers"
+            }
+        ],
+        "Category": "Window Management",
+        "Description": "Direct window switcher with visual thumbnails",
+        "Icon": "preferences-system-windows",
+        "Id": "directswitcher",
+        "License": "GPL-2.0-or-later",
+        "Name": "Direct Switcher",
+        "ServiceTypes": [
+            "KWin/Effect"
+        ],
+        "Version": "1.0"
+    }
+}

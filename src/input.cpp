@@ -2052,10 +2052,8 @@ void InputRedirection::setupInputFilters()
             if (scene) {
                 Item *containerItem = scene->containerItem();
                 if (containerItem) {
-                    auto directSwitcherFilter = dynamic_cast<DirectSwitcherInputFilter *>(directSwitcherRawPtr);
-                    if (directSwitcherFilter) {
-                        directSwitcherFilter->initializeSceneIntegration(containerItem);
-                    }
+                    // DirectSwitcherEffect is now registered as an Effect,
+                    // it will manage its own OffscreenQuickScene
                 }
             }
         }
