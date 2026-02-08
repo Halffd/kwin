@@ -49,6 +49,75 @@
     </method>
 
     <!--
+        Sets the brightness level (0.1 to 1.0).
+    -->
+    <method name="setBrightness">
+        <arg name="brightness" type="d" direction="in"/>
+    </method>
+
+    <!--
+        Increases brightness by specified step.
+    -->
+    <method name="increaseBrightness">
+        <arg name="step" type="d" direction="in"/>
+    </method>
+
+    <!--
+        Decreases brightness by specified step.
+    -->
+    <method name="decreaseBrightness">
+        <arg name="step" type="d" direction="in"/>
+    </method>
+
+    <!--
+        Resets brightness to default (1.0).
+    -->
+    <method name="resetBrightness">
+    </method>
+
+    <!--
+        Sets color temperature.
+    -->
+    <method name="setTemperature">
+        <arg name="temperature" type="i" direction="in"/>
+    </method>
+
+    <!--
+        Increases temperature by specified step.
+    -->
+    <method name="increaseTemperature">
+        <arg name="step" type="i" direction="in"/>
+    </method>
+
+    <!--
+        Decreases temperature by specified step.
+    -->
+    <method name="decreaseTemperature">
+        <arg name="step" type="i" direction="in"/>
+    </method>
+
+    <!--
+        Resets temperature to automatic target.
+    -->
+    <method name="resetTemperature">
+    </method>
+
+    <!--
+        Sets RGB gamma values directly.
+    -->
+    <method name="setGamma">
+        <arg name="red" type="d" direction="in"/>
+        <arg name="green" type="d" direction="in"/>
+        <arg name="blue" type="d" direction="in"/>
+    </method>
+
+    <!--
+        Resets gamma to default values.
+    -->
+    <method name="resetGamma">
+    </method>
+
+    <!--
         This property holds a value to indicate whether Night Light is inhibited.
     -->
     <property name="inhibited" type="b" access="read"/>
@@ -67,6 +136,11 @@
         This property holds a value to indicate whether Night Light is available.
     -->
     <property name="available" type="b" access="read"/>
+
+    <!--
+        This property holds a value to indicate the current brightness level (0.1 to 1.0).
+    -->
+    <property name="brightness" type="d" access="read"/>
 
     <!--
         This property holds a value to indicate the current screen color temperature.

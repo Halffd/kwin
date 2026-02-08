@@ -1,0 +1,211 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name="org.kde.KWin.WindowManager">
+
+    <!-- Window listing and finding methods -->
+    <method name="listWindows">
+      <arg name="windows" type="aa{sv}" direction="out"/>
+    </method>
+
+    <method name="getWindowInfo">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="windowInfo" type="a{sv}" direction="out"/>
+    </method>
+
+    <method name="findWindowsByClass">
+      <arg name="windowClass" type="s" direction="in"/>
+      <arg name="windows" type="aa{sv}" direction="out"/>
+    </method>
+
+    <method name="findWindowsByTitle">
+      <arg name="title" type="s" direction="in"/>
+      <arg name="windows" type="aa{sv}" direction="out"/>
+    </method>
+
+    <method name="findWindowsByPid">
+      <arg name="pid" type="u" direction="in"/>
+      <arg name="windows" type="aa{sv}" direction="out"/>
+    </method>
+
+    <method name="getActiveWindow">
+      <arg name="windowInfo" type="a{sv}" direction="out"/>
+    </method>
+
+    <!-- Window property getters -->
+    <method name="getWindowTitle">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="title" type="s" direction="out"/>
+    </method>
+
+    <method name="getWindowClass">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="windowClass" type="s" direction="out"/>
+    </method>
+
+    <method name="getWindowId">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="id" type="s" direction="out"/>
+    </method>
+
+    <method name="getWindowPid">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="pid" type="u" direction="out"/>
+    </method>
+
+    <method name="getWindowExecutable">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="executable" type="s" direction="out"/>
+    </method>
+
+    <method name="getWindowPosition">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="position" type="a{sv}" direction="out"/>
+    </method>
+
+    <method name="getWindowSize">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="size" type="a{sv}" direction="out"/>
+    </method>
+
+    <method name="getWindowGeometry">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="geometry" type="a{sv}" direction="out"/>
+    </method>
+
+    <method name="getWindowState">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="state" type="a{sv}" direction="out"/>
+    </method>
+
+    <method name="getWindowTransparency">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="transparent" type="b" direction="out"/>
+    </method>
+
+    <!-- Window action methods -->
+    <method name="activateWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="closeWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="maximizeWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="unmaximizeWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="minimizeWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="unminimizeWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="fullscreenWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="unfullscreenWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="setAlwaysOnTop">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="enabled" type="b" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="setWindowOpacity">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="opacity" type="d" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <!-- Window geometry operations -->
+    <method name="moveWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="x" type="i" direction="in"/>
+      <arg name="y" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="resizeWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="width" type="i" direction="in"/>
+      <arg name="height" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="moveAndResizeWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="x" type="i" direction="in"/>
+      <arg name="y" type="i" direction="in"/>
+      <arg name="width" type="i" direction="in"/>
+      <arg name="height" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="centerWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="sendWindowToMonitor">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="monitor" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="sendWindowToDesktop">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="desktop" type="i" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <!-- Advanced operations -->
+    <method name="toggleMaximizeWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="toggleFullscreenWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="toggleMinimizeWindow">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <method name="toggleAlwaysOnTop">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
+    <!-- Monitor information -->
+    <method name="getMonitorInfo">
+      <arg name="monitor" type="i" direction="in"/>
+      <arg name="info" type="a{sv}" direction="out"/>
+    </method>
+
+    <method name="listMonitors">
+      <arg name="monitors" type="aa{sv}" direction="out"/>
+    </method>
+
+  </interface>
+</node>

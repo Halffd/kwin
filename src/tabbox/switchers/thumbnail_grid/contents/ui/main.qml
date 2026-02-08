@@ -100,11 +100,12 @@ KWin.TabBoxSwitcher {
                     focus: true
                     model: tabBox.model
                     currentIndex: tabBox.currentIndex
+                    smooth: false
 
                     readonly property int iconSize: Kirigami.Units.iconSizes.huge
                     readonly property int captionRowHeight: Kirigami.Units.gridUnit * 2
-                    readonly property int columnSpacing: Kirigami.Units.gridUnit
-                    readonly property int thumbnailWidth: Kirigami.Units.gridUnit * 16
+                    readonly property int columnSpacing: Kirigami.Units.gridUnit * 0.4
+                    readonly property int thumbnailWidth: Kirigami.Units.gridUnit * 22
                     readonly property int thumbnailHeight: thumbnailWidth * (1.0/dialogMainItem.screenFactor)
                     cellWidth: hoverItem.margins.left + thumbnailWidth + hoverItem.margins.right
                     cellHeight: hoverItem.margins.top + captionRowHeight + thumbnailHeight + hoverItem.margins.bottom
@@ -131,10 +132,10 @@ KWin.TabBoxSwitcher {
                             z: 0
                             spacing: thumbnailGridView.columnSpacing
                             anchors.fill: parent
-                            anchors.leftMargin: hoverItem.margins.left * 2
-                            anchors.topMargin: hoverItem.margins.top * 2
-                            anchors.rightMargin: hoverItem.margins.right * 2
-                            anchors.bottomMargin: hoverItem.margins.bottom * 2
+                            anchors.leftMargin: hoverItem.margins.left * 0.8
+                            anchors.topMargin: hoverItem.margins.top * 0.8
+                            anchors.rightMargin: hoverItem.margins.right * 0.8
+                            anchors.bottomMargin: hoverItem.margins.bottom * 0.8
 
 
                             // KWin.WindowThumbnail needs a container
@@ -184,6 +185,7 @@ KWin.TabBoxSwitcher {
                             PlasmaComponents3.Label {
                                 Layout.fillWidth: true
                                 text: model.caption
+                                font.weight: thumbnailGridItem.focus ? Font.Bold : Font.Normal
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                                 textFormat: Text.PlainText
@@ -204,7 +206,7 @@ KWin.TabBoxSwitcher {
                     anchors.centerIn: parent
                     width: parent.width - Kirigami.Units.largeSpacing * 2
                     icon.source: "edit-none"
-                    text: i18ndc("kwin", "@info:placeholder no entries in the task switcher", "No open windows")
+                    text: i18ndc("kwin_x11", "@info:placeholder no entries in the task switcher", "No open windows")
                     visible: thumbnailGridView.count === 0
                 }
 
@@ -224,10 +226,6 @@ KWin.TabBoxSwitcher {
                     thumbnailGridView.currentIndexChanged(thumbnailGridView.currentIndex);
                 }
             } // Dialog.mainItem
-
-            onSceneGraphError: () => {
-                // This slot is intentionally left blank, otherwise QtQuick may post a qFatal() message on a graphics reset.
-            }
         } // Dialog
     } // Instantiator
 }

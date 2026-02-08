@@ -522,7 +522,11 @@ void NightLightManager::commitGammaRamps(int temperature)
 {
     // TODO this list should ideally be filtered by workspace
     const QList<BackendOutput *> outputs = kwinApp()->outputBackend()->outputs();
-    const QVector3D rgbFactors = sampleColorTemperature(temperature);
+    QVector3D rgbFactors = sampleColorTemperature(temperature);
+
+    // Apply brightness factor by scaling the RGB values
+    rgbFactors = rgbFactors * m_brightness;
+
     for (BackendOutput *output : outputs) {
         output->setChannelFactors(rgbFactors);
     }
@@ -574,6 +578,98 @@ void NightLightManager::setDaylight(bool daylight)
     }
     m_daylight = daylight;
     Q_EMIT daylightChanged();
+}
+
+double NightLightManager::brightness() const
+{
+    return m_brightness;
+}
+
+void NightLightManager::setBrightness(double brightness)
+{
+    brightness = std::clamp(brightness, 0.1, 1.0);
+    if (m_brightness == brightness) {
+        return;
+    }
+    m_brightness = brightness;
+
+    if (isEnabled() && !isInhibited()) {
+        commitGammaRamps(currentTargetTemperature());
+    }
+
+    Q_EMIT brightnessChanged();
+}
+
+void NightLightManager::increaseBrightness(double step)
+{
+    setBrightness(m_brightness + step);
+}
+
+void NightLightManager::decreaseBrightness(double step)
+{
+    setBrightness(m_brightness - step);
+}
+
+void NightLightManager::resetBrightness()
+{
+    setBrightness(1.0);
+}
+
+void NightLightManager::setTemperature(int temperature)
+{
+    temperature = std::clamp(temperature, MIN_TEMPERATURE, DEFAULT_DAY_TEMPERATURE);
+    if (isEnabled() && !isInhibited()) {
+        quickAdjust(temperature);
+    }
+    Q_EMIT temperatureAdjustmentChanged();
+}
+
+void NightLightManager::increaseTemperature(int step)
+{
+    int newTemp = std::min(m_currentTemperature + step, DEFAULT_DAY_TEMPERATURE);
+    setTemperature(newTemp);
+}
+
+void NightLightManager::decreaseTemperature(int step)
+{
+    int newTemp = std::max(m_currentTemperature - step, MIN_TEMPERATURE);
+    setTemperature(newTemp);
+}
+
+void NightLightManager::resetTemperature()
+{
+    setTemperature(currentTargetTemperature());
+}
+
+QVector3D NightLightManager::currentGamma() const
+{
+    QVector3D rgbFactors = sampleColorTemperature(m_currentTemperature);
+    return rgbFactors * m_brightness;
+}
+
+void NightLightManager::setGamma(double red, double green, double blue)
+{
+    // Clamp values to reasonable range
+    red = std::clamp(red, 0.0, 1.0);
+    green = std::clamp(green, 0.0, 1.0);
+    blue = std::clamp(blue, 0.0, 1.0);
+
+    QVector3D gammaFactors(red, green, blue);
+
+    if (isEnabled() && !isInhibited()) {
+        const QList<BackendOutput *> outputs = kwinApp()->outputBackend()->outputs();
+        for (BackendOutput *output : outputs) {
+            output->setChannelFactors(gammaFactors);
+        }
+    }
+
+    Q_EMIT temperatureAdjustmentChanged();
+}
+
+void NightLightManager::resetGamma()
+{
+    resetBrightness();
+    resetTemperature();
 }
 
 } // namespace KWin

@@ -38,6 +38,7 @@
 #include "syncalarmx11filter.h"
 #include "tiles/tilemanager.h"
 #include "window.h"
+#include "windowmanagerdbusinterface.h"
 #if KWIN_BUILD_TABBOX
 #include "tabbox/tabbox.h"
 #endif
@@ -168,6 +169,7 @@ Workspace::Workspace()
     connect(this, &Workspace::configChanged, m_decorationBridge.get(), &Decoration::DecorationBridge::reconfigure);
 
     new DBusInterface(this);
+    new WindowManagerDBusInterface(this);
     m_outline = std::make_unique<Outline>();
 
     m_dpmsTimer.setSingleShot(true);

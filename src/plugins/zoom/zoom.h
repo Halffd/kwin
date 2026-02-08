@@ -4,30 +4,30 @@
 
     SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
     SPDX-FileCopyrightText: 2010 Sebastian Sauer <sebsauer@kdab.com>
-    SPDX-FileCopyrightText: 2025 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 
 #pragma once
+#include "config-kwin.h"
 
 #include "core/colorspace.h"
 #include "effect/effect.h"
 
-#include <QAction>
 #include <QTime>
 #include <QTimeLine>
 
 namespace KWin
 {
 
-class CursorItem;
+#if HAVE_ACCESSIBILITY
+class ZoomAccessibilityIntegration;
+#endif
+
 class GLFramebuffer;
 class GLTexture;
 class GLVertexBuffer;
 class GLShader;
-class FocusTracker;
-class TextCaretTracker;
 
 class ZoomEffect : public Effect
 {
@@ -35,6 +35,8 @@ class ZoomEffect : public Effect
     Q_PROPERTY(qreal zoomFactor READ configuredZoomFactor)
     Q_PROPERTY(int mousePointer READ configuredMousePointer)
     Q_PROPERTY(int mouseTracking READ configuredMouseTracking)
+    Q_PROPERTY(bool focusTrackingEnabled READ isFocusTrackingEnabled)
+    Q_PROPERTY(bool textCaretTrackingEnabled READ isTextCaretTrackingEnabled)
     Q_PROPERTY(int focusDelay READ configuredFocusDelay)
     Q_PROPERTY(qreal moveFactor READ configuredMoveFactor)
     Q_PROPERTY(qreal targetZoom READ targetZoom)
@@ -45,7 +47,7 @@ public:
 
     void reconfigure(ReconfigureFlags flags) override;
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime) override;
-    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const Region &deviceRegion, LogicalOutput *screen) override;
+    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen) override;
     void postPaintScreen() override;
     bool isActive() const override;
     int requestedEffectChainPosition() const override;
@@ -54,16 +56,27 @@ public:
     qreal configuredZoomFactor() const;
     int configuredMousePointer() const;
     int configuredMouseTracking() const;
+    bool isFocusTrackingEnabled() const;
+    bool isTextCaretTrackingEnabled() const;
     int configuredFocusDelay() const;
     qreal configuredMoveFactor() const;
     qreal targetZoom() const;
 
+public Q_SLOTS:
+    // DBus interface methods
+    Q_SCRIPTABLE void zoomInDBus();
+    Q_SCRIPTABLE void zoomOutDBus();
+    Q_SCRIPTABLE void resetZoomDBus();
+    Q_SCRIPTABLE void zoomTo140DBus();
+    Q_SCRIPTABLE void zoomToValueDBus(double value); // Set any zoom value
+    Q_SCRIPTABLE double getZoomLevelDBus(); // Get current zoom level
+
 private Q_SLOTS:
-    void saveInitialZoom();
     void zoomIn();
     void zoomTo(double to);
     void zoomOut();
     void actualSize();
+    void zoomTo14();
     void moveZoomLeft();
     void moveZoomRight();
     void moveZoomUp();
@@ -71,12 +84,11 @@ private Q_SLOTS:
     void moveMouseToFocus();
     void moveMouseToCenter();
     void timelineFrameChanged(int frame);
-    void moveFocus(const QPointF &point);
+    void moveFocus(const QPoint &point);
     void slotMouseChanged(const QPointF &pos, const QPointF &old);
     void slotWindowAdded(EffectWindow *w);
     void slotWindowDamaged();
-    void slotScreenRemoved(LogicalOutput *screen);
-    void setTargetZoom(double value);
+    void slotScreenRemoved(Output *screen);
 
 private:
     enum MouseTrackingType {
@@ -84,7 +96,6 @@ private:
         MouseTrackingCentered = 1,
         MouseTrackingPush = 2,
         MouseTrackingDisabled = 3,
-        MouseTrackingCenteredStrict = 4,
     };
 
     enum MousePointerType {
@@ -98,59 +109,54 @@ private:
         std::unique_ptr<GLTexture> texture;
         std::unique_ptr<GLFramebuffer> framebuffer;
         QRectF viewport;
-        std::shared_ptr<ColorDescription> color = ColorDescription::sRGB;
+        ColorDescription color = ColorDescription::sRGB;
+    };
+
+    struct ZoomScreenState
+    {
+        double zoom = 1.0;
+        double targetZoom = 1.0;
+        double sourceZoom = 1.0;
+        QPoint focusPoint;
+        QPoint prevPoint;
+        int xMove = 0;
+        int yMove = 0;
     };
 
     void moveZoom(int x, int y);
     bool screenExistsAt(const QPoint &point) const;
-    void realtimeZoom(double delta);
 
-    QPointF calculateCursorItemPosition() const;
     void showCursor();
     void hideCursor();
     GLTexture *ensureCursorTexture();
-    OffscreenData *ensureOffscreenData(const RenderTarget &renderTarget, const RenderViewport &viewport, LogicalOutput *screen);
+    OffscreenData *ensureOffscreenData(const RenderTarget &renderTarget, const RenderViewport &viewport, Output *screen);
     void markCursorTextureDirty();
 
     GLShader *shaderForZoom(double zoom);
-    void trackTextCaret();
-    void trackFocus();
+    ZoomScreenState *stateForScreen(Output *output);
+    const ZoomScreenState *stateForScreen(Output *output) const;
+    void setTargetZoom(Output *output, double value);
 
-    std::unique_ptr<QTimer> m_configurationTimer;
-    double m_zoom = 1.0;
-    double m_targetZoom = 1.0;
-    double m_sourceZoom = 1.0;
+#if HAVE_ACCESSIBILITY
+    ZoomAccessibilityIntegration *m_accessibilityIntegration = nullptr;
+#endif
+    std::map<Output *, ZoomScreenState> m_states;
+
     double m_zoomFactor = 1.25;
     MouseTrackingType m_mouseTracking = MouseTrackingProportional;
     MousePointerType m_mousePointer = MousePointerScale;
-    QPoint m_cursorPoint;
-    QPoint m_prevPoint;
+    int m_focusDelay = 350; // in milliseconds
     QTime m_lastMouseEvent;
-    std::unique_ptr<CursorItem> m_cursorItem;
-    bool m_cursorHidden = false;
+    QTime m_lastFocusEvent;
+    std::unique_ptr<GLTexture> m_cursorTexture;
+    bool m_cursorTextureDirty = false;
+    bool m_isMouseHidden = false;
     QTimeLine m_timeline;
-    int m_xMove = 0;
-    int m_yMove = 0;
-    int m_xTranslation = 0;
-    int m_yTranslation = 0;
     double m_moveFactor = 20.0;
     std::chrono::milliseconds m_lastPresentTime = std::chrono::milliseconds::zero();
-    std::map<LogicalOutput *, OffscreenData> m_offscreenData;
+    std::map<Output *, OffscreenData> m_offscreenData;
     std::unique_ptr<GLShader> m_pixelGridShader;
     double m_pixelGridZoom;
-    std::unique_ptr<QAction> m_zoomInAxisAction;
-    std::unique_ptr<QAction> m_zoomOutAxisAction;
-    Qt::KeyboardModifiers m_axisModifiers;
-    std::unique_ptr<QAction> m_touchpadAction;
-    double m_lastPinchProgress = 0;
-
-    std::unique_ptr<TextCaretTracker> m_textCaretTracker;
-#if KWIN_BUILD_QACCESSIBILITYCLIENT
-    std::unique_ptr<FocusTracker> m_focusTracker;
-#endif
-    std::optional<QPoint> m_focusPoint = std::nullopt;
-    QTime m_lastFocusEvent;
-    int m_focusDelay = 350; // in milliseconds
 };
 
 } // namespace

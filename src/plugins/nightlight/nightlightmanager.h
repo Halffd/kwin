@@ -121,6 +121,16 @@ public:
     int currentTemperature() const;
 
     /**
+     * Returns the current brightness level (0.1 to 1.0).
+     */
+    double brightness() const;
+
+    /**
+     * Returns the current RGB gamma factors.
+     */
+    QVector3D currentGamma() const;
+
+    /**
      * Returns the target screen color temperature.
      */
     int targetTemperature() const;
@@ -177,6 +187,16 @@ public:
 
 public Q_SLOTS:
     void quickAdjust(int targetTemperature);
+    void setBrightness(double brightness);
+    void increaseBrightness(double step = 0.1);
+    void decreaseBrightness(double step = 0.1);
+    void resetBrightness();
+    void setTemperature(int temperature);
+    void increaseTemperature(int step = 100);
+    void decreaseTemperature(int step = 100);
+    void resetTemperature();
+    void setGamma(double red, double green, double blue);
+    void resetGamma();
 
 Q_SIGNALS:
     /**
@@ -198,6 +218,16 @@ Q_SIGNALS:
      * Emitted whenever the current screen color temperature has changed.
      */
     void currentTemperatureChanged();
+
+    /**
+     * Emitted whenever the brightness level has changed.
+     */
+    void brightnessChanged();
+
+    /**
+     * Emitted whenever the temperature has been manually adjusted.
+     */
+    void temperatureAdjustmentChanged();
 
     /**
      * Emitted whenever the target screen color temperature has changed.
@@ -284,6 +314,8 @@ private:
     int m_targetTemperature = DEFAULT_DAY_TEMPERATURE;
     int m_dayTargetTemperature = DEFAULT_DAY_TEMPERATURE;
     int m_nightTargetTemperature = DEFAULT_NIGHT_TEMPERATURE;
+
+    double m_brightness = 1.0;
 
     int m_inhibitReferenceCount = 0;
     KConfigWatcher::Ptr m_configWatcher;

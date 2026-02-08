@@ -22,8 +22,7 @@ static void announceChangedProperties(const QVariantMap &properties)
     QDBusMessage message = QDBusMessage::createSignal(
         QStringLiteral("/org/kde/KWin/NightLight"),
         QStringLiteral("org.freedesktop.DBus.Properties"),
-        QStringLiteral("PropertiesChanged")
-    );
+        QStringLiteral("PropertiesChanged"));
 
     message.setArguments({
         QStringLiteral("org.kde.KWin.NightLight"),
@@ -65,6 +64,12 @@ NightLightDBusInterface::NightLightDBusInterface(NightLightManager *parent)
     connect(m_manager, &NightLightManager::currentTemperatureChanged, this, [this] {
         announceChangedProperties({
             {QStringLiteral("currentTemperature"), currentTemperature()},
+        });
+    });
+
+    connect(m_manager, &NightLightManager::brightnessChanged, this, [this] {
+        announceChangedProperties({
+            {QStringLiteral("brightness"), brightness()},
         });
     });
 
@@ -133,6 +138,11 @@ bool NightLightDBusInterface::isAvailable() const
 quint32 NightLightDBusInterface::currentTemperature() const
 {
     return m_manager->currentTemperature();
+}
+
+double NightLightDBusInterface::brightness() const
+{
+    return m_manager->brightness();
 }
 
 quint32 NightLightDBusInterface::targetTemperature() const
@@ -232,6 +242,55 @@ void NightLightDBusInterface::stopPreview()
     m_manager->stopPreview();
 }
 
+void NightLightDBusInterface::setBrightness(double brightness)
+{
+    m_manager->setBrightness(brightness);
+}
+
+void NightLightDBusInterface::increaseBrightness(double step)
+{
+    m_manager->increaseBrightness(step);
+}
+
+void NightLightDBusInterface::decreaseBrightness(double step)
+{
+    m_manager->decreaseBrightness(step);
+}
+
+void NightLightDBusInterface::resetBrightness()
+{
+    m_manager->resetBrightness();
+}
+
+void NightLightDBusInterface::setTemperature(int temperature)
+{
+    m_manager->setTemperature(temperature);
+}
+
+void NightLightDBusInterface::increaseTemperature(int step)
+{
+    m_manager->increaseTemperature(step);
+}
+
+void NightLightDBusInterface::decreaseTemperature(int step)
+{
+    m_manager->decreaseTemperature(step);
+}
+
+void NightLightDBusInterface::resetTemperature()
+{
+    m_manager->resetTemperature();
+}
+
+void NightLightDBusInterface::setGamma(double red, double green, double blue)
+{
+    m_manager->setGamma(red, green, blue);
+}
+
+void NightLightDBusInterface::resetGamma()
+{
+    m_manager->resetGamma();
+}
 }
 
 #include "moc_nightlightdbusinterface.cpp"

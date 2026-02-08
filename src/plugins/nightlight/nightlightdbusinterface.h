@@ -28,6 +28,7 @@ class NightLightDBusInterface : public QObject, public QDBusContext
     Q_PROPERTY(bool running READ isRunning)
     Q_PROPERTY(bool available READ isAvailable)
     Q_PROPERTY(quint32 currentTemperature READ currentTemperature)
+    Q_PROPERTY(double brightness READ brightness)
     Q_PROPERTY(quint32 targetTemperature READ targetTemperature)
     Q_PROPERTY(quint32 mode READ mode)
     Q_PROPERTY(bool daylight READ daylight)
@@ -45,6 +46,7 @@ public:
     bool isRunning() const;
     bool isAvailable() const;
     quint32 currentTemperature() const;
+    double brightness() const;
     quint32 targetTemperature() const;
     quint32 mode() const;
     bool daylight() const;
@@ -74,6 +76,46 @@ public Q_SLOTS:
      * @since 5.25
      */
     void stopPreview();
+    /**
+     * @brief Sets the brightness level (0.1 to 1.0).
+     */
+    void setBrightness(double brightness);
+    /**
+     * @brief Increases brightness by specified step.
+     */
+    void increaseBrightness(double step = 0.1);
+    /**
+     * @brief Decreases brightness by specified step.
+     */
+    void decreaseBrightness(double step = 0.1);
+    /**
+     * @brief Resets brightness to default (1.0).
+     */
+    void resetBrightness();
+    /**
+     * @brief Sets color temperature.
+     */
+    void setTemperature(int temperature);
+    /**
+     * @brief Increases temperature by specified step.
+     */
+    void increaseTemperature(int step = 100);
+    /**
+     * @brief Decreases temperature by specified step.
+     */
+    void decreaseTemperature(int step = 100);
+    /**
+     * @brief Resets temperature to automatic target.
+     */
+    void resetTemperature();
+    /**
+     * @brief Sets RGB gamma values directly.
+     */
+    void setGamma(double red, double green, double blue);
+    /**
+     * @brief Resets gamma to default values.
+     */
+    void resetGamma();
 
 private Q_SLOTS:
     void removeInhibitorService(const QString &serviceName);

@@ -4,84 +4,82 @@
 
     SPDX-FileCopyrightText: 2006 Lubos Lunak <l.lunak@kde.org>
     SPDX-FileCopyrightText: 2010 Sebastian Sauer <sebsauer@kdab.com>
-    SPDX-FileCopyrightText: 2025 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
 
     SPDX-License-Identifier: GPL-2.0-or-later
 */
-
 #include "zoom.h"
+// KConfigSkeleton
+#include "zoomconfig.h"
+
+#if HAVE_ACCESSIBILITY
+#include "accessibilityintegration.h"
+#endif
+
+#include "core/output.h"
 #include "core/rendertarget.h"
 #include "core/renderviewport.h"
-#include "cursor.h"
 #include "effect/effecthandler.h"
-#include "focustracker.h"
+#include "opengl/glframebuffer.h"
+#include "opengl/glplatform.h"
+#include "opengl/gltexture.h"
 #include "opengl/glutils.h"
-#include "scene/cursoritem.h"
-#include "scene/workspacescene.h"
-#include "textcarettracker.h"
-#include "utils/keys.h"
-#include "zoomconfig.h"
+#include "opengl/glvertexbuffer.h"
+
+#include <QAction>
+#include <QApplication>
+#include <QStyle>
+#include <QVector2D>
 
 #include <KConfigGroup>
 #include <KGlobalAccel>
 #include <KLocalizedString>
 #include <KStandardActions>
+#include <KWindowSystem>
 
-#include <QAction>
-#include <QTimer>
-
-using namespace std::chrono_literals;
-
-static void ensureResources()
-{
-    // Must initialize resources manually because the effect is a static lib.
-    Q_INIT_RESOURCE(zoom);
-}
-
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusPendingCall>
 namespace KWin
 {
 
 ZoomEffect::ZoomEffect()
+    : Effect()
+    , m_zoomFactor(1.25)
+    , m_mouseTracking(MouseTrackingProportional)
+    , m_mousePointer(MousePointerScale)
+    , m_focusDelay(350)
+    , m_moveFactor(20.0)
+    , m_lastPresentTime(std::chrono::milliseconds::zero())
 {
-    ensureResources();
-
-    m_configurationTimer = std::make_unique<QTimer>();
-    m_configurationTimer->setInterval(1s);
-    m_configurationTimer->setSingleShot(true);
-    connect(m_configurationTimer.get(), &QTimer::timeout, this, &ZoomEffect::saveInitialZoom);
-
     ZoomConfig::instance(effects->config());
     QAction *a = nullptr;
     a = KStandardActions::zoomIn(this, &ZoomEffect::zoomIn, this);
     KGlobalAccel::self()->setDefaultShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_Plus) << (Qt::META | Qt::Key_Equal));
     KGlobalAccel::self()->setShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_Plus) << (Qt::META | Qt::Key_Equal));
+    effects->registerAxisShortcut(Qt::ControlModifier | Qt::MetaModifier, PointerAxisDown, a);
 
     a = KStandardActions::zoomOut(this, &ZoomEffect::zoomOut, this);
     KGlobalAccel::self()->setDefaultShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_Minus));
     KGlobalAccel::self()->setShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_Minus));
+    effects->registerAxisShortcut(Qt::ControlModifier | Qt::MetaModifier, PointerAxisUp, a);
 
     a = KStandardActions::actualSize(this, &ZoomEffect::actualSize, this);
     KGlobalAccel::self()->setDefaultShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_0));
     KGlobalAccel::self()->setShortcut(a, QList<QKeySequence>() << (Qt::META | Qt::Key_0));
 
-    m_touchpadAction = std::make_unique<QAction>();
-    connect(m_touchpadAction.get(), &QAction::triggered, this, [this]() {
-        const double threshold = 1.15;
-        if (m_targetZoom < threshold) {
-            zoomTo(1.0);
-        }
-        m_lastPinchProgress = 0;
-    });
-    effects->registerTouchpadPinchShortcut(PinchDirection::Expanding, 3, m_touchpadAction.get(), [this](qreal progress) {
-        const qreal delta = progress - m_lastPinchProgress;
-        m_lastPinchProgress = progress;
-        realtimeZoom(delta);
-    });
-    effects->registerTouchpadPinchShortcut(PinchDirection::Contracting, 3, m_touchpadAction.get(), [this](qreal progress) {
-        const qreal delta = progress - m_lastPinchProgress;
-        m_lastPinchProgress = progress;
-        realtimeZoom(-delta);
-    });
+    // Register DBus interface for zoom operations
+    QDBusConnection::sessionBus().registerObject(QStringLiteral("/Zoom"),
+                                                 QStringLiteral("org.kde.KWin.Effect.Zoom"),
+                                                 this,
+                                                 QDBusConnection::ExportAllSlots);
+
+    // Add hotkey for specific zoom level 1.4: Ctrl+Shift+/
+    a = new QAction(this);
+    a->setObjectName(QStringLiteral("ZoomTo14"));
+    a->setText(i18n("Zoom to 140%"));
+    KGlobalAccel::self()->setDefaultShortcut(a, QList<QKeySequence>() << (Qt::CTRL | Qt::SHIFT | Qt::Key_Slash));
+    KGlobalAccel::self()->setShortcut(a, QList<QKeySequence>() << (Qt::CTRL | Qt::SHIFT | Qt::Key_Slash));
+    connect(a, &QAction::triggered, this, &ZoomEffect::zoomTo14);
 
     a = new QAction(this);
     a->setObjectName(QStringLiteral("MoveZoomLeft"));
@@ -129,41 +127,78 @@ ZoomEffect::ZoomEffect()
     m_timeline.setDuration(350);
     m_timeline.setFrameRange(0, 100);
     connect(&m_timeline, &QTimeLine::frameChanged, this, &ZoomEffect::timelineFrameChanged);
-    connect(effects, &EffectsHandler::windowAdded, this, &ZoomEffect::slotWindowAdded);
-    connect(effects, &EffectsHandler::screenRemoved, this, &ZoomEffect::slotScreenRemoved);
 
     const auto windows = effects->stackingOrder();
     for (EffectWindow *w : windows) {
         slotWindowAdded(w);
     }
 
-    reconfigure(ReconfigureAll);
+    connect(effects, &EffectsHandler::windowAdded, this, &ZoomEffect::slotWindowAdded);
+    connect(effects, &EffectsHandler::screenRemoved, this, &ZoomEffect::slotScreenRemoved);
 
-    const double initialZoom = ZoomConfig::initialZoom();
-    if (initialZoom > 1.0) {
-        zoomTo(initialZoom);
+    const QList<Output *> screens = effects->screens();
+    for (Output *screen : screens) {
+        OffscreenData &data = m_offscreenData[screen];
+        data.viewport = screen->geometry();
     }
+
+    reconfigure(ReconfigureAll);
 }
 
 ZoomEffect::~ZoomEffect()
 {
     // switch off and free resources
     showCursor();
-    // Save the zoom value.
-    saveInitialZoom();
 }
 
-QPointF ZoomEffect::calculateCursorItemPosition() const
+bool ZoomEffect::isFocusTrackingEnabled() const
 {
-    return Cursors::self()->mouse()->pos() * m_zoom + QPoint(m_xTranslation, m_yTranslation);
+#if HAVE_ACCESSIBILITY
+    return m_accessibilityIntegration && m_accessibilityIntegration->isFocusTrackingEnabled();
+#else
+    return false;
+#endif
+}
+
+bool ZoomEffect::isTextCaretTrackingEnabled() const
+{
+#if HAVE_ACCESSIBILITY
+    return m_accessibilityIntegration && m_accessibilityIntegration->isTextCaretTrackingEnabled();
+#else
+    return false;
+#endif
+}
+
+GLTexture *ZoomEffect::ensureCursorTexture()
+{
+    if (!m_cursorTexture || m_cursorTextureDirty) {
+        m_cursorTexture.reset();
+        m_cursorTextureDirty = false;
+        const auto cursor = effects->cursorImage();
+        if (!cursor.image().isNull()) {
+            m_cursorTexture = GLTexture::upload(cursor.image());
+            if (!m_cursorTexture) {
+                return nullptr;
+            }
+            m_cursorTexture->setWrapMode(GL_CLAMP_TO_EDGE);
+        }
+    }
+    return m_cursorTexture.get();
+}
+
+void ZoomEffect::markCursorTextureDirty()
+{
+    m_cursorTextureDirty = true;
 }
 
 void ZoomEffect::showCursor()
 {
-    if (m_cursorHidden) {
-        m_cursorItem.reset();
-        m_cursorHidden = false;
+    if (m_isMouseHidden) {
+        disconnect(effects, &EffectsHandler::cursorShapeChanged, this, &ZoomEffect::markCursorTextureDirty);
+        // show the previously hidden mouse-pointer again and free the loaded texture/picture.
         effects->showCursor();
+        m_cursorTexture.reset();
+        m_isMouseHidden = false;
     }
 }
 
@@ -172,16 +207,16 @@ void ZoomEffect::hideCursor()
     if (m_mouseTracking == MouseTrackingProportional && m_mousePointer == MousePointerKeep) {
         return; // don't replace the actual cursor by a static image for no reason.
     }
-    if (!m_cursorHidden) {
-        effects->hideCursor();
-        m_cursorHidden = true;
-
-        if (m_mousePointer == MousePointerKeep || m_mousePointer == MousePointerScale) {
-            m_cursorItem = std::make_unique<CursorItem>(effects->scene()->overlayItem());
-            m_cursorItem->setPosition(calculateCursorItemPosition());
-            connect(Cursors::self()->mouse(), &Cursor::posChanged, m_cursorItem.get(), [this]() {
-                m_cursorItem->setPosition(calculateCursorItemPosition());
-            });
+    if (!m_isMouseHidden) {
+        // try to load the cursor-theme into a OpenGL texture and if successful then hide the mouse-pointer
+        GLTexture *texture = nullptr;
+        if (effects->isOpenGLCompositing()) {
+            texture = ensureCursorTexture();
+        }
+        if (texture) {
+            effects->hideCursor();
+            connect(effects, &EffectsHandler::cursorShapeChanged, this, &ZoomEffect::markCursorTextureDirty);
+            m_isMouseHidden = true;
         }
     }
 }
@@ -189,7 +224,6 @@ void ZoomEffect::hideCursor()
 void ZoomEffect::reconfigure(ReconfigureFlags)
 {
     ZoomConfig::self()->read();
-    // when mouse is set to centered on-screen, turning this on lets the zoom area extend beyond workspace bounds
     // On zoom-in and zoom-out change the zoom by the defined zoom-factor.
     m_zoomFactor = std::max(0.1, ZoomConfig::zoomFactor());
     m_pixelGridZoom = ZoomConfig::pixelGridZoom();
@@ -197,177 +231,73 @@ void ZoomEffect::reconfigure(ReconfigureFlags)
     m_mousePointer = MousePointerType(ZoomConfig::mousePointer());
     // Track moving of the mouse.
     m_mouseTracking = MouseTrackingType(ZoomConfig::mouseTracking());
-
-    if (ZoomConfig::enableFocusTracking()) {
-        if (m_targetZoom > 1) {
-            trackFocus();
-        }
-    } else {
-#if KWIN_BUILD_QACCESSIBILITYCLIENT
-        m_focusTracker.reset();
+#if HAVE_ACCESSIBILITY
+    if (m_accessibilityIntegration) {
+        // Enable tracking of the focused location.
+        m_accessibilityIntegration->setFocusTrackingEnabled(ZoomConfig::enableFocusTracking());
+        // Enable tracking of the text caret.
+        m_accessibilityIntegration->setTextCaretTrackingEnabled(ZoomConfig::enableTextCaretTracking());
+    }
 #endif
-    }
-
-    if (ZoomConfig::enableTextCaretTracking()) {
-        if (m_targetZoom > 1) {
-            trackTextCaret();
-        }
-    } else {
-        m_textCaretTracker.reset();
-    }
-
-    if (!ZoomConfig::enableFocusTracking() && !ZoomConfig::enableTextCaretTracking()) {
-        m_focusPoint.reset();
-    }
-
     // The time in milliseconds to wait before a focus-event takes away a mouse-move.
     m_focusDelay = std::max(uint(0), ZoomConfig::focusDelay());
     // The factor the zoom-area will be moved on touching an edge on push-mode or using the navigation KAction's.
     m_moveFactor = std::max(0.1, ZoomConfig::moveFactor());
-
-    const Qt::KeyboardModifiers pointerAxisModifiers = stringToKeyboardModifiers(ZoomConfig::pointerAxisGestureModifiers());
-    if (m_axisModifiers != pointerAxisModifiers) {
-        m_zoomInAxisAction.reset();
-        m_zoomOutAxisAction.reset();
-        m_axisModifiers = pointerAxisModifiers;
-
-        if (pointerAxisModifiers) {
-            m_zoomInAxisAction = std::make_unique<QAction>();
-            connect(m_zoomInAxisAction.get(), &QAction::triggered, this, &ZoomEffect::zoomIn);
-            effects->registerAxisShortcut(pointerAxisModifiers, PointerAxisUp, m_zoomInAxisAction.get());
-
-            m_zoomOutAxisAction = std::make_unique<QAction>();
-            connect(m_zoomOutAxisAction.get(), &QAction::triggered, this, &ZoomEffect::zoomOut);
-            effects->registerAxisShortcut(pointerAxisModifiers, PointerAxisDown, m_zoomOutAxisAction.get());
-        }
-    }
 }
 
 void ZoomEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime)
 {
-    data.mask |= PAINT_SCREEN_TRANSFORMED;
-    if (m_zoom != m_targetZoom) {
-        int time = 0;
-        if (m_lastPresentTime.count()) {
-            time = (presentTime - m_lastPresentTime).count();
-        }
-        m_lastPresentTime = presentTime;
+    int time = 0;
+    if (m_lastPresentTime.count()) {
+        time = (presentTime - m_lastPresentTime).count();
+    }
+    m_lastPresentTime = presentTime;
 
-        const float zoomDist = std::abs(m_targetZoom - m_sourceZoom);
-        if (m_targetZoom > m_zoom) {
-            m_zoom = std::min(m_zoom + ((zoomDist * time) / animationTime(std::chrono::milliseconds(int(150 * m_zoomFactor)))), m_targetZoom);
-        } else {
-            m_zoom = std::max(m_zoom - ((zoomDist * time) / animationTime(std::chrono::milliseconds(int(150 * m_zoomFactor)))), m_targetZoom);
+    bool anyZoom = false;
+    bool activeScreenZoom = false;
+    const Output *cursorScreen = effects->screenAt(effects->cursorPos().toPoint());
+
+    for (auto &[screen, state] : m_states) {
+        if (state.zoom != state.targetZoom) {
+            // Very fast animation - almost instant
+            const float step = 0.5f; // Large step for very fast animation
+
+            // Calculate the difference to the target
+            const float diff = state.targetZoom - state.zoom;
+
+            // Move toward the target with very fast speed
+            if (diff > 0) {
+                state.zoom = std::min(state.zoom + step, state.targetZoom);
+            } else {
+                state.zoom = std::max(state.zoom - step, state.targetZoom);
+            }
+        }
+
+        if (state.zoom != 1.0) {
+            anyZoom = true;
+            if (screen == cursorScreen) {
+                activeScreenZoom = true;
+            }
         }
     }
 
-    if (m_zoom == 1.0) {
-        m_focusPoint.reset();
+    if (anyZoom) {
+        data.mask |= PAINT_SCREEN_TRANSFORMED;
+    }
 
+    if (!activeScreenZoom) {
         showCursor();
     } else {
         hideCursor();
-        if (m_mousePointer == MousePointerScale) {
-            m_cursorItem->setTransform(QTransform::fromScale(m_zoom, m_zoom));
-        }
-    }
-
-    const QSize screenSize = effects->virtualScreenSize();
-
-    // mouse-tracking allows navigation of the zoom-area using the mouse.
-    switch (m_mouseTracking) {
-    case MouseTrackingProportional:
-        m_xTranslation = -int(m_cursorPoint.x() * (m_zoom - 1.0));
-        m_yTranslation = -int(m_cursorPoint.y() * (m_zoom - 1.0));
-        m_prevPoint = m_cursorPoint;
-        break;
-    case MouseTrackingCentered:
-        m_prevPoint = m_cursorPoint;
-        m_xTranslation = std::min(0, std::max(int(screenSize.width() - screenSize.width() * m_zoom), int(screenSize.width() / 2 - m_prevPoint.x() * m_zoom)));
-        m_yTranslation = std::min(0, std::max(int(screenSize.height() - screenSize.height() * m_zoom), int(screenSize.height() / 2 - m_prevPoint.y() * m_zoom)));
-        break;
-    case MouseTrackingCenteredStrict:
-        m_prevPoint = m_cursorPoint;
-        m_xTranslation = int(screenSize.width() / 2 - m_prevPoint.x() * m_zoom);
-        m_yTranslation = int(screenSize.height() / 2 - m_prevPoint.y() * m_zoom);
-        break;
-    case MouseTrackingDisabled:
-        m_xTranslation = std::min(0, std::max(int(screenSize.width() - screenSize.width() * m_zoom), int(screenSize.width() / 2 - m_prevPoint.x() * m_zoom)));
-        m_yTranslation = std::min(0, std::max(int(screenSize.height() - screenSize.height() * m_zoom), int(screenSize.height() / 2 - m_prevPoint.y() * m_zoom)));
-        break;
-    case MouseTrackingPush: {
-        // touching an edge of the screen moves the zoom-area in that direction.
-        const int x = m_cursorPoint.x() * m_zoom - m_prevPoint.x() * (m_zoom - 1.0);
-        const int y = m_cursorPoint.y() * m_zoom - m_prevPoint.y() * (m_zoom - 1.0);
-        const int threshold = 4;
-        const RectF currScreen = effects->screenAt(QPoint(x, y))->geometry();
-
-        // bounds of the screen the cursor's on
-        const int screenTop = currScreen.top();
-        const int screenLeft = currScreen.left();
-        const int screenRight = currScreen.right();
-        const int screenBottom = currScreen.bottom();
-        const int screenCenterX = currScreen.center().x();
-        const int screenCenterY = currScreen.center().y();
-
-        // figure out whether we have adjacent displays in all 4 directions
-        // We pan within the screen in directions where there are no adjacent screens.
-        const bool adjacentLeft = screenExistsAt(QPoint(screenLeft - 1, screenCenterY));
-        const bool adjacentRight = screenExistsAt(QPoint(screenRight + 1, screenCenterY));
-        const bool adjacentTop = screenExistsAt(QPoint(screenCenterX, screenTop - 1));
-        const bool adjacentBottom = screenExistsAt(QPoint(screenCenterX, screenBottom + 1));
-
-        m_xMove = m_yMove = 0;
-        if (x < screenLeft + threshold && !adjacentLeft) {
-            m_xMove = (x - threshold - screenLeft) / m_zoom;
-        } else if (x > screenRight - threshold && !adjacentRight) {
-            m_xMove = (x + threshold - screenRight) / m_zoom;
-        }
-        if (y < screenTop + threshold && !adjacentTop) {
-            m_yMove = (y - threshold - screenTop) / m_zoom;
-        } else if (y > screenBottom - threshold && !adjacentBottom) {
-            m_yMove = (y + threshold - screenBottom) / m_zoom;
-        }
-        if (m_xMove) {
-            m_prevPoint.setX(m_prevPoint.x() + m_xMove);
-        }
-        if (m_yMove) {
-            m_prevPoint.setY(m_prevPoint.y() + m_yMove);
-        }
-        m_xTranslation = -int(m_prevPoint.x() * (m_zoom - 1.0));
-        m_yTranslation = -int(m_prevPoint.y() * (m_zoom - 1.0));
-        break;
-    }
-    }
-
-    // use the focusPoint if focus tracking is enabled
-    if (m_focusPoint) {
-        bool acceptFocus = true;
-        if (m_mouseTracking != MouseTrackingDisabled && m_focusDelay > 0) {
-            // Wait some time for the mouse before doing the switch. This serves as threshold
-            // to prevent the focus from jumping around to much while working with the mouse.
-            acceptFocus = m_lastMouseEvent.isNull() || m_lastMouseEvent.msecsTo(m_lastFocusEvent) > m_focusDelay;
-        }
-        if (acceptFocus) {
-            m_xTranslation = -int(m_focusPoint->x() * (m_zoom - 1.0));
-            m_yTranslation = -int(m_focusPoint->y() * (m_zoom - 1.0));
-            m_prevPoint = *m_focusPoint;
-        }
-    }
-
-    if (m_cursorItem) {
-        // x and y translation are changed, update the cursor position
-        m_cursorItem->setPosition(calculateCursorItemPosition());
     }
 
     effects->prePaintScreen(data, presentTime);
 }
 
-ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &renderTarget, const RenderViewport &viewport, LogicalOutput *screen)
+ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &renderTarget, const RenderViewport &viewport, Output *screen)
 {
-    const QSize nativeSize = viewport.deviceSize();
+    const QSize nativeSize = renderTarget.size();
 
-    // TODO this should be per view, rather than per logical screen.
     OffscreenData &data = m_offscreenData[screen];
     data.viewport = viewport.renderRect();
     data.color = renderTarget.colorDescription();
@@ -393,107 +323,400 @@ GLShader *ZoomEffect::shaderForZoom(double zoom)
         return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
     } else {
         if (!m_pixelGridShader) {
+            // Try to load the pixel grid shader with proper traits
             m_pixelGridShader = ShaderManager::instance()->generateShaderFromFile(ShaderTrait::MapTexture, QString(), QStringLiteral(":/effects/zoom/shaders/pixelgrid.frag"));
+
+            // If it's still not valid, there might be issues with the shader itself
+            if (!m_pixelGridShader || !m_pixelGridShader->isValid()) {
+                qCritical() << "Pixel grid shader failed to load - falling back to basic shader!";
+                m_pixelGridShader.reset();
+                return ShaderManager::instance()->shader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
+            }
         }
         return m_pixelGridShader.get();
     }
 }
 
-void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const Region &deviceRegion, LogicalOutput *screen)
+void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
 {
-    OffscreenData *offscreenData = ensureOffscreenData(renderTarget, viewport, screen);
-    if (!offscreenData) {
+    // Check if ANY screen needs zoom
+    bool anyZoomActive = false;
+    for (const auto &[scr, state] : m_states) {
+        if (state.zoom != 1.0 || state.targetZoom != 1.0) {
+            anyZoomActive = true;
+            break;
+        }
+    }
+
+    if (!anyZoomActive) {
+        effects->paintScreen(renderTarget, viewport, mask, region, screen);
         return;
     }
 
-    // Render the scene in an offscreen texture and then upscale it.
-    RenderTarget offscreenRenderTarget(offscreenData->framebuffer.get(), renderTarget.colorDescription());
-    RenderViewport offscreenViewport(viewport.renderRect(), viewport.scale(), offscreenRenderTarget, QPoint());
-    GLFramebuffer::pushFramebuffer(offscreenData->framebuffer.get());
-    effects->paintScreen(offscreenRenderTarget, offscreenViewport, mask, deviceRegion, screen);
-    GLFramebuffer::popFramebuffer();
-
+    const auto outputs = effects->screens();
     const auto scale = viewport.scale();
 
-    // Render transformed offscreen texture.
-    glClearColor(0.0, 0.0, 0.0, 0.0);
-    glClear(GL_COLOR_BUFFER_BIT);
+    // First pass: Render scene normally
+    effects->paintScreen(renderTarget, viewport, mask, region, screen);
 
-    GLShader *shader = shaderForZoom(m_zoom);
-    ShaderManager::instance()->pushShader(shader);
-    for (auto &[screen, offscreen] : m_offscreenData) {
-        QMatrix4x4 matrix;
-        matrix.translate(m_xTranslation * scale, m_yTranslation * scale);
-        matrix.scale(m_zoom, m_zoom);
-        matrix.translate(offscreen.viewport.x() * scale, offscreen.viewport.y() * scale);
+    // Second pass: For zoomed outputs only
+    for (Output *out : outputs) {
+        ZoomScreenState *state = stateForScreen(out);
 
-        shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, viewport.projectionMatrix() * matrix);
-        shader->setUniform(GLShader::IntUniform::TextureWidth, offscreen.texture->width());
-        shader->setUniform(GLShader::IntUniform::TextureHeight, offscreen.texture->height());
-        shader->setColorspaceUniforms(offscreen.color, renderTarget.colorDescription(), RenderingIntent::Perceptual);
+        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+            continue;
+        }
 
-        offscreen.texture->render(offscreen.viewport.size() * scale);
+        const QRect geo = out->geometry();
+        const QSize outputSize(geo.width() * scale, geo.height() * scale);
+        // Skip if not zooming at all
+        if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+            continue;
+        }
+        OffscreenData &data = m_offscreenData[out];
+
+        if (!data.texture || data.texture->size() != outputSize) {
+            const GLenum textureFormat = renderTarget.colorDescription() == ColorDescription::sRGB ? GL_RGBA8 : GL_RGBA16F;
+            data.texture = GLTexture::allocate(textureFormat, outputSize);
+            if (!data.texture) {
+                continue;
+            }
+            data.texture->setFilter(GL_LINEAR);
+            data.texture->setWrapMode(GL_CLAMP_TO_EDGE);
+            data.framebuffer = std::make_unique<GLFramebuffer>(data.texture.get());
+        }
+
+        data.viewport = QRect(0, 0, geo.width(), geo.height());
+        data.color = renderTarget.colorDescription();
+        data.texture->setContentTransform(renderTarget.transform());
+
+        // Render to offscreen
+        RenderTarget offscreenTarget(data.framebuffer.get(), renderTarget.colorDescription());
+        // The viewport needs to account for the output's position on the desktop!
+        // We're rendering into a local texture, but we want content from the global desktop position
+        // The geo is already in global coordinates, so we can use it directly
+        RenderViewport offscreenViewport(geo, scale, offscreenTarget);
+
+        QRegion outputRegion = QRegion(geo);
+        outputRegion.translate(-geo.topLeft());
+
+        GLFramebuffer::pushFramebuffer(data.framebuffer.get());
+        glViewport(0, 0, geo.width() * scale, geo.height() * scale);
+        glClearColor(0.0, 0.0, 0.0, 1.0);
+        glClear(GL_COLOR_BUFFER_BIT);
+        effects->paintScreen(offscreenTarget, offscreenViewport, mask, outputRegion, out);
+        GLFramebuffer::popFramebuffer();
+        if (state->zoom == 1.0) {
+            continue;
+            // Texture is now filled, but don't composite yet - just continue to next output
+        }
+        // Convert global coordinates to local output coordinates
+        QPoint localFocus = state->focusPoint - geo.topLeft();
+        QPoint localPrev = state->prevPoint - geo.topLeft();
+
+        qreal xTranslation = 0;
+        qreal yTranslation = 0;
+
+        switch (m_mouseTracking) {
+        case MouseTrackingProportional:
+            xTranslation = -int(localFocus.x() * (state->zoom - 1.0));
+            yTranslation = -int(localFocus.y() * (state->zoom - 1.0));
+            state->prevPoint = state->focusPoint;
+            break;
+
+        case MouseTrackingCentered:
+            state->prevPoint = state->focusPoint;
+            // fall through
+
+        case MouseTrackingDisabled: {
+            int tX = int(geo.width() / 2.0 - localPrev.x() * state->zoom);
+            int tY = int(geo.height() / 2.0 - localPrev.y() * state->zoom);
+
+            int minX = int(geo.width() * (1.0 - state->zoom));
+            int maxX = 0;
+            int minY = int(geo.height() * (1.0 - state->zoom));
+            int maxY = 0;
+
+            xTranslation = std::clamp(tX, minX, maxX);
+            yTranslation = std::clamp(tY, minY, maxY);
+        } break;
+
+        case MouseTrackingPush: {
+            const int x = localFocus.x() * state->zoom - localPrev.x() * (state->zoom - 1.0);
+            const int y = localFocus.y() * state->zoom - localPrev.y() * (state->zoom - 1.0);
+            const int threshold = 4;
+
+            state->xMove = state->yMove = 0;
+
+            if (x < threshold) {
+                state->xMove = (x - threshold) / state->zoom;
+            } else if (x > geo.width() - threshold) {
+                state->xMove = (x + threshold - geo.width()) / state->zoom;
+            }
+
+            if (y < threshold) {
+                state->yMove = (y - threshold) / state->zoom; // FIXED: was xMove
+            } else if (y > geo.height() - threshold) {
+                state->yMove = (y + threshold - geo.height()) / state->zoom; // FIXED: was xMove
+            }
+
+            if (state->xMove) {
+                state->prevPoint.setX(state->prevPoint.x() + state->xMove);
+            }
+            if (state->yMove) {
+                state->prevPoint.setY(state->prevPoint.y() + state->yMove);
+            }
+
+            localPrev = state->prevPoint - geo.topLeft();
+            xTranslation = -int(localPrev.x() * (state->zoom - 1.0));
+            yTranslation = -int(localPrev.y() * (state->zoom - 1.0));
+        } break;
+        }
+
+        // Focus tracking
+        if (isFocusTrackingEnabled() || isTextCaretTrackingEnabled()) {
+            bool acceptFocus = true;
+            if (m_mouseTracking != MouseTrackingDisabled && m_focusDelay > 0) {
+                const int msecs = m_lastMouseEvent.msecsTo(m_lastFocusEvent);
+                acceptFocus = msecs > m_focusDelay;
+            }
+            if (acceptFocus) {
+                xTranslation = -int(localFocus.x() * (state->zoom - 1.0));
+                yTranslation = -int(localFocus.y() * (state->zoom - 1.0));
+                state->prevPoint = state->focusPoint;
+            }
+        }
+
+        // Clamp to prevent black borders
+        if (m_mouseTracking != MouseTrackingDisabled && m_mouseTracking != MouseTrackingCentered) {
+            int minX = int(geo.width() * (1.0 - state->zoom));
+            int maxX = 0;
+            int minY = int(geo.height() * (1.0 - state->zoom));
+            int maxY = 0;
+
+            xTranslation = std::clamp(int(xTranslation), minX, maxX);
+            yTranslation = std::clamp(int(yTranslation), minY, maxY);
+        }
+        // Composite zoomed content
+        glEnable(GL_SCISSOR_TEST);
+        const int scissorY = renderTarget.size().height() - (geo.y() + geo.height());
+        glScissor(geo.x() * scale, scissorY * scale, geo.width() * scale, geo.height() * scale);
+
+        GLShader *shader = shaderForZoom(state->zoom);
+        ShaderManager::instance()->pushShader(shader);
+
+        QMatrix4x4 matrix = viewport.projectionMatrix();
+
+        // Move quad to the output's position on screen
+        matrix.translate(geo.x() * scale, geo.y() * scale);
+
+        // Apply zoom pan (moves the content within the output)
+        matrix.translate(xTranslation * scale, yTranslation * scale);
+
+        // Apply zoom scale (scales the content)
+        matrix.scale(state->zoom, state->zoom);
+        shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, matrix);
+        shader->setUniform(GLShader::IntUniform::TextureWidth, data.texture->width());
+        shader->setUniform(GLShader::IntUniform::TextureHeight, data.texture->height());
+        shader->setColorspaceUniforms(data.color, renderTarget.colorDescription(), RenderingIntent::Perceptual);
+
+        glBindTexture(GL_TEXTURE_2D, data.texture->texture());
+
+        const float x1 = 0;
+        const float y1 = 0;
+        const float x2 = geo.width() * scale;
+        const float y2 = geo.height() * scale;
+
+        GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
+        vbo->reset();
+        vbo->setAttribLayout(std::span(GLVertexBuffer::GLVertex2DLayout), sizeof(GLVertex2D));
+
+        GLVertex2D vertices[6];
+        vertices[0] = {{x1, y1}, {0.0f, 1.0f}};
+        vertices[1] = {{x2, y1}, {1.0f, 1.0f}};
+        vertices[2] = {{x2, y2}, {1.0f, 0.0f}};
+        vertices[3] = {{x2, y2}, {1.0f, 0.0f}};
+        vertices[4] = {{x1, y2}, {0.0f, 0.0f}};
+        vertices[5] = {{x1, y1}, {0.0f, 1.0f}};
+
+        vbo->setVertices(std::span(vertices));
+        vbo->render(GL_TRIANGLES);
+
+        ShaderManager::instance()->popShader();
+        glDisable(GL_SCISSOR_TEST);
+
+        // Draw cursor
+        if (m_mousePointer != MousePointerHide && effects->screenAt(effects->cursorPos().toPoint()) == out) {
+            GLTexture *cursorTexture = ensureCursorTexture();
+            if (cursorTexture) {
+                const auto cursor = effects->cursorImage();
+                QSizeF cursorSize = QSizeF(cursor.image().size()) / cursor.image().devicePixelRatio();
+
+                // Handle cursor scaling
+                QPointF hotspotOffset = cursor.hotSpot();
+                if (m_mousePointer == MousePointerScale) {
+                    cursorSize *= state->zoom;
+                    hotspotOffset *= state->zoom;
+                }
+
+                // The cursor stays at its REAL global position
+                // We do NOT apply xTranslation/yTranslation because those pan the CONTENT, not the cursor
+                const QPointF globalP = effects->cursorPos() - hotspotOffset;
+
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                auto cursorShader = ShaderManager::instance()->pushShader(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
+                cursorShader->setColorspaceUniforms(ColorDescription::sRGB, renderTarget.colorDescription(), RenderingIntent::Perceptual);
+                QMatrix4x4 mvp = viewport.projectionMatrix();
+                mvp.translate(globalP.x() * scale, globalP.y() * scale);
+                cursorShader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, mvp);
+                cursorTexture->render(cursorSize * scale);
+                ShaderManager::instance()->popShader();
+                glDisable(GL_BLEND);
+            }
+        }
     }
-    ShaderManager::instance()->popShader();
 }
-
 void ZoomEffect::postPaintScreen()
 {
-    if (m_zoom == m_targetZoom) {
+    // Call base implementation first to maintain proper effect chain
+    effects->postPaintScreen();
+
+    bool anyZooming = false;
+    for (const auto &[screen, state] : m_states) {
+        if (state.zoom != state.targetZoom) {
+            anyZooming = true;
+            break;
+        }
+    }
+
+    if (!anyZooming) {
         m_lastPresentTime = std::chrono::milliseconds::zero();
     }
 
-    if (m_zoom == 1.0 || m_zoom != m_targetZoom) {
-        // Either animation is running or the zoom effect has stopped.
+    if (anyZooming || isActive()) {
+        // Either animation is running or the zoom effect is active
         effects->addRepaintFull();
     }
-
-    effects->postPaintScreen();
 }
 
 void ZoomEffect::zoomIn()
 {
-    zoomTo(-1.0);
+    Output *screen = effects->screenAt(effects->cursorPos().toPoint());
+    if (!screen) {
+        return;
+    }
+    ZoomScreenState *s = stateForScreen(screen);
+    setTargetZoom(screen, s->targetZoom * m_zoomFactor);
+    s->focusPoint = effects->cursorPos().toPoint();
+    s->prevPoint = s->focusPoint;
+    effects->addRepaintFull();
 }
 
 void ZoomEffect::zoomTo(double to)
 {
-    m_sourceZoom = m_zoom;
+    Output *screen = effects->screenAt(effects->cursorPos().toPoint());
+    if (!screen) {
+        return;
+    }
+    ZoomScreenState *s = stateForScreen(screen);
+
+    s->sourceZoom = s->zoom;
     if (to < 0.0) {
-        setTargetZoom(m_targetZoom * m_zoomFactor);
+        setTargetZoom(screen, s->targetZoom * m_zoomFactor);
     } else {
-        setTargetZoom(to);
+        setTargetZoom(screen, to);
     }
-    m_cursorPoint = effects->cursorPos().toPoint();
-    if (m_mouseTracking == MouseTrackingDisabled) {
-        m_prevPoint = m_cursorPoint;
-    }
+    s->focusPoint = effects->cursorPos().toPoint();
+    s->prevPoint = s->focusPoint;
+    effects->addRepaintFull();
+}
+
+void ZoomEffect::zoomTo14()
+{
+    zoomTo(1.4);
 }
 
 void ZoomEffect::zoomOut()
 {
-    m_sourceZoom = m_zoom;
-    setTargetZoom(m_targetZoom / m_zoomFactor);
-    if ((m_zoomFactor > 1 && m_targetZoom < 1.01) || (m_zoomFactor < 1 && m_targetZoom > 0.99)) {
-        setTargetZoom(1);
+    Output *screen = effects->screenAt(effects->cursorPos().toPoint());
+    if (!screen) {
+        return;
     }
-    if (m_mouseTracking == MouseTrackingDisabled) {
-        m_prevPoint = effects->cursorPos().toPoint();
+    ZoomScreenState *s = stateForScreen(screen);
+
+    s->sourceZoom = s->zoom;
+    setTargetZoom(screen, s->targetZoom / m_zoomFactor);
+    if ((m_zoomFactor > 1 && s->targetZoom < 1.01) || (m_zoomFactor < 1 && s->targetZoom > 0.99)) {
+        setTargetZoom(screen, 1);
     }
+    s->focusPoint = effects->cursorPos().toPoint();
+    s->prevPoint = s->focusPoint;
+    effects->addRepaintFull();
 }
 
 void ZoomEffect::actualSize()
 {
-    m_sourceZoom = m_zoom;
-    setTargetZoom(1);
+    Output *screen = effects->screenAt(effects->cursorPos().toPoint());
+    if (!screen) {
+        return;
+    }
+    ZoomScreenState *s = stateForScreen(screen);
+    s->sourceZoom = s->zoom;
+    setTargetZoom(screen, 1);
+    s->focusPoint = effects->cursorPos().toPoint();
+    s->prevPoint = s->focusPoint;
+    effects->addRepaintFull();
+}
+
+void ZoomEffect::zoomInDBus()
+{
+    zoomIn();
+}
+
+void ZoomEffect::zoomOutDBus()
+{
+    zoomOut();
+}
+
+void ZoomEffect::resetZoomDBus()
+{
+    actualSize();
+}
+
+void ZoomEffect::zoomTo140DBus()
+{
+    zoomTo(1.4);
+}
+
+void ZoomEffect::zoomToValueDBus(double value)
+{
+    // Validate the zoom value - reasonable range is 0.1 to 10.0
+    if (value < 0.1 || value > 10.0) {
+        // Optionally log an error or send a DBus error
+        return;
+    }
+    zoomTo(value);
+}
+
+double ZoomEffect::getZoomLevelDBus()
+{
+    // Get the zoom level for the active screen
+    if (auto *screen = effects->activeScreen()) {
+        const ZoomScreenState *state = stateForScreen(screen);
+        return state->zoom; // Return current zoom level
+    }
+    return 1.0; // Default zoom level if no active screen
 }
 
 void ZoomEffect::timelineFrameChanged(int /* frame */)
 {
-    const QSize screenSize = effects->virtualScreenSize();
-    m_prevPoint.setX(std::max(0, std::min(screenSize.width(), m_prevPoint.x() + m_xMove)));
-    m_prevPoint.setY(std::max(0, std::min(screenSize.height(), m_prevPoint.y() + m_yMove)));
-    m_cursorPoint = m_prevPoint;
+    for (auto &[screen, state] : m_states) {
+        QRect geo = screen->geometry();
+        state.prevPoint.setX(std::max(geo.x(), std::min(geo.x() + geo.width(), state.prevPoint.x() + state.xMove)));
+        state.prevPoint.setY(std::max(geo.y(), std::min(geo.y() + geo.height(), state.prevPoint.y() + state.yMove)));
+        state.focusPoint = state.prevPoint;
+    }
     effects->addRepaintFull();
 }
 
@@ -503,21 +726,27 @@ void ZoomEffect::moveZoom(int x, int y)
         m_timeline.stop();
     }
 
-    const QSize screenSize = effects->virtualScreenSize();
+    Output *screen = effects->screenAt(effects->cursorPos().toPoint());
+    if (!screen) {
+        return;
+    }
+    ZoomScreenState *s = stateForScreen(screen);
+    QRect geo = screen->geometry();
+
     if (x < 0) {
-        m_xMove = -std::max(1.0, screenSize.width() / m_zoom / m_moveFactor);
+        s->xMove = -std::max(1.0, geo.width() / s->zoom / m_moveFactor);
     } else if (x > 0) {
-        m_xMove = std::max(1.0, screenSize.width() / m_zoom / m_moveFactor);
+        s->xMove = std::max(1.0, geo.width() / s->zoom / m_moveFactor);
     } else {
-        m_xMove = 0;
+        s->xMove = 0;
     }
 
     if (y < 0) {
-        m_yMove = -std::max(1.0, screenSize.height() / m_zoom / m_moveFactor);
+        s->yMove = -std::max(1.0, geo.height() / s->zoom / m_moveFactor);
     } else if (y > 0) {
-        m_yMove = std::max(1.0, screenSize.height() / m_zoom / m_moveFactor);
+        s->yMove = std::max(1.0, geo.height() / s->zoom / m_moveFactor);
     } else {
-        m_yMove = 0;
+        s->yMove = 0;
     }
 
     m_timeline.start();
@@ -545,12 +774,22 @@ void ZoomEffect::moveZoomDown()
 
 void ZoomEffect::moveMouseToFocus()
 {
-    const auto window = effects->activeWindow();
-    if (!window) {
+    Output *screen = effects->screenAt(effects->cursorPos().toPoint());
+    if (!screen) {
         return;
     }
-    const auto center = window->frameGeometry().center();
-    QCursor::setPos(center.x(), center.y());
+    ZoomScreenState *s = stateForScreen(screen);
+
+    if (KWindowSystem::isPlatformWayland() || !ZoomEffect::isActive()) {
+        const auto window = effects->activeWindow();
+        if (!window) {
+            return;
+        }
+        const auto center = window->frameGeometry().center();
+        QCursor::setPos(center.x(), center.y());
+    } else {
+        QCursor::setPos(s->focusPoint.x(), s->focusPoint.y());
+    }
 }
 
 void ZoomEffect::moveMouseToCenter()
@@ -561,13 +800,19 @@ void ZoomEffect::moveMouseToCenter()
 
 void ZoomEffect::slotMouseChanged(const QPointF &pos, const QPointF &old)
 {
-    if (m_zoom == 1.0) {
-        return;
-    }
-    m_cursorPoint = pos.toPoint();
-    if (pos != old) {
-        m_lastMouseEvent = QTime::currentTime();
-        effects->addRepaintFull();
+    Output *screen = effects->screenAt(pos.toPoint());
+    if (screen) {
+        ZoomScreenState *s = stateForScreen(screen);
+        // Always update focus point when mouse moves
+        s->focusPoint = pos.toPoint();
+
+        // Only trigger repaint if zoom is active
+        if (s->zoom != 1.0 || s->targetZoom != 1.0) {
+            if (pos != old) {
+                m_lastMouseEvent = QTime::currentTime();
+                effects->addRepaintFull();
+            }
+        }
     }
 }
 
@@ -578,32 +823,43 @@ void ZoomEffect::slotWindowAdded(EffectWindow *w)
 
 void ZoomEffect::slotWindowDamaged()
 {
-    if (m_zoom != 1.0) {
+    if (isActive()) {
         effects->addRepaintFull();
     }
 }
 
-void ZoomEffect::slotScreenRemoved(LogicalOutput *screen)
+void ZoomEffect::slotScreenRemoved(Output *screen)
 {
     if (auto it = m_offscreenData.find(screen); it != m_offscreenData.end()) {
         effects->makeOpenGLContextCurrent();
         m_offscreenData.erase(it);
     }
+    m_states.erase(screen);
 }
 
-void ZoomEffect::moveFocus(const QPointF &point)
+void ZoomEffect::moveFocus(const QPoint &point)
 {
-    if (m_zoom == 1.0) {
+    Output *screen = effects->screenAt(point);
+    if (!screen) {
         return;
     }
-    m_focusPoint = point.toPoint();
+    ZoomScreenState *s = stateForScreen(screen);
+    if (s->zoom == 1.0) {
+        return;
+    }
+    s->focusPoint = point;
     m_lastFocusEvent = QTime::currentTime();
     effects->addRepaintFull();
 }
 
 bool ZoomEffect::isActive() const
 {
-    return m_zoom != 1.0 || m_zoom != m_targetZoom;
+    for (const auto &[screen, state] : m_states) {
+        if (state.zoom != 1.0 || state.targetZoom != 1.0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int ZoomEffect::requestedEffectChainPosition() const
@@ -638,84 +894,87 @@ qreal ZoomEffect::configuredMoveFactor() const
 
 qreal ZoomEffect::targetZoom() const
 {
-    return m_targetZoom;
-}
-
-void ZoomEffect::saveInitialZoom()
-{
-    ZoomConfig::setInitialZoom(m_targetZoom);
-    ZoomConfig::self()->save();
+    if (auto *screen = effects->activeScreen()) {
+        return stateForScreen(screen)->targetZoom;
+    }
+    return 1.0;
 }
 
 bool ZoomEffect::screenExistsAt(const QPoint &point) const
 {
-    const LogicalOutput *output = effects->screenAt(point);
+    const Output *output = effects->screenAt(point);
     return output && output->geometry().contains(point);
 }
 
-void ZoomEffect::setTargetZoom(double value)
+ZoomEffect::ZoomScreenState *ZoomEffect::stateForScreen(Output *output)
 {
-    value = std::clamp(value, 1.0, 100.0);
-    if (m_targetZoom == value) {
-        return;
-    }
-    const bool newActive = value != 1.0;
-    const bool oldActive = m_targetZoom != 1.0;
-    if (newActive && !oldActive) {
-        if (ZoomConfig::enableTextCaretTracking()) {
-            trackTextCaret();
-        }
-        if (ZoomConfig::enableFocusTracking()) {
-            trackFocus();
-        }
+    auto it = m_states.find(output);
+    if (it == m_states.end()) {
+        it = m_states.emplace(output, ZoomScreenState()).first;
 
+        // Initialize ALL zoom values
+        it->second.zoom = 1.0;
+        it->second.targetZoom = 1.0;
+        it->second.sourceZoom = 1.0;
+
+        // Initialize focus point to current cursor if on this screen, otherwise center
+        if (output->geometry().contains(effects->cursorPos().toPoint())) {
+            it->second.focusPoint = effects->cursorPos().toPoint();
+        } else {
+            it->second.focusPoint = output->geometry().center();
+        }
+        it->second.prevPoint = it->second.focusPoint;
+        it->second.xMove = 0;
+        it->second.yMove = 0;
+    }
+    return &it->second;
+}
+
+const ZoomEffect::ZoomScreenState *ZoomEffect::stateForScreen(Output *output) const
+{
+    auto it = m_states.find(output);
+    if (it == m_states.end()) {
+        // Should not happen in const context if properly managed, but fallback
+        static ZoomScreenState defaultState;
+        return &defaultState;
+    }
+    return &it->second;
+}
+
+void ZoomEffect::setTargetZoom(Output *output, double value)
+{
+    value = std::min(value, 100.0);
+    ZoomScreenState *s = stateForScreen(output);
+
+    // Check if any screen was active before
+    bool anyOldActive = false;
+    for (const auto &[scr, state] : m_states) {
+        if (state.targetZoom != 1.0) {
+            anyOldActive = true;
+            break;
+        }
+    }
+
+    // Only update sourceZoom if we're starting a new animation
+    if (s->targetZoom != value) {
+        s->sourceZoom = s->zoom; // Set source to current zoom level
+    }
+    s->targetZoom = value;
+
+    // Check if any screen is active now
+    bool anyNewActive = false;
+    for (const auto &[scr, state] : m_states) {
+        if (state.targetZoom != 1.0) {
+            anyNewActive = true;
+            break;
+        }
+    }
+
+    if (anyNewActive && !anyOldActive) {
         connect(effects, &EffectsHandler::mouseChanged, this, &ZoomEffect::slotMouseChanged);
-        m_cursorPoint = effects->cursorPos().toPoint();
-    } else if (!newActive && oldActive) {
-        m_textCaretTracker.reset();
-#if KWIN_BUILD_QACCESSIBILITYCLIENT
-        m_focusTracker.reset();
-#endif
+    } else if (!anyNewActive && anyOldActive) {
         disconnect(effects, &EffectsHandler::mouseChanged, this, &ZoomEffect::slotMouseChanged);
     }
-    m_targetZoom = value;
-    m_configurationTimer->start();
-    effects->addRepaintFull();
-}
-
-void ZoomEffect::realtimeZoom(double delta)
-{
-    // for the change speed to feel roughly linear,
-    // we have to increase the delta at higher zoom levels
-    delta *= m_targetZoom / 2;
-    setTargetZoom(m_targetZoom + delta);
-    // skip the animation, we want this to be real time
-    m_zoom = m_targetZoom;
-    if (m_zoom == 1.0) {
-        showCursor();
-    }
-}
-
-void ZoomEffect::trackTextCaret()
-{
-    m_textCaretTracker = std::make_unique<TextCaretTracker>();
-    connect(m_textCaretTracker.get(), &TextCaretTracker::moved, this, &ZoomEffect::moveFocus);
-}
-
-void ZoomEffect::trackFocus()
-{
-#if KWIN_BUILD_QACCESSIBILITYCLIENT
-    // Dbus-based focus tracking is disabled on wayland because libqaccessibilityclient has
-    // blocking dbus calls, which can result in kwin_wayland lockups.
-
-    static bool forceFocusTracking = qEnvironmentVariableIntValue("KWIN_WAYLAND_ZOOM_FORCE_LEGACY_FOCUS_TRACKING");
-    if (!forceFocusTracking) {
-        return;
-    }
-
-    m_focusTracker = std::make_unique<FocusTracker>();
-    connect(m_focusTracker.get(), &FocusTracker::moved, this, &ZoomEffect::moveFocus);
-#endif
 }
 
 } // namespace
