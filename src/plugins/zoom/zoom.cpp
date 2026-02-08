@@ -419,11 +419,11 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     glClearColor(0.0, 0.0, 0.0, 0.0);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // CRITICAL FIX: Convert region to screen's coordinate space
-    // The region might be in device coordinates, but paintScreen expects logical
+    // CRITICAL FIX: The region is in renderTarget-local coordinates
+    // We need to translate it to match the screen's global position
     QRegion logicalRegion = static_cast<QRegion>(region);
 
-    // If region is in device pixels, scale it to logical
+    // If the region is in device pixels, scale it to logical
     if (scale != 1.0) {
         QRegion scaledRegion;
         for (const QRect &rect : logicalRegion) {
@@ -435,8 +435,11 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         qDebug() << "Scaled region from device to logical:" << logicalRegion;
     }
 
-    // Intersect with screen geometry to only paint what's on this screen
-    logicalRegion &= geo;
+    // Translate region from renderTarget-local to global coordinates
+    logicalRegion.translate(geo.topLeft());
+    qDebug() << "Translated region to global coordinates:" << logicalRegion;
+
+    // Now it's in the correct coordinate space for offscreen rendering
     qDebug() << "Final logical region for offscreen paint:" << logicalRegion;
 
     qDebug() << "Calling effects->paintScreen to offscreen";
