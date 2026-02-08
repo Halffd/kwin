@@ -72,11 +72,15 @@ public Q_SLOTS:
     Q_SCRIPTABLE void zoomTo140DBus();
     Q_SCRIPTABLE void zoomToValueDBus(double value); // Set any zoom value
     Q_SCRIPTABLE double getZoomLevelDBus(); // Get current zoom level
+    Q_SCRIPTABLE void setZoomStepDBus(double step); // Set zoom step factor
+    Q_SCRIPTABLE void setAnimationSpeedDBus(double speed); // Set animation speed
 
 private Q_SLOTS:
     void zoomIn();
+    void zoomInStep(); // Zoom in by custom step
     void zoomTo(double to);
     void zoomOut();
+    void zoomOutStep(); // Zoom out by custom step
     void actualSize();
     void zoomTo14();
     void moveZoomLeft();
@@ -160,6 +164,8 @@ private:
     std::map<LogicalOutput *, OffscreenData> m_offscreenData;
     std::unique_ptr<GLShader> m_pixelGridShader;
     double m_pixelGridZoom;
+    double m_animationSpeed = 0.1f; // Configurable animation speed
+    double m_customZoomStep = 1.5; // Configurable zoom step factor
 };
 
 } // namespace

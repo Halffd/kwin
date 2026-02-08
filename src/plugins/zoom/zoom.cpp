@@ -45,7 +45,7 @@ namespace KWin
 
 ZoomEffect::ZoomEffect()
     : Effect()
-    , m_zoomFactor(1.25)
+    , m_zoomFactor(1.5)
     , m_mouseTracking(MouseTrackingProportional)
     , m_mousePointer(MousePointerScale)
     , m_focusDelay(350)
@@ -274,8 +274,8 @@ void ZoomEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseco
 
     for (auto &[screen, state] : m_states) {
         if (state.zoom != state.targetZoom) {
-            // Very fast animation - almost instant
-            const float step = 0.5f; // Large step for very fast animation
+            // Smooth animation with configurable speed
+            const float step = m_animationSpeed; // Use configurable animation speed
 
             // Calculate the difference to the target
             const float diff = state.targetZoom - state.zoom;
@@ -600,7 +600,20 @@ void ZoomEffect::zoomIn()
         return;
     }
     ZoomScreenState *s = stateForScreen(screen);
-    setTargetZoom(screen, s->targetZoom * m_zoomFactor);
+    setTargetZoom(screen, s->targetZoom + m_customZoomStep);
+    s->focusPoint = effects->cursorPos().toPoint();
+    s->prevPoint = s->focusPoint;
+    effects->addRepaintFull();
+}
+
+void ZoomEffect::zoomInStep()
+{
+    LogicalOutput *screen = effects->screenAt(effects->cursorPos().toPoint());
+    if (!screen) {
+        return;
+    }
+    ZoomScreenState *s = stateForScreen(screen);
+    setTargetZoom(screen, s->targetZoom + m_customZoomStep);
     s->focusPoint = effects->cursorPos().toPoint();
     s->prevPoint = s->focusPoint;
     effects->addRepaintFull();
@@ -639,10 +652,24 @@ void ZoomEffect::zoomOut()
     ZoomScreenState *s = stateForScreen(screen);
 
     s->sourceZoom = s->zoom;
-    setTargetZoom(screen, s->targetZoom / m_zoomFactor);
-    if ((m_zoomFactor > 1 && s->targetZoom < 1.01) || (m_zoomFactor < 1 && s->targetZoom > 0.99)) {
+    setTargetZoom(screen, s->targetZoom - m_customZoomStep);
+    if ((m_customZoomStep > 1 && s->targetZoom < 1.01) || (m_customZoomStep < 1 && s->targetZoom > 0.99)) {
         setTargetZoom(screen, 1);
     }
+    s->focusPoint = effects->cursorPos().toPoint();
+    s->prevPoint = s->focusPoint;
+    effects->addRepaintFull();
+}
+
+void ZoomEffect::zoomOutStep()
+{
+    LogicalOutput *screen = effects->screenAt(effects->cursorPos().toPoint());
+    if (!screen) {
+        return;
+    }
+    ZoomScreenState *s = stateForScreen(screen);
+    s->sourceZoom = s->zoom;
+    setTargetZoom(screen, s->targetZoom - m_customZoomStep);
     s->focusPoint = effects->cursorPos().toPoint();
     s->prevPoint = s->focusPoint;
     effects->addRepaintFull();
@@ -700,6 +727,22 @@ double ZoomEffect::getZoomLevelDBus()
         return state->zoom; // Return current zoom level
     }
     return 1.0; // Default zoom level if no active screen
+}
+
+void ZoomEffect::setZoomStepDBus(double step)
+{
+    // Validate the zoom step - reasonable range is 0.1 to 5.0
+    if (step >= 0.1 && step <= 5.0) {
+        m_customZoomStep = step;
+    }
+}
+
+void ZoomEffect::setAnimationSpeedDBus(double speed)
+{
+    // Validate the animation speed - reasonable range is 0.01 to 1.0
+    if (speed >= 0.01 && speed <= 1.0) {
+        m_animationSpeed = speed;
+    }
 }
 
 void ZoomEffect::timelineFrameChanged(int /* frame */)
