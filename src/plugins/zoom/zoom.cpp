@@ -356,8 +356,16 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 {
     ZoomScreenState *state = stateForScreen(screen);
 
+    qDebug() << "=== ZoomEffect::paintScreen START ===";
+    qDebug() << "Screen geometry:" << screen->geometry();
+    qDebug() << "State zoom:" << state->zoom << "targetZoom:" << state->targetZoom;
+    qDebug() << "Viewport scale:" << viewport.scale();
+    qDebug() << "RenderTarget size:" << renderTarget.size();
+    qDebug() << "Region:" << region;
+
     // If no zoom on this screen, render normally
     if (state->zoom == 1.0 && state->targetZoom == 1.0) {
+        qDebug() << "No zoom active, rendering normally";
         effects->paintScreen(renderTarget, viewport, mask, region, screen);
         return;
     }
@@ -366,72 +374,131 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     const double scale = viewport.scale();
     const QSize outputSize = (QSizeF(geo.size()) * scale).toSize();
 
+    qDebug() << "geo:" << geo;
+    qDebug() << "scale:" << scale;
+    qDebug() << "outputSize:" << outputSize;
+
     OffscreenData &data = m_offscreenData[screen];
 
     // Ensure texture with correct format (HDR support if needed)
     const GLenum textureFormat = renderTarget.colorDescription() == ColorDescription::sRGB ? GL_RGBA8 : GL_RGBA16F;
+    qDebug() << "textureFormat:" << (textureFormat == GL_RGBA8 ? "GL_RGBA8" : "GL_RGBA16F");
+
     if (!data.texture || data.texture->size() != outputSize || data.texture->internalFormat() != textureFormat) {
+        qDebug() << "Allocating new texture, old size:" << (data.texture ? data.texture->size() : QSize());
         data.texture = GLTexture::allocate(textureFormat, outputSize);
         if (!data.texture) {
-            // Fallback if allocation fails
+            qWarning() << "Failed to allocate offscreen texture!";
             effects->paintScreen(renderTarget, viewport, mask, region, screen);
             return;
         }
         data.texture->setFilter(GL_LINEAR);
         data.texture->setWrapMode(GL_CLAMP_TO_EDGE);
         data.framebuffer = std::make_unique<GLFramebuffer>(data.texture.get());
+        qDebug() << "Texture allocated successfully:" << data.texture->size();
     }
 
-    data.viewport = QRect(0, 0, geo.width(), geo.height());
     data.color = renderTarget.colorDescription();
     data.texture->setContentTransform(renderTarget.transform());
 
-    // KEY FIX #1: RenderViewport must use GLOBAL geometry
+    // Render to offscreen texture
+    qDebug() << "--- Offscreen Rendering ---";
+    qDebug() << "Creating RenderViewport with:";
+    qDebug() << "  renderRect (geo):" << geo;
+    qDebug() << "  scale:" << scale;
+    qDebug() << "  renderOffset (geo.topLeft()):" << geo.topLeft();
+
     RenderTarget offscreenTarget(data.framebuffer.get(), renderTarget.colorDescription());
-    RenderViewport offscreenViewport(geo, viewport.scale(), offscreenTarget, QPoint(0, 0)); // <-- GLOBAL geo, not local
+    RenderViewport offscreenViewport(RectF(geo), scale, offscreenTarget, geo.topLeft());
+
+    qDebug() << "Offscreen viewport created";
+    qDebug() << "Setting GL viewport to:" << QRect(0, 0, outputSize.width(), outputSize.height());
 
     GLFramebuffer::pushFramebuffer(data.framebuffer.get());
     glViewport(0, 0, outputSize.width(), outputSize.height());
     glClearColor(0.0, 0.0, 0.0, 0.0);
     glClear(GL_COLOR_BUFFER_BIT);
-    // Use the full screen geometry as the region to capture everything
-    effects->paintScreen(offscreenTarget, offscreenViewport, mask, Region(QRegion(geo)), screen);
+
+    // CRITICAL FIX: Convert region to screen's coordinate space
+    // The region might be in device coordinates, but paintScreen expects logical
+    QRegion logicalRegion = static_cast<QRegion>(region);
+
+    // If region is in device pixels, scale it to logical
+    if (scale != 1.0) {
+        QRegion scaledRegion;
+        for (const QRect &rect : logicalRegion) {
+            QRectF logicalRect = QRectF(rect.x() / scale, rect.y() / scale,
+                                        rect.width() / scale, rect.height() / scale);
+            scaledRegion += logicalRect.toRect();
+        }
+        logicalRegion = scaledRegion;
+        qDebug() << "Scaled region from device to logical:" << logicalRegion;
+    }
+
+    // Intersect with screen geometry to only paint what's on this screen
+    logicalRegion &= geo;
+    qDebug() << "Final logical region for offscreen paint:" << logicalRegion;
+
+    qDebug() << "Calling effects->paintScreen to offscreen";
+    effects->paintScreen(offscreenTarget, offscreenViewport, mask, Region(logicalRegion), screen);
+    qDebug() << "Offscreen rendering complete";
+
     GLFramebuffer::popFramebuffer();
 
-    // Calculate zoom pan offsets (Logical coordinates)
+    // Calculate zoom pan offsets (logical coordinates relative to output)
+    qDebug() << "--- Zoom Translation Calculation ---";
+    qDebug() << "state->focusPoint:" << state->focusPoint;
+    qDebug() << "state->prevPoint:" << state->prevPoint;
+
     QPoint localFocus = state->focusPoint - geo.topLeft();
     QPoint localPrev = state->prevPoint - geo.topLeft();
+
+    qDebug() << "localFocus:" << localFocus;
+    qDebug() << "localPrev:" << localPrev;
+    qDebug() << "m_mouseTracking:" << m_mouseTracking;
+
     qreal xTranslation = 0;
     qreal yTranslation = 0;
 
     switch (m_mouseTracking) {
     case MouseTrackingProportional:
-        xTranslation = -int(localFocus.x() * (state->zoom - 1.0));
-        yTranslation = -int(localFocus.y() * (state->zoom - 1.0));
+        xTranslation = -localFocus.x() * (state->zoom - 1.0);
+        yTranslation = -localFocus.y() * (state->zoom - 1.0);
+        qDebug() << "MouseTrackingProportional:";
+        qDebug() << "  xTranslation:" << xTranslation;
+        qDebug() << "  yTranslation:" << yTranslation;
         state->prevPoint = state->focusPoint;
         break;
 
     case MouseTrackingCentered:
         state->prevPoint = state->focusPoint;
+        qDebug() << "MouseTrackingCentered (falling through to Disabled)";
         // fall through
 
     case MouseTrackingDisabled: {
-        int tX = int(geo.width() / 2.0 - localPrev.x() * state->zoom);
-        int tY = int(geo.height() / 2.0 - localPrev.y() * state->zoom);
+        qreal tX = geo.width() / 2.0 - localPrev.x() * state->zoom;
+        qreal tY = geo.height() / 2.0 - localPrev.y() * state->zoom;
+        qreal minX = geo.width() * (1.0 - state->zoom);
+        qreal minY = geo.height() * (1.0 - state->zoom);
 
-        int minX = int(geo.width() * (1.0 - state->zoom));
-        int maxX = 0;
-        int minY = int(geo.height() * (1.0 - state->zoom));
-        int maxY = 0;
+        qDebug() << "MouseTrackingDisabled:";
+        qDebug() << "  tX (unclamped):" << tX << "tY:" << tY;
+        qDebug() << "  minX:" << minX << "minY:" << minY;
 
-        xTranslation = std::clamp(tX, minX, maxX);
-        yTranslation = std::clamp(tY, minY, maxY);
+        xTranslation = std::clamp(tX, minX, 0.0);
+        yTranslation = std::clamp(tY, minY, 0.0);
+
+        qDebug() << "  xTranslation (clamped):" << xTranslation;
+        qDebug() << "  yTranslation (clamped):" << yTranslation;
     } break;
 
     case MouseTrackingPush: {
-        const int x = localFocus.x() * state->zoom - localPrev.x() * (state->zoom - 1.0);
-        const int y = localFocus.y() * state->zoom - localPrev.y() * (state->zoom - 1.0);
-        const int threshold = 4;
+        const qreal x = localFocus.x() * state->zoom - localPrev.x() * (state->zoom - 1.0);
+        const qreal y = localFocus.y() * state->zoom - localPrev.y() * (state->zoom - 1.0);
+        const qreal threshold = 4;
+
+        qDebug() << "MouseTrackingPush:";
+        qDebug() << "  x:" << x << "y:" << y << "threshold:" << threshold;
 
         state->xMove = state->yMove = 0;
 
@@ -447,6 +514,8 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             state->yMove = (y + threshold - geo.height()) / state->zoom;
         }
 
+        qDebug() << "  xMove:" << state->xMove << "yMove:" << state->yMove;
+
         if (state->xMove) {
             state->prevPoint.setX(state->prevPoint.x() + state->xMove);
         }
@@ -454,62 +523,101 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             state->prevPoint.setY(state->prevPoint.y() + state->yMove);
         }
 
+        qDebug() << "  updated prevPoint:" << state->prevPoint;
+
         localPrev = state->prevPoint - geo.topLeft();
-        xTranslation = -int(localPrev.x() * (state->zoom - 1.0));
-        yTranslation = -int(localPrev.y() * (state->zoom - 1.0));
+        xTranslation = -localPrev.x() * (state->zoom - 1.0);
+        yTranslation = -localPrev.y() * (state->zoom - 1.0);
+
+        qDebug() << "  final xTranslation:" << xTranslation;
+        qDebug() << "  final yTranslation:" << yTranslation;
     } break;
     }
 
     // Focus tracking
     if (isFocusTrackingEnabled() || isTextCaretTrackingEnabled()) {
+        qDebug() << "Focus tracking enabled";
         bool acceptFocus = true;
         if (m_mouseTracking != MouseTrackingDisabled && m_focusDelay > 0) {
             const int msecs = m_lastMouseEvent.msecsTo(m_lastFocusEvent);
+            qDebug() << "  msecs since last mouse:" << msecs << "focusDelay:" << m_focusDelay;
             acceptFocus = msecs > m_focusDelay;
         }
         if (acceptFocus) {
-            xTranslation = -int(localFocus.x() * (state->zoom - 1.0));
-            yTranslation = -int(localFocus.y() * (state->zoom - 1.0));
+            qDebug() << "  Accepting focus, overriding translation";
+            xTranslation = -localFocus.x() * (state->zoom - 1.0);
+            yTranslation = -localFocus.y() * (state->zoom - 1.0);
             state->prevPoint = state->focusPoint;
+            qDebug() << "  new xTranslation:" << xTranslation << "yTranslation:" << yTranslation;
         }
     }
 
     // Clamp to prevent black borders
     if (m_mouseTracking != MouseTrackingDisabled && m_mouseTracking != MouseTrackingCentered) {
-        int minX = int(geo.width() * (1.0 - state->zoom));
-        int maxX = 0;
-        int minY = int(geo.height() * (1.0 - state->zoom));
-        int maxY = 0;
+        qreal minX = geo.width() * (1.0 - state->zoom);
+        qreal minY = geo.height() * (1.0 - state->zoom);
 
-        xTranslation = std::clamp(int(xTranslation), minX, maxX);
-        yTranslation = std::clamp(int(yTranslation), minY, maxY);
+        qDebug() << "Clamping translations:";
+        qDebug() << "  Before clamp - xTranslation:" << xTranslation << "yTranslation:" << yTranslation;
+        qDebug() << "  Clamp range - minX:" << minX << "maxX: 0, minY:" << minY << "maxY: 0";
+
+        xTranslation = std::clamp(xTranslation, minX, 0.0);
+        yTranslation = std::clamp(yTranslation, minY, 0.0);
+
+        qDebug() << "  After clamp - xTranslation:" << xTranslation << "yTranslation:" << yTranslation;
     }
 
-    // KEY FIX #2: Scissor uses renderTarget-local coordinates
+    // Scissor test uses renderTarget-local coordinates
+    qDebug() << "--- Compositing to Screen ---";
+    qDebug() << "Setting scissor test:" << QRect(0, 0, renderTarget.size().width(), renderTarget.size().height());
     glEnable(GL_SCISSOR_TEST);
     glScissor(0, 0, renderTarget.size().width(), renderTarget.size().height());
 
     GLShader *shader = shaderForZoom(state->zoom);
     ShaderManager::instance()->pushShader(shader);
+    qDebug() << "Shader pushed for zoom:" << state->zoom;
 
-    // KEY FIX #3: Matrix uses GLOBAL logical coordinates
+    // Build transformation matrix - need to scale logical coordinates to device pixels
     QMatrix4x4 matrix = viewport.projectionMatrix();
-    matrix.translate(geo.x(), geo.y()); // Global position (logical)
-    matrix.translate(xTranslation, yTranslation); // Pan (logical)
-    matrix.scale(state->zoom, state->zoom); // Zoom scale
+    qDebug() << "Initial projection matrix:" << matrix;
+
+    // First translate to output position in logical coordinates
+    matrix.translate(geo.x(), geo.y());
+    qDebug() << "After translate to output position (" << geo.x() << "," << geo.y() << "):" << matrix;
+
+    // Apply zoom pan in logical coordinates
+    matrix.translate(xTranslation, yTranslation);
+    qDebug() << "After zoom pan translate (" << xTranslation << "," << yTranslation << "):" << matrix;
+
+    // Apply zoom scale in logical coordinates
+    matrix.scale(state->zoom, state->zoom);
+    qDebug() << "After zoom scale (" << state->zoom << "):" << matrix;
+
+    // CRITICAL: Scale from logical to device pixels to match vertices
+    matrix.scale(scale, scale);
+    qDebug() << "After scaling to device pixels (" << scale << "):" << matrix;
 
     shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, matrix);
     shader->setUniform(GLShader::IntUniform::TextureWidth, data.texture->width());
     shader->setUniform(GLShader::IntUniform::TextureHeight, data.texture->height());
     shader->setColorspaceUniforms(data.color, renderTarget.colorDescription(), RenderingIntent::Perceptual);
 
-    glBindTexture(GL_TEXTURE_2D, data.texture->texture());
+    qDebug() << "Texture dimensions set - width:" << data.texture->width() << "height:" << data.texture->height();
 
-    // KEY FIX #4: Vertices in LOGICAL coordinates (output size, not device pixels)
+    glBindTexture(GL_TEXTURE_2D, data.texture->texture());
+    qDebug() << "Texture bound:" << data.texture->texture();
+
+    // CRITICAL FIX: Vertices must match texture size in device pixels
+    // The texture is in device pixels, so vertices should be too
     const float x1 = 0;
     const float y1 = 0;
-    const float x2 = geo.width(); // NOT * scale
-    const float y2 = geo.height(); // NOT * scale
+    const float x2 = outputSize.width(); // Device pixels
+    const float y2 = outputSize.height(); // Device pixels
+
+    qDebug() << "Quad vertices (device coords to match texture):";
+    qDebug() << "  Top-left:" << x1 << "," << y1;
+    qDebug() << "  Bottom-right:" << x2 << "," << y2;
+    qDebug() << "  Texture size:" << outputSize;
 
     GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
     vbo->reset();
@@ -524,27 +632,41 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     vertices[5] = {{x1, y1}, {0.0f, 1.0f}};
 
     vbo->setVertices(std::span(vertices));
+    qDebug() << "Rendering quad with 6 vertices (2 triangles)";
     vbo->render(GL_TRIANGLES);
 
     ShaderManager::instance()->popShader();
     glDisable(GL_SCISSOR_TEST);
+    qDebug() << "Shader popped, scissor disabled";
 
-    // Draw cursor
+    // Draw cursor if on this screen
     if (m_mousePointer != MousePointerHide && effects->screenAt(effects->cursorPos().toPoint()) == screen) {
+        qDebug() << "--- Drawing Cursor ---";
+        qDebug() << "Cursor pos:" << effects->cursorPos();
+        qDebug() << "m_mousePointer mode:" << m_mousePointer;
+
         GLTexture *cursorTexture = ensureCursorTexture();
         if (cursorTexture) {
             const auto cursor = effects->cursorImage();
             QSizeF cursorSize = QSizeF(cursor.image().size()) / cursor.image().devicePixelRatio();
+            qDebug() << "Cursor image size:" << cursor.image().size();
+            qDebug() << "Cursor devicePixelRatio:" << cursor.image().devicePixelRatio();
 
-            // Handle cursor scaling
+            qDebug() << "Cursor logical size:" << cursorSize;
+
             QPointF hotspotOffset = cursor.hotSpot();
+            qDebug() << "Cursor hotspot (before scaling):" << hotspotOffset;
+
             if (m_mousePointer == MousePointerScale) {
                 cursorSize *= state->zoom;
                 hotspotOffset *= state->zoom;
+                qDebug() << "Cursor scaled by zoom:" << state->zoom;
+                qDebug() << "  New size:" << cursorSize;
+                qDebug() << "  New hotspot:" << hotspotOffset;
             }
 
-            // The cursor stays at its REAL global position
             const QPointF globalP = effects->cursorPos() - hotspotOffset;
+            qDebug() << "Cursor render position (global logical):" << globalP;
 
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -552,17 +674,33 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
             cursorShader->setColorspaceUniforms(ColorDescription::sRGB, renderTarget.colorDescription(), RenderingIntent::Perceptual);
 
             QMatrix4x4 mvp = viewport.projectionMatrix();
-            // Translate to logical position (no scale multiplication needed)
+            qDebug() << "Cursor initial projection matrix:" << mvp;
+
             mvp.translate(globalP.x(), globalP.y());
+            qDebug() << "Cursor after translate to" << globalP << ":" << mvp;
 
             cursorShader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, mvp);
+            qDebug() << "Rendering cursor texture, size:" << cursorSize;
             cursorTexture->render(cursorSize);
+
             ShaderManager::instance()->popShader();
             glDisable(GL_BLEND);
+            qDebug() << "Cursor rendered";
+        } else {
+            qWarning() << "Failed to get cursor texture!";
+        }
+    } else {
+        if (m_mousePointer == MousePointerHide) {
+            qDebug() << "Cursor hidden (MousePointerHide mode)";
+        } else {
+            qDebug() << "Cursor not on this screen";
+            qDebug() << "  Cursor screen:" << (effects->screenAt(effects->cursorPos().toPoint()) ? effects->screenAt(effects->cursorPos().toPoint())->name() : "null");
+            qDebug() << "  This screen:" << screen->name();
         }
     }
-}
 
+    qDebug() << "=== ZoomEffect::paintScreen END ===\n";
+}
 void ZoomEffect::postPaintScreen()
 {
     // Call base implementation first to maintain proper effect chain
