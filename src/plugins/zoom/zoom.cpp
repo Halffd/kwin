@@ -580,7 +580,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     ShaderManager::instance()->pushShader(shader);
     qDebug() << "Shader pushed for zoom:" << state->zoom;
 
-    // Build transformation matrix - need to scale logical coordinates to device pixels
+    // Build transformation matrix - work entirely in logical coordinates
     QMatrix4x4 matrix = viewport.projectionMatrix();
     qDebug() << "Initial projection matrix:" << matrix;
 
@@ -595,10 +595,7 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     // Apply zoom scale in logical coordinates
     matrix.scale(state->zoom, state->zoom);
     qDebug() << "After zoom scale (" << state->zoom << "):" << matrix;
-
-    // CRITICAL: Scale from logical to device pixels to match vertices
-    matrix.scale(scale, scale);
-    qDebug() << "After scaling to device pixels (" << scale << "):" << matrix;
+    // DON'T multiply by scale again - viewport.projectionMatrix() already handles device→NDC
 
     shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, matrix);
     shader->setUniform(GLShader::IntUniform::TextureWidth, data.texture->width());
@@ -610,17 +607,16 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     glBindTexture(GL_TEXTURE_2D, data.texture->texture());
     qDebug() << "Texture bound:" << data.texture->texture();
 
-    // CRITICAL FIX: Vertices must match texture size in device pixels
-    // The texture is in device pixels, so vertices should be too
+    // Vertices should be in LOGICAL coordinates to match matrix
     const float x1 = 0;
     const float y1 = 0;
-    const float x2 = outputSize.width(); // Device pixels
-    const float y2 = outputSize.height(); // Device pixels
+    const float x2 = geo.width(); // Logical coordinates
+    const float y2 = geo.height(); // Logical coordinates
 
-    qDebug() << "Quad vertices (device coords to match texture):";
+    qDebug() << "Quad vertices (logical coords to match matrix):";
     qDebug() << "  Top-left:" << x1 << "," << y1;
     qDebug() << "  Bottom-right:" << x2 << "," << y2;
-    qDebug() << "  Texture size:" << outputSize;
+    qDebug() << "  Screen geometry:" << geo;
 
     GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
     vbo->reset();
