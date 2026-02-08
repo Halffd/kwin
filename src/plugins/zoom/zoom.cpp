@@ -488,8 +488,8 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 
     // Composite zoomed content back to screen
     glEnable(GL_SCISSOR_TEST);
-    // Use renderTarget dimensions for scissor (local device coordinates)
-    glScissor(0, 0, renderTarget.size().width(), renderTarget.size().height());
+    // Use screen geometry for scissor to prevent rendering outside this screen
+    glScissor(geo.x(), geo.y(), geo.width(), geo.height());
 
     GLShader *shader = shaderForZoom(state->zoom);
     ShaderManager::instance()->pushShader(shader);
