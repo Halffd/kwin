@@ -12,10 +12,12 @@
 #include "core/output.h"
 #include "core/outputbackend.h"
 #include "main.h"
+#include "virtualdesktops.h"
 #include "window.h"
 #include "workspace.h"
 
 #include <QDBusConnection>
+#include <QPointer>
 #include <QUuid>
 
 namespace KWin
@@ -25,8 +27,37 @@ WindowManagerDBusInterface::WindowManagerDBusInterface(QObject *parent)
     : QObject(parent)
     , m_workspace(Workspace::self())
 {
+    qDebug() << "WindowManagerDBusInterface: Initializing and registering on DBus";
+
     QDBusConnection dbus = QDBusConnection::sessionBus();
-    dbus.registerObject(QStringLiteral("/WindowManager"), this);
+
+    // Register the object WITH explicit interface export
+    bool success = dbus.registerObject(
+        QStringLiteral("/WindowManager"),
+        QStringLiteral("org.kde.KWin.WindowManager"),
+        this,
+        QDBusConnection::ExportAllSlots | QDBusConnection::ExportAllSignals);
+
+    qDebug() << "WindowManagerDBusInterface: Registration" << (success ? "SUCCESS" : "FAILED");
+
+    if (!success) {
+        qDebug() << "DBus error:" << dbus.lastError().message();
+    }
+
+    // Connect to workspace signals for window state changes
+    connect(m_workspace, &Workspace::windowAdded, this, [this](Window *w) {
+        Q_EMIT windowAdded(w->internalId().toString());
+    });
+
+    connect(m_workspace, &Workspace::windowRemoved, this, [this](Window *w) {
+        Q_EMIT windowRemoved(w->internalId().toString());
+    });
+
+    connect(m_workspace, &Workspace::windowActivated, this, [this](Window *w) {
+        if (w) {
+            Q_EMIT windowActivated(w->internalId().toString());
+        }
+    });
 }
 
 WindowManagerDBusInterface::~WindowManagerDBusInterface()
@@ -289,8 +320,11 @@ bool WindowManagerDBusInterface::closeWindow(const QString &windowId)
         return false;
     }
 
+    // Use QPointer to ensure window is still valid after closeWindow()
+    QPointer<Window> windowPtr(window);
     window->closeWindow();
-    return true;
+    // Don't access window after closeWindow() - it might be deleted
+    return windowPtr != nullptr;
 }
 
 bool WindowManagerDBusInterface::maximizeWindow(const QString &windowId)
@@ -300,8 +334,7 @@ bool WindowManagerDBusInterface::maximizeWindow(const QString &windowId)
         return false;
     }
 
-    window->setMaximize(false, true); // Vertical
-    window->setMaximize(true, false); // Horizontal
+    window->maximize(MaximizeMode::MaximizeFull);
     return true;
 }
 
@@ -473,6 +506,39 @@ bool WindowManagerDBusInterface::sendWindowToMonitor(const QString &windowId, in
     return true;
 }
 
+bool WindowManagerDBusInterface::sendWindowToMonitorByName(const QString &windowId, const QString &monitorName)
+{
+    Window *window = findWindowById(windowId);
+    if (!window || !window->isMovable()) {
+        return false;
+    }
+
+    const auto outputs = m_workspace->outputs();
+    LogicalOutput *targetOutput = nullptr;
+    for (auto *output : outputs) {
+        if (output->name() == monitorName) {
+            targetOutput = output;
+            break;
+        }
+    }
+
+    if (!targetOutput) {
+        return false;
+    }
+
+    QRectF outputRect = QRectF(targetOutput->geometry().x(), targetOutput->geometry().y(),
+                               targetOutput->geometry().width(), targetOutput->geometry().height());
+    QRectF windowRect = window->frameGeometry();
+
+    // Center window on new monitor
+    QPointF newPos(
+        outputRect.x() + (outputRect.width() - windowRect.width()) / 2,
+        outputRect.y() + (outputRect.height() - windowRect.height()) / 2);
+
+    window->move(newPos);
+    return true;
+}
+
 bool WindowManagerDBusInterface::sendWindowToDesktop(const QString &windowId, int desktop)
 {
     Window *window = findWindowById(windowId);
@@ -480,9 +546,13 @@ bool WindowManagerDBusInterface::sendWindowToDesktop(const QString &windowId, in
         return false;
     }
 
-    // This would need to be implemented based on KWin's virtual desktop system
-    // For now, return false as placeholder
-    return false;
+    VirtualDesktop *vd = VirtualDesktopManager::self()->desktopForX11Id(desktop);
+    if (!vd) {
+        return false;
+    }
+
+    window->setDesktops({vd});
+    return true;
 }
 
 // Advanced operations

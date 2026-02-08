@@ -170,6 +170,12 @@
       <arg name="success" type="b" direction="out"/>
     </method>
 
+    <method name="sendWindowToMonitorByName">
+      <arg name="windowId" type="s" direction="in"/>
+      <arg name="monitorName" type="s" direction="in"/>
+      <arg name="success" type="b" direction="out"/>
+    </method>
+
     <method name="sendWindowToDesktop">
       <arg name="windowId" type="s" direction="in"/>
       <arg name="desktop" type="i" direction="in"/>
@@ -206,6 +212,21 @@
     <method name="listMonitors">
       <arg name="monitors" type="aa{sv}" direction="out"/>
     </method>
+
+    <!-- Signals for window state changes -->
+    <signal name="windowAdded">
+      <arg name="windowId" type="s"/>
+    </signal>
+    <signal name="windowRemoved">
+      <arg name="windowId" type="s"/>
+    </signal>
+    <signal name="windowActivated">
+      <arg name="windowId" type="s"/>
+    </signal>
+    <signal name="windowStateChanged">
+      <arg name="windowId" type="s"/>
+      <arg name="state" type="a{sv}"/>
+    </signal>
 
   </interface>
 </node>

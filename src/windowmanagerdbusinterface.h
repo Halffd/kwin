@@ -77,6 +77,7 @@ public Q_SLOTS:
     bool moveAndResizeWindow(const QString &windowId, int x, int y, int width, int height);
     bool centerWindow(const QString &windowId);
     bool sendWindowToMonitor(const QString &windowId, int monitor);
+    bool sendWindowToMonitorByName(const QString &windowId, const QString &monitorName);
     bool sendWindowToDesktop(const QString &windowId, int desktop);
 
     // Advanced operations
@@ -86,6 +87,12 @@ public Q_SLOTS:
     bool toggleAlwaysOnTop(const QString &windowId);
     QVariantMap getMonitorInfo(int monitor);
     QVariantList listMonitors();
+
+Q_SIGNALS:
+    void windowAdded(const QString &windowId);
+    void windowRemoved(const QString &windowId);
+    void windowActivated(const QString &windowId);
+    void windowStateChanged(const QString &windowId, const QVariantMap &state);
 
 private:
     Window *findWindowById(const QString &windowId);

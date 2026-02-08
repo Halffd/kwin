@@ -151,6 +151,9 @@ Workspace::Workspace()
     // dbus interface
     new VirtualDesktopManagerDBusInterface(VirtualDesktopManager::self());
 
+    // window manager dbus interface
+    m_windowManagerDBus = new WindowManagerDBusInterface(this);
+
 #if KWIN_BUILD_ACTIVITIES
     if (m_activities) {
         connect(VirtualDesktopManager::self(), &VirtualDesktopManager::currentChanged, this, [this](VirtualDesktop *previous, VirtualDesktop *current) {

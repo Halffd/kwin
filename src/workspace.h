@@ -89,6 +89,7 @@ class OrientationSensor;
 class BrightnessDevice;
 class BackendOutput;
 class LightSensor;
+class WindowManagerDBusInterface;
 
 class KWIN_EXPORT Workspace : public QObject
 {
@@ -715,6 +716,8 @@ private:
     int m_blockStackingUpdates = 0; // When > 0, stacking updates are temporarily disabled
     bool m_blockedPropagatingNewWindows; // Propagate also new windows after enabling stacking updates?
     friend class StackingUpdatesBlocker;
+
+    WindowManagerDBusInterface *m_windowManagerDBus = nullptr;
 
     std::unique_ptr<KillWindow> m_windowKiller;
 
