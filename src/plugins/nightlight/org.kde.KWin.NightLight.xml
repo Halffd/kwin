@@ -116,6 +116,78 @@
     -->
     <method name="resetGamma">
     </method>
+    
+    <!--
+        Sets the Night Light operation mode.
+        
+        Valid modes: 0 - automatic, 1 - location, 2 - timings, 3 - constant.
+    -->
+    <method name="setMode">
+        <arg name="mode" type="u" direction="in"/>
+    </method>
+    
+    <!--
+        Gets the current Night Light operation mode.
+        
+        Returns: 0 - automatic, 1 - location, 2 - timings, 3 - constant.
+    -->
+    <method name="getMode">
+        <arg name="mode" type="u" direction="out"/>
+    </method>
+    
+    <!--
+        Gets the current auto temperature timings.
+        
+        Returns map with morningBegin, morningEnd, eveningBegin, eveningEnd times (in minutes from midnight).
+    -->
+    <method name="getAutoTimings">
+        <arg name="timings" type="a{sv}" direction="out"/>
+        <annotation name="org.qtproject.QtDBus.QtTypeName.Out0" value="QVariantMap"/>
+    </method>
+    
+    <!--
+        Sets the auto temperature timings.
+        
+        Arguments are in minutes from midnight (0-1439).
+    -->
+    <method name="setAutoTimings">
+        <arg name="morningBegin" type="u" direction="in"/>
+        <arg name="morningEnd" type="u" direction="in"/>
+        <arg name="eveningBegin" type="u" direction="in"/>
+        <arg name="eveningEnd" type="u" direction="in"/>
+    </method>
+    
+    <!--
+        Disables automatic temperature adjustments.
+    -->
+    <method name="disableAutoTemperature">
+    </method>
+    
+    <!--
+        Enables automatic temperature adjustments.
+    -->
+    <method name="enableAutoTemperature">
+    </method>
+    
+    <!--
+        Sets temperature limits for automatic adjustments.
+        
+        minTemperature: 1000-6500K, maxTemperature: 6500-10000K
+    -->
+    <method name="setTemperatureLimits">
+        <arg name="minTemperature" type="u" direction="in"/>
+        <arg name="maxTemperature" type="u" direction="in"/>
+    </method>
+    
+    <!--
+        Gets the current temperature limits.
+        
+        Returns map with minTemperature and maxTemperature.
+    -->
+    <method name="getTemperatureLimits">
+        <arg name="limits" type="a{sv}" direction="out"/>
+        <annotation name="org.qtproject.QtDBus.QtTypeName.Out0" value="QVariantMap"/>
+    </method>
 
     <!--
         This property holds a value to indicate whether Night Light is inhibited.

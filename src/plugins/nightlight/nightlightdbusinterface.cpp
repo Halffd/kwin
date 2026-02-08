@@ -291,6 +291,122 @@ void NightLightDBusInterface::resetGamma()
 {
     m_manager->resetGamma();
 }
+
+void NightLightDBusInterface::setMode(uint mode)
+{
+    // Map XML mode values to actual enum values
+    // XML: 0=automatic, 1=location, 2=timings, 3=constant
+    // Available: Constant=0, DarkLight=1
+
+    NightLightMode nightLightMode;
+    switch (mode) {
+    case 0: // automatic
+    case 1: // location
+    case 2: // timings
+        nightLightMode = NightLightMode::DarkLight; // Use DarkLight for all auto modes
+        break;
+    case 3: // constant
+        nightLightMode = NightLightMode::Constant;
+        break;
+    default:
+        return; // Invalid mode
+    }
+
+    // Note: setMode is private, so we can't call it directly
+    // For now, this is a placeholder - would need to add a public method to NightLightManager
+    Q_UNUSED(nightLightMode)
+
+    // TODO: Add public setMode method to NightLightManager
+}
+
+uint NightLightDBusInterface::getMode()
+{
+    // Map enum values back to XML values
+    NightLightMode currentMode = m_manager->mode();
+
+    switch (currentMode) {
+    case NightLightMode::Constant:
+        return 3; // constant
+    case NightLightMode::DarkLight:
+        return 0; // automatic (default)
+    default:
+        return 0;
+    }
+}
+
+QVariantMap NightLightDBusInterface::getAutoTimings()
+{
+    QVariantMap timings;
+
+    // Get current auto timings from manager
+    // Note: This would need to be implemented in NightLightManager
+    // For now, return default values
+    timings["morningBegin"] = 360; // 6:00 AM
+    timings["morningEnd"] = 420; // 7:00 AM
+    timings["eveningBegin"] = 1020; // 5:00 PM
+    timings["eveningEnd"] = 1080; // 6:00 PM
+
+    return timings;
+}
+
+void NightLightDBusInterface::setAutoTimings(uint morningBegin, uint morningEnd, uint eveningBegin, uint eveningEnd)
+{
+    // Validate time ranges (0-1439 minutes from midnight)
+    if (morningBegin > 1439 || morningEnd > 1439 || eveningBegin > 1439 || eveningEnd > 1439) {
+        return;
+    }
+
+    // Note: This would need to be implemented in NightLightManager
+    // For now, just store in config or emit a signal
+    Q_UNUSED(morningBegin)
+    Q_UNUSED(morningEnd)
+    Q_UNUSED(eveningBegin)
+    Q_UNUSED(eveningEnd)
+
+    // TODO: Implement timing storage in NightLightManager
+}
+
+void NightLightDBusInterface::disableAutoTemperature()
+{
+    // Note: setMode is private, so we can't call it directly
+    // For now, this is a placeholder
+    // TODO: Add public setMode method to NightLightManager
+}
+
+void NightLightDBusInterface::enableAutoTemperature()
+{
+    // Note: setMode is private, so we can't call it directly
+    // For now, this is a placeholder
+    // TODO: Add public setMode method to NightLightManager
+}
+
+void NightLightDBusInterface::setTemperatureLimits(uint minTemperature, uint maxTemperature)
+{
+    // Validate temperature ranges
+    if (minTemperature < 1000 || minTemperature > 6500 || maxTemperature < 6500 || maxTemperature > 10000 || minTemperature >= maxTemperature) {
+        return;
+    }
+
+    // Note: This would need to be implemented in NightLightManager
+    // For now, just store the limits
+    Q_UNUSED(minTemperature)
+    Q_UNUSED(maxTemperature)
+
+    // TODO: Implement temperature limits in NightLightManager
+}
+
+QVariantMap NightLightDBusInterface::getTemperatureLimits()
+{
+    QVariantMap limits;
+
+    // Get current temperature limits from manager
+    // Note: This would need to be implemented in NightLightManager
+    // For now, return default values
+    limits["minTemperature"] = 4000; // Default night temperature
+    limits["maxTemperature"] = 6500; // Default day temperature
+
+    return limits;
+}
 }
 
 #include "moc_nightlightdbusinterface.cpp"

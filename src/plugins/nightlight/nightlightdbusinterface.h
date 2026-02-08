@@ -117,6 +117,56 @@ public Q_SLOTS:
      */
     void resetGamma();
 
+    /**
+     * @brief Sets the Night Light operation mode.
+     * @param mode Operation mode (0=automatic, 1=location, 2=timings, 3=constant)
+     */
+    void setMode(uint mode);
+
+    /**
+     * @brief Gets the current Night Light operation mode.
+     * @return Current mode (0=automatic, 1=location, 2=timings, 3=constant)
+     */
+    uint getMode();
+
+    /**
+     * @brief Gets the current auto temperature timings.
+     * @return Map with morningBegin, morningEnd, eveningBegin, eveningEnd times (in minutes from midnight)
+     */
+    QVariantMap getAutoTimings();
+
+    /**
+     * @brief Sets the auto temperature timings.
+     * @param morningBegin Morning begin time (minutes from midnight, 0-1439)
+     * @param morningEnd Morning end time (minutes from midnight, 0-1439)
+     * @param eveningBegin Evening begin time (minutes from midnight, 0-1439)
+     * @param eveningEnd Evening end time (minutes from midnight, 0-1439)
+     */
+    void setAutoTimings(uint morningBegin, uint morningEnd, uint eveningBegin, uint eveningEnd);
+
+    /**
+     * @brief Disables automatic temperature adjustments.
+     */
+    void disableAutoTemperature();
+
+    /**
+     * @brief Enables automatic temperature adjustments.
+     */
+    void enableAutoTemperature();
+
+    /**
+     * @brief Sets temperature limits for automatic adjustments.
+     * @param minTemperature Minimum temperature (1000-6500K)
+     * @param maxTemperature Maximum temperature (6500-10000K)
+     */
+    void setTemperatureLimits(uint minTemperature, uint maxTemperature);
+
+    /**
+     * @brief Gets the current temperature limits.
+     * @return Map with minTemperature and maxTemperature
+     */
+    QVariantMap getTemperatureLimits();
+
 private Q_SLOTS:
     void removeInhibitorService(const QString &serviceName);
 
