@@ -21,8 +21,9 @@
 namespace KWin
 {
 
-#if HAVE_ACCESSIBILITY
-class ZoomAccessibilityIntegration;
+#if KWIN_BUILD_QACCESSIBILITYCLIENT
+class FocusTracker;
+class TextCaretTracker;
 #endif
 
 class GLFramebuffer;
@@ -138,8 +139,9 @@ private:
     const ZoomScreenState *stateForScreen(LogicalOutput *output) const;
     void setTargetZoom(LogicalOutput *output, double value);
 
-#if HAVE_ACCESSIBILITY
-    ZoomAccessibilityIntegration *m_accessibilityIntegration = nullptr;
+#if KWIN_BUILD_QACCESSIBILITYCLIENT
+    FocusTracker *m_focusTracker = nullptr;
+    TextCaretTracker *m_textCaretTracker = nullptr;
 #endif
     std::map<LogicalOutput *, ZoomScreenState> m_states;
 
