@@ -386,10 +386,9 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     data.color = renderTarget.colorDescription();
     data.texture->setContentTransform(renderTarget.transform());
 
-    // Render screen content to offscreen texture
-    // Construct viewport mapping the global geometry to the offscreen FBO
+    // KEY FIX #1: RenderViewport must use GLOBAL geometry
     RenderTarget offscreenTarget(data.framebuffer.get(), renderTarget.colorDescription());
-    RenderViewport offscreenViewport(geo, scale, offscreenTarget, QPoint(0, 0));
+    RenderViewport offscreenViewport(geo, viewport.scale(), offscreenTarget, QPoint(0, 0)); // <-- GLOBAL geo, not local
 
     GLFramebuffer::pushFramebuffer(data.framebuffer.get());
     glViewport(0, 0, outputSize.width(), outputSize.height());
@@ -486,24 +485,18 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         yTranslation = std::clamp(int(yTranslation), minY, maxY);
     }
 
-    // Composite zoomed content back to screen
+    // KEY FIX #2: Scissor uses renderTarget-local coordinates
     glEnable(GL_SCISSOR_TEST);
-    // Use screen geometry for scissor to prevent rendering outside this screen
-    glScissor(geo.x(), geo.y(), geo.width(), geo.height());
+    glScissor(0, 0, renderTarget.size().width(), renderTarget.size().height());
 
     GLShader *shader = shaderForZoom(state->zoom);
     ShaderManager::instance()->pushShader(shader);
 
+    // KEY FIX #3: Matrix uses GLOBAL logical coordinates
     QMatrix4x4 matrix = viewport.projectionMatrix();
-
-    // Move quad to the output's position (Logical coordinates)
-    matrix.translate(geo.x(), geo.y());
-
-    // Apply zoom pan (moves the content within the output)
-    matrix.translate(xTranslation, yTranslation);
-
-    // Apply zoom scale (scales the content)
-    matrix.scale(state->zoom, state->zoom);
+    matrix.translate(geo.x(), geo.y()); // Global position (logical)
+    matrix.translate(xTranslation, yTranslation); // Pan (logical)
+    matrix.scale(state->zoom, state->zoom); // Zoom scale
 
     shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, matrix);
     shader->setUniform(GLShader::IntUniform::TextureWidth, data.texture->width());
@@ -512,11 +505,11 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 
     glBindTexture(GL_TEXTURE_2D, data.texture->texture());
 
-    // Quad vertices in logical coordinates
+    // KEY FIX #4: Vertices in LOGICAL coordinates (output size, not device pixels)
     const float x1 = 0;
     const float y1 = 0;
-    const float x2 = geo.width();
-    const float y2 = geo.height();
+    const float x2 = geo.width(); // NOT * scale
+    const float y2 = geo.height(); // NOT * scale
 
     GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
     vbo->reset();
