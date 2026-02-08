@@ -12,6 +12,7 @@
 #include "config-kwin.h"
 
 #include "core/colorspace.h"
+#include "core/output.h"
 #include "effect/effect.h"
 
 #include <QTime>
@@ -47,7 +48,7 @@ public:
 
     void reconfigure(ReconfigureFlags flags) override;
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime) override;
-    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen) override;
+    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const Region &region, LogicalOutput *screen) override;
     void postPaintScreen() override;
     bool isActive() const override;
     int requestedEffectChainPosition() const override;
@@ -88,7 +89,7 @@ private Q_SLOTS:
     void slotMouseChanged(const QPointF &pos, const QPointF &old);
     void slotWindowAdded(EffectWindow *w);
     void slotWindowDamaged();
-    void slotScreenRemoved(Output *screen);
+    void slotScreenRemoved(LogicalOutput *screen);
 
 private:
     enum MouseTrackingType {
@@ -109,7 +110,7 @@ private:
         std::unique_ptr<GLTexture> texture;
         std::unique_ptr<GLFramebuffer> framebuffer;
         QRectF viewport;
-        ColorDescription color = ColorDescription::sRGB;
+        std::shared_ptr<ColorDescription> color = ColorDescription::sRGB;
     };
 
     struct ZoomScreenState
@@ -129,18 +130,18 @@ private:
     void showCursor();
     void hideCursor();
     GLTexture *ensureCursorTexture();
-    OffscreenData *ensureOffscreenData(const RenderTarget &renderTarget, const RenderViewport &viewport, Output *screen);
+    OffscreenData *ensureOffscreenData(const RenderTarget &renderTarget, const RenderViewport &viewport, LogicalOutput *screen);
     void markCursorTextureDirty();
 
     GLShader *shaderForZoom(double zoom);
-    ZoomScreenState *stateForScreen(Output *output);
-    const ZoomScreenState *stateForScreen(Output *output) const;
-    void setTargetZoom(Output *output, double value);
+    ZoomScreenState *stateForScreen(LogicalOutput *output);
+    const ZoomScreenState *stateForScreen(LogicalOutput *output) const;
+    void setTargetZoom(LogicalOutput *output, double value);
 
 #if HAVE_ACCESSIBILITY
     ZoomAccessibilityIntegration *m_accessibilityIntegration = nullptr;
 #endif
-    std::map<Output *, ZoomScreenState> m_states;
+    std::map<LogicalOutput *, ZoomScreenState> m_states;
 
     double m_zoomFactor = 1.25;
     MouseTrackingType m_mouseTracking = MouseTrackingProportional;
@@ -154,7 +155,7 @@ private:
     QTimeLine m_timeline;
     double m_moveFactor = 20.0;
     std::chrono::milliseconds m_lastPresentTime = std::chrono::milliseconds::zero();
-    std::map<Output *, OffscreenData> m_offscreenData;
+    std::map<LogicalOutput *, OffscreenData> m_offscreenData;
     std::unique_ptr<GLShader> m_pixelGridShader;
     double m_pixelGridZoom;
 };
