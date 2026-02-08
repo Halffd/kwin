@@ -474,7 +474,6 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
         xTranslation = std::clamp(xTranslation, minX, 0.0);
         yTranslation = std::clamp(yTranslation, minY, 0.0);
     }
-
     // === COMPOSITE TO SCREEN ===
     glEnable(GL_SCISSOR_TEST);
     glScissor(0, 0, renderTarget.size().width(), renderTarget.size().height());
@@ -484,17 +483,28 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
 
     // Build matrix: start with viewport's projection (already handles device scale)
     QMatrix4x4 matrix = viewport.projectionMatrix();
-    matrix.translate(geo.x(), geo.y()); // Screen position (logical)
-    matrix.translate(xTranslation, yTranslation); // Zoom pan (logical)
-    matrix.scale(state->zoom, state->zoom); // Zoom factor
+
+    // Translate to screen position
+    matrix.translate(geo.x(), geo.y());
+
+    // Zoom around the focus point
+    QPointF zoomCenter = state->focusPoint - geo.topLeft(); // Local coords
+
+    // Translate so that zoom center is at origin
+    matrix.translate(zoomCenter.x(), zoomCenter.y());
+    // Apply zoom
+    matrix.scale(state->zoom, state->zoom);
+    // Translate back
+    matrix.translate(-zoomCenter.x(), -zoomCenter.y());
+
+    // Apply the pan translation (which should be calculated differently now)
+    matrix.translate(xTranslation, yTranslation);
 
     shader->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, matrix);
     shader->setUniform(GLShader::IntUniform::TextureWidth, data.texture->width());
     shader->setUniform(GLShader::IntUniform::TextureHeight, data.texture->height());
     shader->setColorspaceUniforms(data.color, renderTarget.colorDescription(), RenderingIntent::Perceptual);
-
     glBindTexture(GL_TEXTURE_2D, data.texture->texture());
-
     // Quad in LOGICAL coordinates (matches the matrix math above)
     const float x1 = 0;
     const float y1 = 0;
@@ -506,13 +516,21 @@ void ZoomEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewp
     vbo->setAttribLayout(std::span(GLVertexBuffer::GLVertex2DLayout), sizeof(GLVertex2D));
 
     GLVertex2D vertices[6];
-    vertices[0] = {{x1, y1}, {0.0f, 0.0f}}; // Top-left: tex (0,0)
-    vertices[1] = {{x2, y1}, {1.0f, 0.0f}}; // Top-right: tex (1,0)
-    vertices[2] = {{x2, y2}, {1.0f, 1.0f}}; // Bottom-right: tex (1,1)
-    vertices[3] = {{x2, y2}, {1.0f, 1.0f}};
-    vertices[4] = {{x1, y2}, {0.0f, 1.0f}}; // Bottom-left: tex (0,1)
-    vertices[5] = {{x1, y1}, {0.0f, 0.0f}};
-
+    // Texture coords: (0,1) is top-left, (1,0) is bottom-right for FBO
+    vertices[0] = {{x1, y1}, {0.0f, 1.0f}}; // Top-left
+    vertices[1] = {{x2, y1}, {1.0f, 1.0f}}; // Top-right
+    vertices[2] = {{x2, y2}, {1.0f, 0.0f}}; // Bottom-right
+    vertices[3] = {{x2, y2}, {1.0f, 0.0f}};
+    vertices[4] = {{x1, y2}, {0.0f, 0.0f}}; // Bottom-left
+    vertices[5] = {{x1, y1}, {0.0f, 1.0f}};
+    qDebug() << "=== RENDER DEBUG ===";
+    qDebug() << "geo:" << geo;
+    qDebug() << "localFocus:" << localFocus;
+    qDebug() << "xTranslation:" << xTranslation << "yTranslation:" << yTranslation;
+    qDebug() << "zoom:" << state->zoom;
+    qDebug() << "Quad: (" << x1 << "," << y1 << ") to (" << x2 << "," << y2 << ")";
+    qDebug() << "Texture size:" << data.texture->size();
+    qDebug() << "Matrix:" << matrix;
     vbo->setVertices(std::span(vertices));
     vbo->render(GL_TRIANGLES);
 
