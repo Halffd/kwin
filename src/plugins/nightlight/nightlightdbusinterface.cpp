@@ -267,6 +267,11 @@ void NightLightDBusInterface::setTemperature(int temperature)
     m_manager->setTemperature(temperature);
 }
 
+int NightLightDBusInterface::getTemperature()
+{
+    return m_manager->currentTemperature();
+}
+
 void NightLightDBusInterface::increaseTemperature(int step)
 {
     m_manager->increaseTemperature(step);

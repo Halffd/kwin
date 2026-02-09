@@ -49,7 +49,7 @@
     </method>
 
     <!--
-        Sets the brightness level (0.1 to 1.0).
+        Sets the brightness level (0.00001 to 1.0).
     -->
     <method name="setBrightness">
         <arg name="brightness" type="d" direction="in"/>
@@ -80,6 +80,13 @@
     -->
     <method name="setTemperature">
         <arg name="temperature" type="i" direction="in"/>
+    </method>
+
+    <!--
+        Gets the current color temperature.
+    -->
+    <method name="getTemperature">
+        <arg name="temperature" type="i" direction="out"/>
     </method>
 
     <!--
@@ -210,7 +217,7 @@
     <property name="available" type="b" access="read"/>
 
     <!--
-        This property holds a value to indicate the current brightness level (0.1 to 1.0).
+        This property holds a value to indicate the current brightness level (0.00001 to 1.0).
     -->
     <property name="brightness" type="d" access="read"/>
 

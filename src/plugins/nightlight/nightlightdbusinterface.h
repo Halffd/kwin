@@ -77,7 +77,7 @@ public Q_SLOTS:
      */
     void stopPreview();
     /**
-     * @brief Sets the brightness level (0.1 to 1.0).
+     * @brief Sets the brightness level (0.00001 to 1.0).
      */
     void setBrightness(double brightness);
     /**
@@ -96,6 +96,10 @@ public Q_SLOTS:
      * @brief Sets color temperature.
      */
     void setTemperature(int temperature);
+    /**
+     * @brief Gets the current color temperature.
+     */
+    int getTemperature();
     /**
      * @brief Increases temperature by specified step.
      */

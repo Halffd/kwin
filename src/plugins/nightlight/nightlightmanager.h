@@ -121,7 +121,7 @@ public:
     int currentTemperature() const;
 
     /**
-     * Returns the current brightness level (0.1 to 1.0).
+     * Returns the current brightness level (0.00001 to 1.0).
      */
     double brightness() const;
 

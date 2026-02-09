@@ -248,6 +248,7 @@ void NightLightManager::cancelAllTimers()
     m_slowUpdateStartTimer.reset();
     m_slowUpdateTimer.reset();
     m_quickAdjustTimer.reset();
+    m_previewTimer.reset();
 }
 
 void NightLightManager::resetQuickAdjustTimer(int targetTemperature)
@@ -587,7 +588,7 @@ double NightLightManager::brightness() const
 
 void NightLightManager::setBrightness(double brightness)
 {
-    brightness = std::clamp(brightness, 0.1, 1.0);
+    brightness = std::clamp(brightness, 0.00001, 1.0);
     if (m_brightness == brightness) {
         return;
     }
@@ -618,9 +619,18 @@ void NightLightManager::resetBrightness()
 void NightLightManager::setTemperature(int temperature)
 {
     temperature = std::clamp(temperature, MIN_TEMPERATURE, DEFAULT_DAY_TEMPERATURE);
+
+    // Cancel any ongoing timers to avoid conflicts
+    cancelAllTimers();
+
+    // Directly commit the temperature change
     if (isEnabled() && !isInhibited()) {
-        quickAdjust(temperature);
+        commitGammaRamps(temperature);
+    } else {
+        // Still update the current temperature even if not enabled
+        setCurrentTemperature(temperature);
     }
+
     Q_EMIT temperatureAdjustmentChanged();
 }
 
