@@ -455,6 +455,18 @@ if (COMPILER_UNUSED_PARAMETER_SUPPORTED)
     add_compile_options(-Wno-unused-parameter)
 endif()
 
+# Valgrind memory leak detection support
+option(KWIN_WITH_VALGRIND "Enable Valgrind memory leak detection support" OFF)
+if(KWIN_WITH_VALGRIND)
+    find_package(Valgrind)
+    if(Valgrind_FOUND)
+        add_definitions(-DKWIN_WITH_VALGRIND=1)
+        message(STATUS "Valgrind found, memory leak detection enabled")
+    else()
+        message(WARNING "Valgrind requested but not found")
+    endif()
+endif()
+
 add_definitions(
     -DQT_NO_KEYWORDS
     -DQT_USE_QSTRINGBUILDER
@@ -467,6 +479,14 @@ add_definitions(
     -DEGL_NO_X11
     -DEGL_NO_PLATFORM_SPECIFIC_TYPES
 )
+
+# Enable debug logging for non-release builds
+string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE_UPPER)
+if(NOT CMAKE_BUILD_TYPE_UPPER STREQUAL "RELEASE")
+    add_definitions(-DKWIN_LOGGING_LEVEL=QtDebugMsg)
+else()
+    add_definitions(-DKWIN_LOGGING_LEVEL=QtWarningMsg)
+endif()
 
 ecm_set_disabled_deprecation_versions(QT 5.15
     KF 6.9.0
