@@ -471,4 +471,18 @@ void DirectOverview::invalidateDesktopCache()
     d->invalidateDesktopCache();
 }
 
+int DirectOverview::desktopCount() const
+{
+    return d->desktopCount;
+}
+
+QString DirectOverview::desktopNameAt(int index) const
+{
+    if (index < 0 || index >= d->desktopCount) {
+        return QString();
+    }
+    // Placeholder - would get actual desktop name from Workspace
+    return QStringLiteral("Desktop %1").arg(index + 1);
+}
+
 } // namespace KWin

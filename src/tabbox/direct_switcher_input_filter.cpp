@@ -55,17 +55,17 @@ DirectSwitcherInputFilter::DirectSwitcherInputFilter(QObject *parent)
 
 DirectSwitcher *DirectSwitcherInputFilter::switcher()
 {
+    // Get the switcher from Workspace's DirectSwitcherEffect
+    Workspace *ws = Workspace::self();
+    if (!ws) {
+        return nullptr;
+    }
+
+    // Try to get it from the effect first
     if (!m_effect && effects) {
-        // Query the effects system to find our registered effect
         Effect *effect = effects->findEffect(QStringLiteral("directswitcher"));
         if (effect) {
             m_effect = dynamic_cast<DirectSwitcherEffect *>(effect);
-        }
-
-        if (!m_effect) {
-            qCWarning(KWIN_CORE) << "DirectSwitcherInputFilter: DirectSwitcherEffect not found in effects system. "
-                                    "Effect may not be loaded properly.";
-            return nullptr;
         }
     }
 
@@ -73,7 +73,14 @@ DirectSwitcher *DirectSwitcherInputFilter::switcher()
         return m_effect->switcher();
     }
 
-    return nullptr;
+    // Fallback: get it from Workspace directly
+    if (DirectSwitcherEffect *dsEffect = ws->directSwitcherEffect()) {
+        m_effect = dsEffect;
+        return dsEffect->switcher();
+    }
+
+    // Last resort: get the raw DirectSwitcher (won't have effect rendering)
+    return ws->directSwitcher();
 }
 
 void DirectSwitcherInputFilter::loadConfiguration()

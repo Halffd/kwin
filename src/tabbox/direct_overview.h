@@ -111,6 +111,16 @@ public:
      */
     void invalidateDesktopCache();
 
+    /**
+     * Get desktop count for QML binding
+     */
+    int desktopCount() const;
+
+    /**
+     * Get desktop name at index for QML
+     */
+    QString desktopNameAt(int index) const;
+
 Q_SIGNALS:
     void visibilityChanged(bool visible);
     void selectionChanged(int index);

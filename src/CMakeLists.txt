@@ -366,6 +366,7 @@ if (KWIN_BUILD_TABBOX)
         tabbox/direct_switcher_effect.cpp
         tabbox/direct_switcher_input_filter.cpp
         tabbox/direct_overview.cpp
+        tabbox/direct_overview_effect.cpp
     )
     add_subdirectory(tabbox/switchers)
 endif()
@@ -388,6 +389,11 @@ kcoreaddons_target_static_plugins(kwin_x11 NAMESPACE "${KWIN_PLUGINDIR}/effects/
 install(TARGETS kwin_x11 ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 
 install(TARGETS kwin EXPORT KWinX11Targets ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
+
+# Install DirectSwitcherEffect metadata
+install(FILES tabbox/direct_switcher_effect.json DESTINATION ${KDE_INSTALL_DATADIR}/${KWIN_DATADIR}/builtin-effects/ RENAME directswitcher.json)
+# Install DirectOverviewEffect metadata
+install(FILES tabbox/direct_overview_effect.json DESTINATION ${KDE_INSTALL_DATADIR}/${KWIN_DATADIR}/builtin-effects/ RENAME directoverview.json)
 
 add_custom_target(
     KWinX11DBusInterfaces

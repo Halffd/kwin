@@ -58,6 +58,7 @@
 #include "placementtracker.h"
 #include "scene/workspacescene.h"
 #include "tabbox/direct_switcher.h"
+#include "tabbox/direct_switcher_effect.h"
 #include "tabletmodemanager.h"
 #include "tiles/tilemanager.h"
 #include "useractions.h"
@@ -173,6 +174,15 @@ Workspace::Workspace()
     } else {
         // Scene will be created - Effect will handle rendering when ready
         qDebug() << "DirectSwitcher: Waiting for Effect initialization";
+    }
+
+    // Create DirectSwitcherEffect after compositing is available
+    // This must happen after the effects system is initialized
+    if (compositor && effects) {
+        m_directSwitcherEffect = std::make_unique<DirectSwitcherEffect>();
+        qDebug() << "DirectSwitcherEffect created and registered";
+    } else {
+        qDebug() << "DirectSwitcherEffect: Cannot create - compositor or effects not ready";
     }
 
     m_decorationBridge = std::make_unique<Decoration::DecorationBridge>();
@@ -2953,6 +2963,11 @@ TileManager *Workspace::tileManager(Output *output)
 DirectSwitcher *Workspace::directSwitcher() const
 {
     return m_directSwitcher.get();
+}
+
+DirectSwitcherEffect *Workspace::directSwitcherEffect() const
+{
+    return m_directSwitcherEffect.get();
 }
 
 void Workspace::slotDirectSwitcherNext()

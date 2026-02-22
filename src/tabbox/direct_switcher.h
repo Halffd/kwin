@@ -12,6 +12,7 @@
 #include <QList>
 #include <QObject>
 #include <QRect>
+#include <QUuid>
 #include <memory>
 
 #include "direct_window_list.h"
@@ -119,6 +120,21 @@ public:
      * Phase 7: Invalidate window cache (called on window destroy/geometry change)
      */
     void invalidateWindowCache();
+
+    /**
+     * Get window count for QML binding
+     */
+    int windowCount() const;
+
+    /**
+     * Get current selection index for QML binding
+     */
+    int currentIndex() const;
+
+    /**
+     * Get window UUID at index for QML thumbnail binding
+     */
+    QUuid windowIdAt(int index) const;
 
 Q_SIGNALS:
     void visibilityChanged(bool visible);

@@ -7,9 +7,8 @@
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 
-#include "direct_switcher_effect.h"
-#include "direct_switcher.h"
-#include "window.h"
+#include "direct_overview_effect.h"
+#include "direct_overview.h"
 
 #include "../effect/effecthandler.h"
 #include "../workspace.h"
@@ -22,27 +21,27 @@
 namespace KWin
 {
 
-DirectSwitcherEffect::DirectSwitcherEffect()
+DirectOverviewEffect::DirectOverviewEffect()
     : Effect()
     , m_needsRepaint(false)
 {
-    // Create the OffscreenQuickScene for rendering DirectSwitcher UI
+    // Create the OffscreenQuickScene for rendering DirectOverview UI
     m_scene = std::make_unique<OffscreenQuickScene>();
 
-    // Create the DirectSwitcher logic instance
-    m_switcher = std::make_unique<DirectSwitcher>();
+    // Create the DirectOverview logic instance
+    m_overview = std::make_unique<DirectOverview>();
 
     // Connect visibility changes to request repaints
-    connect(m_switcher.get(), &DirectSwitcher::visibilityChanged,
-            this, [this]() {
-        m_needsRepaint = m_switcher->isVisible();
-        if (m_switcher->isVisible()) {
+    connect(m_overview.get(), &DirectOverview::visibilityChanged,
+            this, [this](bool visible) {
+        m_needsRepaint = visible;
+        if (visible) {
             effects->addRepaintFull();
         }
     });
 
     // Connect selection changes to update QML properties
-    connect(m_switcher.get(), &DirectSwitcher::selectionChanged,
+    connect(m_overview.get(), &DirectOverview::selectionChanged,
             this, [this]() {
         updateQmlProperties();
     });
@@ -51,9 +50,9 @@ DirectSwitcherEffect::DirectSwitcherEffect()
     setupScene();
 }
 
-DirectSwitcherEffect::~DirectSwitcherEffect() = default;
+DirectOverviewEffect::~DirectOverviewEffect() = default;
 
-void DirectSwitcherEffect::setupScene()
+void DirectOverviewEffect::setupScene()
 {
     if (!m_scene) {
         return;
@@ -62,10 +61,10 @@ void DirectSwitcherEffect::setupScene()
     // Load the QML file
     const auto url = QUrl::fromLocalFile(
         QStandardPaths::locate(QStandardPaths::GenericDataLocation,
-                               KWIN_DATADIR + QStringLiteral("/tabbox/directswitcher/qml/main.qml")));
+                               KWIN_DATADIR + QStringLiteral("/tabbox/directoverview/qml/main.qml")));
 
     if (!url.isValid() || url.isLocalFile() && !QFile::exists(url.toLocalFile())) {
-        qWarning() << "DirectSwitcherEffect: QML file not found at" << url;
+        qWarning() << "DirectOverviewEffect: QML file not found at" << url;
         return;
     }
 
@@ -88,26 +87,23 @@ void DirectSwitcherEffect::setupScene()
     updateQmlProperties();
 }
 
-void DirectSwitcherEffect::updateQmlProperties()
+void DirectOverviewEffect::updateQmlProperties()
 {
-    if (!m_switcher || !m_scene || !m_scene->rootItem()) {
+    if (!m_overview || !m_scene || !m_scene->rootItem()) {
         return;
     }
 
-    // Get actual window count and selection from switcher
-    const int newWindowCount = m_switcher->windowCount();
-    const int newSelectedIndex = m_switcher->currentIndex();
+    // Get actual desktop count and selection from overview
+    const int newDesktopCount = m_overview->desktopCount();
+    const int newSelectedIndex = m_overview->currentSelection();
 
-    // Get window title from current selection
-    QString newWindowTitle;
-    if (Window *selected = m_switcher->currentSelection()) {
-        newWindowTitle = selected->caption();
-    }
+    // Get desktop name from current selection
+    QString newDesktopName = m_overview->desktopNameAt(newSelectedIndex);
 
     // Update cached values and emit signals if changed
-    if (newWindowCount != m_windowCount) {
-        m_windowCount = newWindowCount;
-        Q_EMIT windowCountChanged();
+    if (newDesktopCount != m_desktopCount) {
+        m_desktopCount = newDesktopCount;
+        Q_EMIT desktopCountChanged();
     }
 
     if (newSelectedIndex != m_selectedIndex) {
@@ -115,37 +111,37 @@ void DirectSwitcherEffect::updateQmlProperties()
         Q_EMIT selectedIndexChanged();
     }
 
-    if (newWindowTitle != m_selectedWindowTitle) {
-        m_selectedWindowTitle = newWindowTitle;
-        Q_EMIT selectedWindowTitleChanged();
+    if (newDesktopName != m_selectedDesktopName) {
+        m_selectedDesktopName = newDesktopName;
+        Q_EMIT selectedDesktopNameChanged();
     }
 
     // Push properties to QML
     QQuickItem *rootItem = m_scene->rootItem();
     if (rootItem) {
-        rootItem->setProperty("windowCount", m_windowCount);
+        rootItem->setProperty("desktopCount", m_desktopCount);
         rootItem->setProperty("selectedIndex", m_selectedIndex);
-        rootItem->setProperty("selectedWindowTitle", m_selectedWindowTitle);
+        rootItem->setProperty("selectedDesktopName", m_selectedDesktopName);
     }
 }
 
-DirectSwitcher *DirectSwitcherEffect::switcher() const
+DirectOverview *DirectOverviewEffect::overview() const
 {
-    return m_switcher.get();
+    return m_overview.get();
 }
 
-bool DirectSwitcherEffect::isActive() const
+bool DirectOverviewEffect::isActive() const
 {
-    return m_switcher && m_switcher->isVisible();
+    return m_overview && m_overview->isVisible();
 }
 
-int DirectSwitcherEffect::requestedEffectChainPosition() const
+int DirectOverviewEffect::requestedEffectChainPosition() const
 {
     // Render after most effects to ensure it's on top
     return 99;
 }
 
-void DirectSwitcherEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime)
+void DirectOverviewEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime)
 {
     Q_UNUSED(presentTime);
 
@@ -157,7 +153,7 @@ void DirectSwitcherEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono:
     effects->prePaintScreen(data, presentTime);
 }
 
-void DirectSwitcherEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
+void DirectOverviewEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const QRegion &region, Output *screen)
 {
     // Let other effects paint first
     effects->paintScreen(renderTarget, viewport, mask, region, screen);
@@ -168,7 +164,7 @@ void DirectSwitcherEffect::paintScreen(const RenderTarget &renderTarget, const R
     }
 }
 
-void DirectSwitcherEffect::postPaintScreen()
+void DirectOverviewEffect::postPaintScreen()
 {
     if (m_needsRepaint && isActive()) {
         effects->addRepaintFull();
@@ -178,29 +174,30 @@ void DirectSwitcherEffect::postPaintScreen()
 }
 
 // Property implementations
-int DirectSwitcherEffect::windowCount() const
+int DirectOverviewEffect::desktopCount() const
 {
-    return m_windowCount;
+    return m_desktopCount;
 }
 
-int DirectSwitcherEffect::selectedIndex() const
+int DirectOverviewEffect::selectedIndex() const
 {
     return m_selectedIndex;
 }
 
-QString DirectSwitcherEffect::selectedWindowTitle() const
+QString DirectOverviewEffect::selectedDesktopName() const
 {
-    return m_selectedWindowTitle;
+    return m_selectedDesktopName;
 }
 
-QUuid DirectSwitcherEffect::windowIdAt(int index) const
+QString DirectOverviewEffect::desktopNameAt(int index) const
 {
-    if (!m_switcher) {
-        return QUuid();
+    if (!m_overview || !m_overview->isVisible()) {
+        return QString();
     }
-    return m_switcher->windowIdAt(index);
+    // Placeholder - would get actual desktop name from Workspace
+    return QStringLiteral("Desktop %1").arg(index + 1);
 }
 
 } // namespace KWin
 
-#include "direct_switcher_effect.moc"
+#include "direct_overview_effect.moc"

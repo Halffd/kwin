@@ -1,0 +1,20 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "developer@kde.org",
+                "Name": "KWin Developers"
+            }
+        ],
+        "Category": "Window Management",
+        "Description": "Direct overview with desktop/activity thumbnails",
+        "Icon": "preferences-system-windows",
+        "Id": "directoverview",
+        "License": "GPL-2.0-or-later",
+        "Name": "Direct Overview",
+        "ServiceTypes": [
+            "KWin/Effect"
+        ],
+        "Version": "1.0"
+    }
+}

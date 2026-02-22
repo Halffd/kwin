@@ -23,31 +23,29 @@
 namespace KWin
 {
 
-class DirectSwitcher;
-class Window;
+class DirectOverview;
 
 /**
- * DirectSwitcherEffect wraps DirectSwitcher as a proper KWin Effect.
+ * DirectOverviewEffect wraps DirectOverview as a proper KWin Effect.
  *
- * This uses OffscreenQuickScene to render DirectSwitcher UI in an Effect context.
- * The effect owns both the scene and the switcher logic.
+ * This uses OffscreenQuickScene to render DirectOverview UI in an Effect context.
+ * The effect owns both the scene and the overview logic.
  *
  * This ensures:
  * - Proper render priority via Effect chain
  * - Frame scheduling via Effect lifecycle
  * - Correct pixel rendering in paintScreen()
- * - Input lifecycle with Alt press/release semantics
  */
-class DirectSwitcherEffect : public Effect
+class DirectOverviewEffect : public Effect
 {
     Q_OBJECT
-    Q_PROPERTY(int windowCount READ windowCount NOTIFY windowCountChanged)
+    Q_PROPERTY(int desktopCount READ desktopCount NOTIFY desktopCountChanged)
     Q_PROPERTY(int selectedIndex READ selectedIndex NOTIFY selectedIndexChanged)
-    Q_PROPERTY(QString selectedWindowTitle READ selectedWindowTitle NOTIFY selectedWindowTitleChanged)
+    Q_PROPERTY(QString selectedDesktopName READ selectedDesktopName NOTIFY selectedDesktopNameChanged)
 
 public:
-    DirectSwitcherEffect();
-    ~DirectSwitcherEffect() override;
+    DirectOverviewEffect();
+    ~DirectOverviewEffect() override;
 
     // Effect lifecycle
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime) override;
@@ -58,32 +56,32 @@ public:
 
     int requestedEffectChainPosition() const override;
 
-    // Access to DirectSwitcher for input filter
-    DirectSwitcher *switcher() const;
+    // Access to DirectOverview for input filter
+    DirectOverview *overview() const;
 
     // Properties exposed to QML
-    int windowCount() const;
+    int desktopCount() const;
     int selectedIndex() const;
-    QString selectedWindowTitle() const;
+    QString selectedDesktopName() const;
 
-    // Method to get window ID at index for QML
-    Q_INVOKABLE QUuid windowIdAt(int index) const;
+    // Method to get desktop name at index for QML
+    Q_INVOKABLE QString desktopNameAt(int index) const;
 
 Q_SIGNALS:
-    void windowCountChanged();
+    void desktopCountChanged();
     void selectedIndexChanged();
-    void selectedWindowTitleChanged();
+    void selectedDesktopNameChanged();
 
 private:
     void setupScene();
     void updateQmlProperties();
 
     std::unique_ptr<OffscreenQuickScene> m_scene;
-    std::unique_ptr<DirectSwitcher> m_switcher;
+    std::unique_ptr<DirectOverview> m_overview;
     bool m_needsRepaint = false;
-    int m_windowCount = 0;
+    int m_desktopCount = 0;
     int m_selectedIndex = 0;
-    QString m_selectedWindowTitle;
+    QString m_selectedDesktopName;
 };
 
 } // namespace KWin

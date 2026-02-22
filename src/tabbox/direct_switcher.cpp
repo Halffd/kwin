@@ -491,4 +491,25 @@ void DirectSwitcher::invalidateWindowCache()
     d->invalidateWindowCache();
 }
 
+int DirectSwitcher::windowCount() const
+{
+    return d->windowList.size();
+}
+
+int DirectSwitcher::currentIndex() const
+{
+    return d->currentIndex;
+}
+
+QUuid DirectSwitcher::windowIdAt(int index) const
+{
+    if (index < 0 || index >= d->windowList.size()) {
+        return QUuid();
+    }
+    if (Window *w = d->windowList.at(index)) {
+        return w->internalId();
+    }
+    return QUuid();
+}
+
 } // namespace KWin

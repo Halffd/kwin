@@ -53,6 +53,7 @@ class TabBox;
 }
 
 class DirectSwitcher;
+class DirectSwitcherEffect;
 class Window;
 class Output;
 class Compositor;
@@ -445,6 +446,7 @@ public:
     RuleBook *rulebook() const;
     ScreenEdges *screenEdges() const;
     DirectSwitcher *directSwitcher() const;
+    DirectSwitcherEffect *directSwitcherEffect() const;
 #if KWIN_BUILD_TABBOX
     TabBox::TabBox *tabbox() const;
 #endif
@@ -733,6 +735,7 @@ private:
     std::unique_ptr<RuleBook> m_rulebook;
     std::unique_ptr<ScreenEdges> m_screenEdges;
     std::unique_ptr<DirectSwitcher> m_directSwitcher;
+    std::unique_ptr<DirectSwitcherEffect> m_directSwitcherEffect;
 #if KWIN_BUILD_TABBOX
     std::unique_ptr<TabBox::TabBox> m_tabbox;
 #endif
