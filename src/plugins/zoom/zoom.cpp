@@ -126,6 +126,13 @@ ZoomEffect::ZoomEffect()
     m_timeline.setDuration(350);
     m_timeline.setFrameRange(0, 100);
     connect(&m_timeline, &QTimeLine::frameChanged, this, &ZoomEffect::timelineFrameChanged);
+    connect(effects, &EffectsHandler::windowAdded, this, &ZoomEffect::slotWindowAdded);
+    connect(effects, &EffectsHandler::screenRemoved, this, &ZoomEffect::slotScreenRemoved);
+
+#if HAVE_ACCESSIBILITY
+    m_accessibilityIntegration = new ZoomAccessibilityIntegration(this);
+    connect(m_accessibilityIntegration, &ZoomAccessibilityIntegration::focusPointChanged, this, &ZoomEffect::moveFocus);
+#endif
 
     const auto windows = effects->stackingOrder();
     for (EffectWindow *w : windows) {
@@ -296,9 +303,6 @@ ZoomEffect::OffscreenData *ZoomEffect::ensureOffscreenData(const RenderTarget &r
     const QSize nativeSize = renderTarget.size();
 
     OffscreenData &data = m_offscreenData[screen];
-    data.viewport = viewport.renderRect();
-    data.color = renderTarget.colorDescription();
-
     const GLenum textureFormat = renderTarget.colorDescription() == ColorDescription::sRGB ? GL_RGBA8 : GL_RGBA16F;
     if (!data.texture || data.texture->size() != nativeSize || data.texture->internalFormat() != textureFormat) {
         data.texture = GLTexture::allocate(textureFormat, nativeSize);
@@ -785,14 +789,11 @@ void ZoomEffect::moveMouseToFocus()
     }
     ZoomScreenState *s = stateForScreen(screen);
 
-    if (effects->waylandDisplay() || !ZoomEffect::isActive()) {
+    if (!ZoomEffect::isActive()) {
         const auto window = effects->activeWindow();
         if (!window) {
             return;
         }
-        const auto center = window->frameGeometry().center();
-        QCursor::setPos(center.x(), center.y());
-    } else {
         QCursor::setPos(s->focusPoint.x(), s->focusPoint.y());
     }
 }

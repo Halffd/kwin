@@ -17,10 +17,8 @@
 #include "utils/common.h"
 #include "utils/c_ptr.h"
 
-#if KWIN_BUILD_X11
 #include "effect/xcb.h"
 #include <kkeyserver.h>
-#endif
 
 #include <QPainter>
 #include <QWidget>
@@ -30,10 +28,10 @@
 #include <QDebug>
 #endif
 
-Q_LOGGING_CATEGORY(KWIN_CORE, "kwin_core", QtWarningMsg)
-Q_LOGGING_CATEGORY(KWIN_OPENGL, "kwin_scene_opengl", QtWarningMsg)
-Q_LOGGING_CATEGORY(KWIN_QPAINTER, "kwin_scene_qpainter", QtWarningMsg)
-Q_LOGGING_CATEGORY(KWIN_VIRTUALKEYBOARD, "kwin_virtualkeyboard", QtWarningMsg)
+// Use KWIN_LOGGING_LEVEL from CMake to control debug output
+Q_LOGGING_CATEGORY(KWIN_CORE, "kwin_core", KWIN_LOGGING_LEVEL)
+Q_LOGGING_CATEGORY(KWIN_OPENGL, "kwin_scene_opengl", KWIN_LOGGING_LEVEL)
+Q_LOGGING_CATEGORY(KWIN_VIRTUALKEYBOARD, "kwin_virtualkeyboard", KWIN_LOGGING_LEVEL)
 namespace KWin
 {
 
@@ -69,8 +67,6 @@ StrutRect &StrutRect::operator=(const StrutRect &other)
     }
     return *this;
 }
-
-#if KWIN_BUILD_X11
 
 static int server_grab_count = 0;
 
@@ -194,7 +190,6 @@ Qt::KeyboardModifiers x11ToQtKeyboardModifiers(int state)
     return ret;
 }
 
-#endif
 #endif
 
 QPointF popupOffset(const QRectF &anchorRect, const Qt::Edges anchorEdge, const Qt::Edges gravity, const QSizeF popupSize)

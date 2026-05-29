@@ -20,11 +20,8 @@
 #include "ftrace.h"
 #include "scene/cursorscene.h"
 #include "scene/surfaceitem.h"
-#include "scene/surfaceitem_wayland.h"
 #include "scene/workspacescene.h"
 #include "utils/common.h"
-#include "wayland/surface.h"
-#include "wayland_server.h"
 #include "window.h"
 #include "workspace.h"
 
@@ -45,14 +42,12 @@ Compositor *Compositor::self()
 Compositor::Compositor(QObject *workspace)
     : QObject(workspace)
 {
-#if KWIN_BUILD_X11
     // 2 sec which should be enough to restart the compositor.
     static const int compositorLostMessageDelay = 2000;
     m_unusedSupportPropertyTimer.setInterval(compositorLostMessageDelay);
     m_unusedSupportPropertyTimer.setSingleShot(true);
     connect(&m_unusedSupportPropertyTimer, &QTimer::timeout,
             this, &Compositor::deleteUnusedSupportProperties);
-#endif
 
     // register DBus
     new CompositorDBusInterface(this);
@@ -61,9 +56,7 @@ Compositor::Compositor(QObject *workspace)
 
 Compositor::~Compositor()
 {
-#if KWIN_BUILD_X11
     deleteUnusedSupportProperties();
-#endif
     s_compositor = nullptr;
 }
 
@@ -91,7 +84,6 @@ void Compositor::removeSuperLayer(RenderLayer *layer)
     delete layer;
 }
 
-#if KWIN_BUILD_X11
 void Compositor::keepSupportProperty(xcb_atom_t atom)
 {
     m_unusedSupportProperties.removeAll(atom);
@@ -118,7 +110,6 @@ void Compositor::deleteUnusedSupportProperties()
         m_unusedSupportProperties.clear();
     }
 }
-#endif
 
 void Compositor::reinitialize()
 {

@@ -1,15 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
 
-set(PROJECT_VERSION "6.5.5") # Handled by release scripts
+set(PROJECT_VERSION "6.6.5") # Handled by release scripts
 project(KWin VERSION ${PROJECT_VERSION})
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(PROJECT_DEP_VERSION "6.5.5")
-set(QT_MIN_VERSION "6.9.0")
-set(KF6_MIN_VERSION "6.18.0")
+set(PROJECT_DEP_VERSION "6.6.5")
+set(QT_MIN_VERSION "6.10.0")
+set(KF6_MIN_VERSION "6.22.0")
 set(KDE_COMPILERSETTINGS_LEVEL "5.82")
 
 find_package(ECM ${KF6_MIN_VERSION} REQUIRED NO_MODULE)
@@ -53,8 +54,6 @@ option(KWIN_BUILD_KCMS "Enable building of KWin configuration modules." ON)
 option(KWIN_BUILD_NOTIFICATIONS "Enable building of KWin with knotifications support" ON)
 option(KWIN_BUILD_SCREENLOCKER "Enable building of KWin lockscreen functionality" ON)
 option(KWIN_BUILD_TABBOX "Enable building of KWin Tabbox functionality" ON)
-option(KWIN_BUILD_X11 "Enable building X11 common code" ON)
-option(KWIN_BUILD_X11_BACKEND "Enable building kwin_x11" ON)
 option(KWIN_BUILD_RUNNERS "Enable building of KWin with krunner support" ON)
 
 find_package(Qt6 ${QT_MIN_VERSION} CONFIG REQUIRED COMPONENTS
@@ -64,7 +63,6 @@ find_package(Qt6 ${QT_MIN_VERSION} CONFIG REQUIRED COMPONENTS
     DBus
     Quick
     UiTools
-    WaylandClient
     Widgets
     Sensors
     Svg
@@ -128,7 +126,7 @@ set_package_properties(KNightTime PROPERTIES
 
 find_package(Threads)
 set_package_properties(Threads PROPERTIES
-    PURPOSE "Needed for VirtualTerminal support in KWin Wayland"
+    PURPOSE "Needed for VirtualTerminal support in KWin"
     TYPE REQUIRED
 )
 
@@ -206,40 +204,11 @@ if (epoxy_HAS_GLX)
     endif()
 endif()
 
-find_package(Wayland 1.22)
-set_package_properties(Wayland PROPERTIES
-    TYPE REQUIRED
-    PURPOSE "Required for building KWin with Wayland support"
-)
-if (Wayland_VERSION VERSION_GREATER_EQUAL 1.23)
-    set(HAVE_WL_DISPLAY_SET_DEFAULT_MAX_BUFFER_SIZE 1)
-else()
-    set(HAVE_WL_DISPLAY_SET_DEFAULT_MAX_BUFFER_SIZE 0)
-endif()
-if (Wayland_VERSION VERSION_GREATER_EQUAL 1.23.90)
-    set(HAVE_WL_FIXES 1)
-else()
-    set(HAVE_WL_FIXES 0)
-endif()
-
-find_package(WaylandProtocols 1.38)
-set_package_properties(WaylandProtocols PROPERTIES
-    TYPE REQUIRED
-    PURPOSE "Collection of Wayland protocols that add functionality not available in the Wayland core protocol"
-    URL "https://gitlab.freedesktop.org/wayland/wayland-protocols/"
-)
-
-find_package(PlasmaWaylandProtocols 1.14.0 CONFIG)
-set_package_properties(PlasmaWaylandProtocols PROPERTIES
-    TYPE REQUIRED
-    PURPOSE "Collection of Plasma-specific Wayland protocols"
-    URL "https://invent.kde.org/libraries/plasma-wayland-protocols/"
-)
 
 find_package(XKB 0.7.0)
 set_package_properties(XKB PROPERTIES
     TYPE REQUIRED
-    PURPOSE "Required for building KWin with Wayland support"
+    PURPOSE "Required for building KWin with keyboard support"
 )
 if (XKB_VERSION VERSION_GREATER_EQUAL 1.5.0)
     set(HAVE_XKBCOMMON_NO_SECURE_GETENV 1)
@@ -249,74 +218,61 @@ endif()
 
 find_package(Canberra REQUIRED)
 
-if (KWIN_BUILD_X11)
-    pkg_check_modules(XKBX11 IMPORTED_TARGET xkbcommon-x11 REQUIRED)
-    add_feature_info(XKBX11 XKBX11_FOUND "Required for handling keyboard events in X11 backend")
+pkg_check_modules(XKBX11 IMPORTED_TARGET xkbcommon-x11 REQUIRED)
+add_feature_info(XKBX11 XKBX11_FOUND "Required for handling keyboard events in X11 backend")
 
-    # All the required XCB components
-    find_package(XCB 1.10 REQUIRED COMPONENTS
-        COMPOSITE
-        CURSOR
-        DAMAGE
-        DRI3
-        GLX
-        ICCCM
-        IMAGE
-        KEYSYMS
-        PRESENT
-        RANDR
-        RENDER
-        SHAPE
-        SHM
-        SYNC
-        XCB
-        XFIXES
-        XKB
-        XINERAMA
-        XINPUT
-    )
-    set_package_properties(XCB PROPERTIES TYPE REQUIRED)
+# All the required XCB components
+find_package(XCB 1.10 REQUIRED COMPONENTS
+    COMPOSITE
+    CURSOR
+    DAMAGE
+    DRI3
+    GLX
+    ICCCM
+    IMAGE
+    KEYSYMS
+    PRESENT
+    RANDR
+    RENDER
+    SHAPE
+    SHM
+    SYNC
+    XCB
+    XFIXES
+    XKB
+    XINERAMA
+    XINPUT
+)
+set_package_properties(XCB PROPERTIES TYPE REQUIRED)
 
-    find_package(X11_XCB)
-    set_package_properties(X11_XCB PROPERTIES
-        PURPOSE "Required for building X11 windowed backend of kwin_wayland"
-        TYPE OPTIONAL
-    )
+find_package(X11_XCB)
+set_package_properties(X11_XCB PROPERTIES
+    PURPOSE "Required for building X11 windowed backend"
+    TYPE OPTIONAL
+)
 
-    set(HAVE_GLX ${epoxy_HAS_GLX})
-    get_target_property(QT_DISABLED_FEATURES Qt6::Gui QT_DISABLED_PUBLIC_FEATURES)
-    if("xcb_glx_plugin" IN_LIST QT_DISABLED_FEATURES)
-        message(STATUS "Disable GLX because Qt6::Gui was built without xcb_glx_plugin")
-        set(HAVE_GLX false)
-    endif()
-
-    # for kwin internal things
-    set(HAVE_X11_XCB ${X11_XCB_FOUND})
-
-    find_package(X11)
-    set_package_properties(X11 PROPERTIES
-        DESCRIPTION "X11 libraries"
-        URL "https://www.x.org"
-        TYPE REQUIRED
-    )
-
-else()
-    set(KWIN_BUILD_X11_BACKEND OFF CACHE BOOL "Enable building kwin_x11" FORCE)
+set(HAVE_GLX ${epoxy_HAS_GLX})
+get_target_property(QT_DISABLED_FEATURES Qt6::Gui QT_DISABLED_PUBLIC_FEATURES)
+if("xcb_glx_plugin" IN_LIST QT_DISABLED_FEATURES)
+    message(STATUS "Disable GLX because Qt6::Gui was built without xcb_glx_plugin")
+    set(HAVE_GLX false)
 endif()
 
-find_package(UDev)
-set_package_properties(UDev PROPERTIES
-    URL "https://www.freedesktop.org/wiki/Software/systemd/"
-    DESCRIPTION "Linux device library."
+# for kwin internal things
+set(HAVE_X11_XCB ${X11_XCB_FOUND})
+
+find_package(X11)
+set_package_properties(X11 PROPERTIES
+    DESCRIPTION "X11 libraries"
+    URL "https://www.x.org"
     TYPE REQUIRED
-    PURPOSE "Required for input handling on Wayland."
 )
 
 find_package(Libdrm 2.4.116)
-set_package_properties(Libdrm PROPERTIES TYPE REQUIRED PURPOSE "Required for drm output on Wayland.")
+set_package_properties(Libdrm PROPERTIES TYPE REQUIRED PURPOSE "Required for EGL rendering and buffer management.")
 
 find_package(gbm)
-set_package_properties(gbm PROPERTIES TYPE REQUIRED PURPOSE "Required for egl output of drm backend.")
+set_package_properties(gbm PROPERTIES TYPE REQUIRED PURPOSE "Required for EGL buffer allocation and management.")
 if (gbm_VERSION VERSION_GREATER_EQUAL 21.1)
     set(HAVE_GBM_BO_GET_FD_FOR_PLANE 1)
 else()
@@ -382,7 +338,7 @@ if (KWIN_BUILD_SCREENLOCKER)
     find_package(KScreenLocker CONFIG)
     set_package_properties(KScreenLocker PROPERTIES
         TYPE REQUIRED
-        PURPOSE "For screenlocker integration in kwin_wayland"
+        PURPOSE "For screenlocker integration in KWin"
     )
 endif()
 
@@ -397,7 +353,6 @@ ecm_find_qmlmodule(org.kde.plasma.components 2.0)
 cmake_dependent_option(KWIN_BUILD_ACTIVITIES "Enable building of KWin with kactivities support" ON "PlasmaActivities_FOUND" OFF)
 
 include_directories(BEFORE
-    ${CMAKE_CURRENT_BINARY_DIR}/src/wayland
     ${CMAKE_CURRENT_BINARY_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
@@ -405,7 +360,7 @@ include_directories(BEFORE
 check_symbol_exists(SCHED_RESET_ON_FORK "sched.h" HAVE_SCHED_RESET_ON_FORK)
 add_feature_info("SCHED_RESET_ON_FORK"
                  HAVE_SCHED_RESET_ON_FORK
-                 "Required for running kwin_wayland with real-time scheduling")
+                 "Required for running KWin with real-time scheduling")
 
 # clang < 16 does not support ranges and compiling KWin will fail in the middle of the build.
 # clang 14 is still the default clang version on KDE Neon and Clazy is build with it
@@ -443,6 +398,18 @@ if (COMPILER_UNUSED_PARAMETER_SUPPORTED)
     add_compile_options(-Wno-unused-parameter)
 endif()
 
+# Valgrind memory leak detection support
+option(KWIN_WITH_VALGRIND "Enable Valgrind memory leak detection support" OFF)
+if(KWIN_WITH_VALGRIND)
+    find_package(Valgrind)
+    if(Valgrind_FOUND)
+        add_definitions(-DKWIN_WITH_VALGRIND=1)
+        message(STATUS "Valgrind found, memory leak detection enabled")
+    else()
+        message(WARNING "Valgrind requested but not found")
+    endif()
+endif()
+
 add_definitions(
     -DQT_NO_KEYWORDS
     -DQT_USE_QSTRINGBUILDER
@@ -455,6 +422,13 @@ add_definitions(
     -DEGL_NO_X11
     -DEGL_NO_PLATFORM_SPECIFIC_TYPES
 )
+
+# Enable debug logging for non-release builds
+if(CMAKE_BUILD_TYPE AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_definitions("KWIN_LOGGING_LEVEL=QtDebugMsg")
+else()
+    add_compile_definitions("KWIN_LOGGING_LEVEL=QtWarningMsg")
+endif()
 
 ecm_set_disabled_deprecation_versions(QT 5.15
     KF 6.9.0
@@ -482,18 +456,13 @@ add_subdirectory(kconf_update)
 add_subdirectory(src)
 
 if (BUILD_TESTING)
-    find_package(KWayland ${PROJECT_DEP_VERSION} CONFIG)
-    set_package_properties(KWayland PROPERTIES
-        PURPOSE "Required to build wayland platform plugin and tests"
-        TYPE REQUIRED
-    )
-
     add_subdirectory(autotests)
     add_subdirectory(tests)
 endif()
 
 # add clang-format target for all our real source files
 file(GLOB_RECURSE ALL_CLANG_FORMAT_SOURCE_FILES *.cpp *.h)
+list(FILTER ALL_CLANG_FORMAT_SOURCE_FILES EXCLUDE REGEX ".*\\.ccls-cache/.*")
 kde_clang_format(${ALL_CLANG_FORMAT_SOURCE_FILES})
 kde_configure_git_pre_commit_hook(CHECKS CLANG_FORMAT)
 
@@ -507,10 +476,7 @@ configure_package_config_file(KWinX11DBusInterfaceConfig.cmake.in
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/KWinX11DBusInterfaceConfig.cmake
     DESTINATION ${CMAKECONFIG_INSTALL_DIR})
 
-if (KWIN_BUILD_X11_BACKEND)
-    ecm_install_configured_files(INPUT plasma-kwin_x11.service.in @ONLY
-                DESTINATION ${KDE_INSTALL_SYSTEMDUSERUNITDIR})
-endif()
-
+ecm_install_configured_files(INPUT plasma-kwin_x11.service.in @ONLY
+            DESTINATION ${KDE_INSTALL_SYSTEMDUSERUNITDIR})
 
 ki18n_install(po)

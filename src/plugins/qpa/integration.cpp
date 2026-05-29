@@ -10,14 +10,11 @@
 
 #include "integration.h"
 #include "backingstore.h"
-#include "clipboard.h"
 #include "eglplatformcontext.h"
-#include "inputmethod.h"
 #include "internalinputmethodcontext.h"
 #include "logging.h"
 #include "offscreensurface.h"
 #include "screen.h"
-#include "wayland_server.h"
 #include "window.h"
 
 #include "core/output.h"
@@ -63,7 +60,6 @@ Integration::Integration()
 #else
     , m_services(new QGenericUnixServices())
 #endif
-    , m_clipboard(new Clipboard())
 {
     QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
     QWindowSystemInterfacePrivate::TabletEvent::setPlatformSynthesizesMouse(false);
@@ -97,7 +93,6 @@ bool Integration::hasCapability(Capability cap) const
         return true;
     case ThreadedOpenGL:
     case BufferQueueingOpenGL:
-    case RasterGLSurface:
         return false;
     default:
         return QPlatformIntegration::hasCapability(cap);
@@ -198,8 +193,6 @@ void Integration::handleWorkspaceCreated()
     for (Output *output : outputs) {
         handleOutputEnabled(output);
     }
-
-    m_clipboard->initialize();
 }
 
 void Integration::handleOutputEnabled(Output *output)
@@ -237,22 +230,14 @@ QPlatformNativeInterface *Integration::nativeInterface() const
 
 QPlatformInputContext *Integration::inputContext() const
 {
-    if (!kwinApp()->inputMethod()) { // for some unit tests
-        return nullptr;
-    }
-    return kwinApp()->inputMethod()->internalContext();
+    // Input method functionality removed (was Wayland-only)
+    return nullptr;
 }
 
 QPlatformServices *Integration::services() const
 {
     return m_services.get();
 }
-
-QPlatformClipboard *Integration::clipboard() const
-{
-    return m_clipboard.get();
-}
-
 }
 }
 

@@ -21,9 +21,7 @@
 #include <QApplication>
 #include <QProcessEnvironment>
 
-#if KWIN_BUILD_X11
 #include <xcb/xcb.h>
-#endif
 
 class KPluginMetaData;
 class QCommandLineParser;
@@ -35,7 +33,6 @@ class OutputBackend;
 class Session;
 class X11EventFilter;
 class PluginManager;
-class InputMethod;
 class ColorManager;
 class ScreenLockerWatcher;
 class TabletModeManager;
@@ -71,18 +68,15 @@ private:
 class KWIN_EXPORT Application : public QApplication
 {
     Q_OBJECT
-#if KWIN_BUILD_X11
     Q_PROPERTY(quint32 x11Time READ x11Time WRITE setX11Time)
     Q_PROPERTY(quint32 x11RootWindow READ x11RootWindow CONSTANT)
     Q_PROPERTY(void *x11Connection READ x11Connection NOTIFY x11ConnectionChanged)
-#endif
     Q_PROPERTY(KSharedConfigPtr config READ config WRITE setConfig)
     Q_PROPERTY(KSharedConfigPtr kxkbConfig READ kxkbConfig WRITE setKxkbConfig)
 public:
     /**
      * @brief This enum provides the various operation modes of KWin depending on the available
-     * Windowing Systems at startup. For example whether KWin only talks to X11 or also to a Wayland
-     * Compositor.
+     * Windowing Systems at startup.
      *
      */
     enum OperationMode {
@@ -90,10 +84,6 @@ public:
          * @brief KWin uses only X11 for managing windows and compositing
          */
         OperationModeX11,
-        /**
-         * @brief KWin uses Wayland
-         */
-        OperationModeWayland,
     };
     Q_ENUM(OperationMode)
     ~Application() override;
@@ -139,7 +129,6 @@ public:
     void setupCommandLine(QCommandLineParser *parser);
     void processCommandLine(QCommandLineParser *parser);
 
-#if KWIN_BUILD_X11
     void registerEventFilter(X11EventFilter *filter);
     void unregisterEventFilter(X11EventFilter *filter);
     bool dispatchEvent(xcb_generic_event_t *event);
@@ -163,7 +152,6 @@ public:
      */
     void updateXTime();
     void updateX11Time(xcb_generic_event_t *event);
-#endif
 
     static void setCrashCount(int count);
     static bool wasCrash();
@@ -175,7 +163,6 @@ public:
      */
     static void createAboutData();
 
-#if KWIN_BUILD_X11
     /**
      * @returns the X11 root window.
      */
@@ -219,14 +206,13 @@ public:
     {
         m_compositeWindow = window;
     }
-#endif
 
-    qreal xwaylandScale() const
+    qreal xScale() const
     {
-        return m_xwaylandScale;
+        return m_xScale;
     }
 
-    void setXwaylandScale(qreal scale);
+    void setXScale(qreal scale);
 
 #if KWIN_BUILD_ACTIVITIES
     bool usesKActivities() const
@@ -291,7 +277,6 @@ public:
     static void setupLocalizedString();
 
     PluginManager *pluginManager() const;
-    InputMethod *inputMethod() const;
     ColorManager *colorManager() const;
     virtual XwaylandInterface *xwayland() const;
 #if KWIN_BUILD_SCREENLOCKER
@@ -347,7 +332,7 @@ public:
 Q_SIGNALS:
     void x11ConnectionChanged();
     void x11ConnectionAboutToBeDestroyed();
-    void xwaylandScaleChanged();
+    void xScaleChanged();
     void workspaceCreated();
     void virtualTerminalCreated();
 
@@ -360,14 +345,12 @@ protected:
     void createOptions();
     void createPlugins();
     void createColorManager();
-    void createInputMethod();
     void createTabletModeManager();
     void destroyInput();
     void destroyWorkspace();
     void destroyCompositor();
     void destroyPlugins();
     void destroyColorManager();
-    void destroyInputMethod();
     void destroyPlatform();
     void applyXwaylandScale();
 
@@ -380,11 +363,9 @@ protected:
     static int crashes;
 
 private:
-#if KWIN_BUILD_X11
     QList<QPointer<X11EventFilterContainer>> m_eventFilters;
     QList<QPointer<X11EventFilterContainer>> m_genericEventFilters;
     std::unique_ptr<XcbEventFilter> m_eventFilter;
-#endif
     bool m_followLocale1 = false;
     bool m_configLock;
     bool m_initiallyLocked = false;
@@ -394,22 +375,19 @@ private:
     KSharedConfigPtr m_kxkbConfig;
     KSharedConfigPtr m_inputConfig;
     OperationMode m_operationMode;
-#if KWIN_BUILD_X11
     xcb_timestamp_t m_x11Time = XCB_TIME_CURRENT_TIME;
     xcb_window_t m_rootWindow = XCB_WINDOW_NONE;
     xcb_window_t m_compositeWindow = XCB_WINDOW_NONE;
     xcb_connection_t *m_connection = nullptr;
-#endif
 #if KWIN_BUILD_ACTIVITIES
     bool m_useKActivities = true;
 #endif
     std::unique_ptr<Session> m_session;
     std::unique_ptr<OutputBackend> m_outputBackend;
     bool m_terminating = false;
-    qreal m_xwaylandScale = 1;
+    qreal m_xScale = 1;
     QProcessEnvironment m_processEnvironment;
     std::unique_ptr<PluginManager> m_pluginManager;
-    std::unique_ptr<InputMethod> m_inputMethod;
     std::unique_ptr<ColorManager> m_colorManager;
     std::unique_ptr<TabletModeManager> m_tabletModeManager;
 #if KWIN_BUILD_SCREENLOCKER

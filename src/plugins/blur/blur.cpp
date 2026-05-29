@@ -18,14 +18,9 @@
 #include "scene/decorationitem.h"
 #include "scene/surfaceitem.h"
 #include "scene/windowitem.h"
-#include "wayland/blur.h"
-#include "wayland/display.h"
-#include "wayland/surface.h"
 #include "window.h"
 
-#if KWIN_BUILD_X11
 #include "utils/xcbutils.h"
-#endif
 
 #include <QGuiApplication>
 #include <QMatrix4x4>
@@ -128,36 +123,16 @@ BlurEffect::BlurEffect()
     initBlurStrengthValues();
     reconfigure(ReconfigureAll);
 
-#if KWIN_BUILD_X11
     if (effects->xcbConnection()) {
         net_wm_blur_region = effects->announceSupportProperty(s_blurAtomName, this);
-    }
-#endif
-
-    if (effects->waylandDisplay()) {
-        if (!s_blurManagerRemoveTimer) {
-            s_blurManagerRemoveTimer = new QTimer(QCoreApplication::instance());
-            s_blurManagerRemoveTimer->setSingleShot(true);
-            s_blurManagerRemoveTimer->callOnTimeout([]() {
-                s_blurManager->remove();
-                s_blurManager = nullptr;
-            });
-        }
-        s_blurManagerRemoveTimer->stop();
-        if (!s_blurManager) {
-            s_blurManager = new BlurManagerInterface(effects->waylandDisplay(), s_blurManagerRemoveTimer);
-        }
     }
 
     connect(effects, &EffectsHandler::windowAdded, this, &BlurEffect::slotWindowAdded);
     connect(effects, &EffectsHandler::windowDeleted, this, &BlurEffect::slotWindowDeleted);
-    connect(effects, &EffectsHandler::screenRemoved, this, &BlurEffect::slotScreenRemoved);
-#if KWIN_BUILD_X11
     connect(effects, &EffectsHandler::propertyNotify, this, &BlurEffect::slotPropertyNotify);
     connect(effects, &EffectsHandler::xcbConnectionChanged, this, [this]() {
         net_wm_blur_region = effects->announceSupportProperty(s_blurAtomName, this);
     });
-#endif
 
     // Fetch the blur regions for all windows
     const auto stackingOrder = effects->stackingOrder();
@@ -170,10 +145,6 @@ BlurEffect::BlurEffect()
 
 BlurEffect::~BlurEffect()
 {
-    // When compositing is restarted, avoid removing the manager immediately.
-    if (s_blurManager) {
-        s_blurManagerRemoveTimer->start(1000);
-    }
 }
 
 void BlurEffect::initBlurStrengthValues()
@@ -253,7 +224,6 @@ void BlurEffect::updateBlurRegion(EffectWindow *w)
     std::optional<QRegion> content;
     std::optional<QRegion> frame;
 
-#if KWIN_BUILD_X11
     if (net_wm_blur_region != XCB_ATOM_NONE) {
         const QByteArray value = w->readProperty(net_wm_blur_region, XCB_ATOM_CARDINAL, 32);
         QRegion region;
@@ -270,13 +240,6 @@ void BlurEffect::updateBlurRegion(EffectWindow *w)
         if (!value.isNull()) {
             content = region;
         }
-    }
-#endif
-
-    SurfaceInterface *surf = w->surface();
-
-    if (surf && surf->blur()) {
-        content = surf->blur()->region();
     }
 
     if (auto internal = w->internalWindow()) {
@@ -305,15 +268,7 @@ void BlurEffect::updateBlurRegion(EffectWindow *w)
 
 void BlurEffect::slotWindowAdded(EffectWindow *w)
 {
-    SurfaceInterface *surf = w->surface();
 
-    if (surf) {
-        windowBlurChangedConnections[w] = connect(surf, &SurfaceInterface::blurChanged, this, [this, w]() {
-            if (w) {
-                updateBlurRegion(w);
-            }
-        });
-    }
     if (auto internal = w->internalWindow()) {
         internal->installEventFilter(this);
     }
@@ -333,30 +288,14 @@ void BlurEffect::slotWindowDeleted(EffectWindow *w)
         effects->makeOpenGLContextCurrent();
         m_windows.erase(it);
     }
-    if (auto it = windowBlurChangedConnections.find(w); it != windowBlurChangedConnections.end()) {
-        disconnect(*it);
-        windowBlurChangedConnections.erase(it);
-    }
 }
 
-void BlurEffect::slotScreenRemoved(KWin::Output *screen)
-{
-    for (auto &[window, data] : m_windows) {
-        if (auto it = data.render.find(screen); it != data.render.end()) {
-            effects->makeOpenGLContextCurrent();
-            data.render.erase(it);
-        }
-    }
-}
-
-#if KWIN_BUILD_X11
 void BlurEffect::slotPropertyNotify(EffectWindow *w, long atom)
 {
     if (w && atom == net_wm_blur_region && net_wm_blur_region != XCB_ATOM_NONE) {
         updateBlurRegion(w);
     }
 }
-#endif
 
 void BlurEffect::setupDecorationConnections(EffectWindow *w)
 {
@@ -406,7 +345,7 @@ bool BlurEffect::enabledByDefault()
 
 bool BlurEffect::supported()
 {
-    return effects->openglContext() && (effects->openglContext()->supportsBlits() || effects->waylandDisplay());
+    return effects->openglContext() && effects->openglContext()->supportsBlits();
 }
 
 bool BlurEffect::decorationSupportsBlurBehind(const EffectWindow *w) const
@@ -455,7 +394,6 @@ void BlurEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseco
 {
     m_paintedArea = QRegion();
     m_currentBlur = QRegion();
-    m_currentScreen = effects->waylandDisplay() ? data.screen : nullptr;
 
     effects->prePaintScreen(data, presentTime);
 }
@@ -577,7 +515,7 @@ void BlurEffect::blur(const RenderTarget &renderTarget, const RenderViewport &vi
     }
 
     BlurEffectData &blurInfo = it->second;
-    BlurRenderData &renderInfo = blurInfo.render[m_currentScreen];
+    BlurRenderData &renderInfo = blurInfo.render;
     if (!shouldBlur(w, mask, data)) {
         return;
     }

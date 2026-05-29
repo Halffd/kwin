@@ -13,9 +13,6 @@
 
 #include "effect/effecthandler.h"
 #include "scene/windowitem.h"
-#include "wayland/display.h"
-#include "wayland/slide.h"
-#include "wayland/surface.h"
 
 #include <QFontMetrics>
 #include <QGuiApplication>
@@ -38,31 +35,13 @@ SlidingPopupsEffect::SlidingPopupsEffect()
 {
     SlidingPopupsConfig::instance(effects->config());
 
-    Display *display = effects->waylandDisplay();
-    if (display) {
-        if (!s_slideManagerRemoveTimer) {
-            s_slideManagerRemoveTimer = new QTimer(QCoreApplication::instance());
-            s_slideManagerRemoveTimer->setSingleShot(true);
-            s_slideManagerRemoveTimer->callOnTimeout([]() {
-                s_slideManager->remove();
-                s_slideManager = nullptr;
-            });
-        }
-        s_slideManagerRemoveTimer->stop();
-        if (!s_slideManager) {
-            s_slideManager = new SlideManagerInterface(display, s_slideManagerRemoveTimer);
-        }
-    }
-
     m_slideLength = QFontMetrics(QGuiApplication::font()).height() * 8;
 
-#if KWIN_BUILD_X11
     m_atom = effects->announceSupportProperty("_KDE_SLIDE", this);
     connect(effects, &EffectsHandler::xcbConnectionChanged, this, [this]() {
         m_atom = effects->announceSupportProperty(QByteArrayLiteral("_KDE_SLIDE"), this);
     });
     connect(effects, &EffectsHandler::propertyNotify, this, &SlidingPopupsEffect::slotPropertyNotify);
-#endif
     connect(effects, &EffectsHandler::windowAdded, this, &SlidingPopupsEffect::slotWindowAdded);
     connect(effects, &EffectsHandler::windowClosed, this, &SlidingPopupsEffect::slotWindowClosed);
     connect(effects, &EffectsHandler::windowDeleted, this, &SlidingPopupsEffect::slotWindowDeleted);
@@ -83,10 +62,6 @@ SlidingPopupsEffect::SlidingPopupsEffect()
 
 SlidingPopupsEffect::~SlidingPopupsEffect()
 {
-    // When compositing is restarted, avoid removing the manager immediately.
-    if (s_slideManager) {
-        s_slideManagerRemoveTimer->start(1000);
-    }
 
     // Cancel animations here while both m_animations and m_animationsData are still valid.
     // slotWindowDeleted may access m_animationsData when an animation is removed.
@@ -209,21 +184,9 @@ void SlidingPopupsEffect::setupSlideData(EffectWindow *w)
 {
     connect(w, &EffectWindow::windowHiddenChanged, this, &SlidingPopupsEffect::slotWindowHiddenChanged);
 
-#if KWIN_BUILD_X11
     // X11
     if (m_atom != XCB_ATOM_NONE) {
         slotPropertyNotify(w, m_atom);
-    }
-#endif
-
-    // Wayland
-    if (effects->inputPanel() == w) {
-        setupInputPanelSlide();
-    } else if (auto surf = w->surface()) {
-        slotWaylandSlideOnShowChanged(w);
-        connect(surf, &SurfaceInterface::slideOnShowHideChanged, this, [this, surf] {
-            slotWaylandSlideOnShowChanged(effects->findWindow(surf));
-        });
     }
 
     if (auto internal = w->internalWindow()) {
@@ -261,7 +224,6 @@ void SlidingPopupsEffect::slotWindowHiddenChanged(EffectWindow *w)
     }
 }
 
-#if KWIN_BUILD_X11
 void SlidingPopupsEffect::slotPropertyNotify(EffectWindow *w, long atom)
 {
     if (!w || atom != m_atom || m_atom == XCB_ATOM_NONE) {
@@ -338,7 +300,6 @@ void SlidingPopupsEffect::slotPropertyNotify(EffectWindow *w, long atom)
 
     setupAnimData(w);
 }
-#endif
 
 void SlidingPopupsEffect::setupAnimData(EffectWindow *w)
 {
@@ -392,43 +353,8 @@ void SlidingPopupsEffect::setupAnimData(EffectWindow *w)
     w->setData(WindowClosedGrabRole, QVariant::fromValue(static_cast<void *>(this)));
 }
 
-void SlidingPopupsEffect::slotWaylandSlideOnShowChanged(EffectWindow *w)
+void SlidingPopupsEffect::slotWaylandSlideOnShowChanged(EffectWindow *)
 {
-    if (!w) {
-        return;
-    }
-
-    SurfaceInterface *surf = w->surface();
-    if (!surf) {
-        return;
-    }
-
-    if (surf->slideOnShowHide()) {
-        AnimationData &animData = m_animationsData[w];
-
-        animData.offset = surf->slideOnShowHide()->offset();
-
-        switch (surf->slideOnShowHide()->location()) {
-        case SlideInterface::Location::Top:
-            animData.location = Location::Top;
-            break;
-        case SlideInterface::Location::Left:
-            animData.location = Location::Left;
-            break;
-        case SlideInterface::Location::Right:
-            animData.location = Location::Right;
-            break;
-        case SlideInterface::Location::Bottom:
-        default:
-            animData.location = Location::Bottom;
-            break;
-        }
-        animData.slideLength = 0;
-        animData.slideInDuration = m_slideInDuration;
-        animData.slideOutDuration = m_slideOutDuration;
-
-        setupAnimData(w);
-    }
 }
 
 void SlidingPopupsEffect::setupInternalWindowSlide(EffectWindow *w)
@@ -468,24 +394,6 @@ void SlidingPopupsEffect::setupInternalWindowSlide(EffectWindow *w)
     if (!intOk) {
         animData.offset = -1;
     }
-    animData.slideLength = 0;
-    animData.slideInDuration = m_slideInDuration;
-    animData.slideOutDuration = m_slideOutDuration;
-
-    setupAnimData(w);
-}
-
-void SlidingPopupsEffect::setupInputPanelSlide()
-{
-    auto w = effects->inputPanel();
-
-    if (!w || effects->isInputPanelOverlay()) {
-        return;
-    }
-
-    AnimationData &animData = m_animationsData[w];
-    animData.location = Location::Bottom;
-    animData.offset = 0;
     animData.slideLength = 0;
     animData.slideInDuration = m_slideInDuration;
     animData.slideOutDuration = m_slideOutDuration;

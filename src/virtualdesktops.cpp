@@ -9,14 +9,11 @@
 */
 #include "virtualdesktops.h"
 #include "input.h"
-#include "wayland/plasmavirtualdesktop.h"
 // KDE
 #include <KConfigGroup>
 #include <KGlobalAccel>
 #include <KLocalizedString>
-#if KWIN_BUILD_X11
 #include <NETWM>
-#endif
 
 // Qt
 #include <QAction>
@@ -48,62 +45,7 @@ VirtualDesktop::~VirtualDesktop()
 
 void VirtualDesktopManager::setVirtualDesktopManagement(PlasmaVirtualDesktopManagementInterface *management)
 {
-    Q_ASSERT(!m_virtualDesktopManagement);
-    m_virtualDesktopManagement = management;
-
-    auto createPlasmaVirtualDesktop = [this](VirtualDesktop *desktop) {
-        PlasmaVirtualDesktopInterface *pvd = m_virtualDesktopManagement->createDesktop(desktop->id(), desktop->x11DesktopNumber() - 1);
-        pvd->setName(desktop->name());
-        pvd->sendDone();
-
-        connect(desktop, &VirtualDesktop::nameChanged, pvd, [desktop, pvd]() {
-            pvd->setName(desktop->name());
-            pvd->sendDone();
-        });
-        connect(pvd, &PlasmaVirtualDesktopInterface::activateRequested, this, [this, desktop]() {
-            setCurrent(desktop);
-        });
-    };
-
-    connect(this, &VirtualDesktopManager::desktopAdded, m_virtualDesktopManagement, createPlasmaVirtualDesktop);
-
-    connect(this, &VirtualDesktopManager::rowsChanged, m_virtualDesktopManagement, [this](uint rows) {
-        m_virtualDesktopManagement->setRows(rows);
-        m_virtualDesktopManagement->sendDone();
-    });
-
-    // handle removed: from VirtualDesktopManager to the wayland interface
-    connect(this, &VirtualDesktopManager::desktopRemoved, m_virtualDesktopManagement, [this](VirtualDesktop *desktop) {
-        m_virtualDesktopManagement->removeDesktop(desktop->id());
-    });
-
-    // create a new desktop when the client asks to
-    connect(m_virtualDesktopManagement, &PlasmaVirtualDesktopManagementInterface::desktopCreateRequested, this, [this](const QString &name, quint32 position) {
-        createVirtualDesktop(position, name);
-    });
-
-    // remove when the client asks to
-    connect(m_virtualDesktopManagement, &PlasmaVirtualDesktopManagementInterface::desktopRemoveRequested, this, [this](const QString &id) {
-        // here there can be some nice kauthorized check?
-        // remove only from VirtualDesktopManager, the other connections will remove it from m_virtualDesktopManagement as well
-        removeVirtualDesktop(id);
-    });
-
-    connect(this, &VirtualDesktopManager::currentChanged, m_virtualDesktopManagement, [this]() {
-        const QList<PlasmaVirtualDesktopInterface *> deskIfaces = m_virtualDesktopManagement->desktops();
-        for (auto *deskInt : deskIfaces) {
-            if (deskInt->id() == currentDesktop()->id()) {
-                deskInt->setActive(true);
-            } else {
-                deskInt->setActive(false);
-            }
-        }
-    });
-
-    std::for_each(m_desktops.constBegin(), m_desktops.constEnd(), createPlasmaVirtualDesktop);
-
-    m_virtualDesktopManagement->setRows(rows());
-    m_virtualDesktopManagement->sendDone();
+    Q_UNUSED(management);
 }
 
 void VirtualDesktop::setId(const QString &id)
@@ -198,9 +140,7 @@ KWIN_SINGLETON_FACTORY_VARIABLE(VirtualDesktopManager, s_manager)
 VirtualDesktopManager::VirtualDesktopManager(QObject *parent)
     : QObject(parent)
     , m_navigationWrapsAround(false)
-#if KWIN_BUILD_X11
     , m_rootInfo(nullptr)
-#endif
     , m_swipeGestureReleasedY(new QAction(this))
     , m_swipeGestureReleasedX(new QAction(this))
 {
@@ -213,7 +153,6 @@ VirtualDesktopManager::~VirtualDesktopManager()
 
 void VirtualDesktopManager::setRootInfo(NETRootInfo *info)
 {
-#if KWIN_BUILD_X11
     m_rootInfo = info;
 
     // Nothing will be connected to rootInfo
@@ -224,7 +163,6 @@ void VirtualDesktopManager::setRootInfo(NETRootInfo *info)
             m_rootInfo->setDesktopName(vd->x11DesktopNumber(), vd->name().toUtf8().data());
         }
     }
-#endif
 }
 
 VirtualDesktop *VirtualDesktopManager::inDirection(VirtualDesktop *desktop, Direction direction, bool wrap)
@@ -434,7 +372,6 @@ VirtualDesktop *VirtualDesktopManager::createVirtualDesktop(uint position, const
     vd->setId(generateDesktopId());
     vd->setName(desktopName);
 
-#if KWIN_BUILD_X11
     connect(vd, &VirtualDesktop::nameChanged, this, [this, vd]() {
         if (m_rootInfo) {
             m_rootInfo->setDesktopName(vd->x11DesktopNumber(), vd->name().toUtf8().data());
@@ -444,18 +381,15 @@ VirtualDesktop *VirtualDesktopManager::createVirtualDesktop(uint position, const
     if (m_rootInfo) {
         m_rootInfo->setDesktopName(vd->x11DesktopNumber(), vd->name().toUtf8().data());
     }
-#endif
 
     m_desktops.insert(position, vd);
 
     // update the id of displaced desktops
     for (uint i = position + 1; i < (uint)m_desktops.count(); ++i) {
         m_desktops[i]->setX11DesktopNumber(i + 1);
-#if KWIN_BUILD_X11
         if (m_rootInfo) {
             m_rootInfo->setDesktopName(i + 1, m_desktops[i]->name().toUtf8().data());
         }
-#endif
     }
 
     save();
@@ -487,11 +421,9 @@ void VirtualDesktopManager::removeVirtualDesktop(VirtualDesktop *desktop)
 
     for (int j = i; j < m_desktops.count(); ++j) {
         m_desktops[j]->setX11DesktopNumber(j + 1);
-#if KWIN_BUILD_X11
         if (m_rootInfo) {
             m_rootInfo->setDesktopName(j + 1, m_desktops[j]->name().toUtf8().data());
         }
-#endif
     }
 
     if (m_current == desktop) {
@@ -574,7 +506,6 @@ void VirtualDesktopManager::setCount(uint count)
             }
             m_desktops << vd;
             newDesktops << vd;
-#if KWIN_BUILD_X11
             connect(vd, &VirtualDesktop::nameChanged, this, [this, vd]() {
                 if (m_rootInfo) {
                     m_rootInfo->setDesktopName(vd->x11DesktopNumber(), vd->name().toUtf8().data());
@@ -583,7 +514,6 @@ void VirtualDesktopManager::setCount(uint count)
             if (m_rootInfo) {
                 m_rootInfo->setDesktopName(vd->x11DesktopNumber(), vd->name().toUtf8().data());
             }
-#endif
         }
     }
 
@@ -622,7 +552,6 @@ void VirtualDesktopManager::setRows(uint rows)
 
 void VirtualDesktopManager::updateRootInfo()
 {
-#if KWIN_BUILD_X11
     if (m_rootInfo) {
         const int n = count();
         m_rootInfo->setNumberOfDesktops(n);
@@ -631,7 +560,6 @@ void VirtualDesktopManager::updateRootInfo()
         delete[] viewports;
         m_rootInfo->setDesktopLayout(NET::OrientationHorizontal, m_grid.width(), m_grid.height(), NET::DesktopLayoutCornerTopLeft);
     }
-#endif
 }
 
 void VirtualDesktopManager::updateLayout()
@@ -662,11 +590,9 @@ void VirtualDesktopManager::load()
 
     for (int i = 1; i <= n; i++) {
         QString s = group.readEntry(QStringLiteral("Name_%1").arg(i), i18n("Desktop %1", i));
-#if KWIN_BUILD_X11
         if (m_rootInfo) {
             m_rootInfo->setDesktopName(i, s.toUtf8().data());
         }
-#endif
         m_desktops[i - 1]->setName(s);
 
         const QString sId = group.readEntry(QStringLiteral("Id_%1").arg(i), QString());
@@ -710,11 +636,9 @@ void VirtualDesktopManager::save()
         const QString defaultvalue = defaultName(position);
         if (s.isEmpty()) {
             s = defaultvalue;
-#if KWIN_BUILD_X11
             if (m_rootInfo) {
                 m_rootInfo->setDesktopName(position, s.toUtf8().data());
             }
-#endif
         }
 
         if (s != defaultvalue) {

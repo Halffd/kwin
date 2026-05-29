@@ -1040,7 +1040,7 @@ msgstr "OpenGL"
 #: debug_console.ui:101
 #, kde-format
 msgid "No OpenGL compositor running"
-msgstr "没有正在运行的 OpenGL 显示特效合成器"
+msgstr "没有正在运行的 OpenGL 显示合成器"
 
 #. i18n: ectx: property (title), widget (QGroupBox, driverInfoBox)
 #: debug_console.ui:129
@@ -1850,7 +1850,7 @@ msgstr "圆环环数："
 #: plugins/mouseclick/mouseclick_config.ui:210
 #, kde-format
 msgid "Text"
-msgstr "文字"
+msgstr "文本"
 
 #. i18n: ectx: property (text), widget (QLabel, font_label)
 #: plugins/mouseclick/mouseclick_config.ui:216
@@ -1862,7 +1862,7 @@ msgstr "字体："
 #: plugins/mouseclick/mouseclick_config.ui:233
 #, kde-format
 msgid "Show Text:"
-msgstr "显示文字："
+msgstr "显示文本："
 
 #: plugins/mousemark/mousemark.cpp:43
 #, kde-format

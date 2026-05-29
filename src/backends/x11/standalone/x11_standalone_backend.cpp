@@ -15,6 +15,7 @@
 #include "kwinxrenderutils.h"
 #include "x11_standalone_cursor.h"
 #include "x11_standalone_edge.h"
+#include "x11_standalone_inputbackend.h"
 #include "x11_standalone_placeholderoutput.h"
 #include "x11_standalone_windowselector.h"
 #if HAVE_GLX
@@ -195,6 +196,11 @@ std::unique_ptr<Cursor> X11StandaloneBackend::createPlatformCursor()
 #endif
 }
 
+std::unique_ptr<InputBackend> X11StandaloneBackend::createInputBackend()
+{
+    return std::make_unique<X11InputBackend>(this);
+}
+
 bool X11StandaloneBackend::hasGlx()
 {
     return Xcb::Extensions::self()->hasGlx();
@@ -362,7 +368,16 @@ void X11StandaloneBackend::doUpdateOutputs()
 
                     X11Output::Information information{
                         .name = outputInfo.name(),
+                        .manufacturer = QString(),
+                        .model = QString(),
+                        .serialNumber = QString(),
+                        .eisaId = QString(),
                         .physicalSize = physicalSize,
+                        .edid = Edid(),
+                        .capabilities = Output::Capabilities(),
+                        .mstPath = QByteArray(),
+                        .maxPeakBrightness = std::nullopt,
+                        .maxAverageBrightness = std::nullopt,
                     };
 
                     auto edidProperty = Xcb::RandR::OutputProperty(xcbOutput, atoms->edid, XCB_ATOM_INTEGER, 0, 100, false, false);
